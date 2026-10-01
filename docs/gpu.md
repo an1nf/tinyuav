@@ -35,8 +35,8 @@ combinación:
 1. **cuDNN fijado** a la versión con la que funcionó:
    `pip install nvidia-cudnn-cu12==9.3.0.75`. Las versiones posteriores dieron errores de cuDNN en
    esta GPU.
-2. **Sin XLA**: los modelos se compilan con `jit_compile=False` (así está en `r3_lnca_train.py`;
-   `train_cnn.py` aún no lo fija, ver `problemas_conocidos.md`),
+2. **Sin XLA**: los modelos se compilan con `jit_compile=False` (en `train_cnn.py`,
+   `r3_lnca_train.py` y `r11_vel_net.py`),
    porque el autotuner de XLA no encuentra kernels de cuDNN fusionados en Pascal.
 
 En GPUs más recientes no debería hacer falta ninguna de las dos cosas.

@@ -41,7 +41,6 @@ Gravedad: **A** = puede dar resultados erróneos o una excepción en un camino q
 | M | `experiments/r12_scenarios.py` · `done()` | la segunda condición (`abs(math.hypot(*[0, 0])) < 1`) es un marcador que siempre es verdadero: no exige velocidad baja al llegar. |
 | M | `experiments/r11_vel_net.py` | `--out` y `--data` se resuelven relativos a la raíz del repo, no a `NANOUAV_DATA`; con esa variable definida, los archivos no van a donde se espera. `genfull` no aparece en la ayuda. |
 | M | `experiments/r08_state_noise.py` | `--decay 0` da el mismo nombre de archivo que la configuración por defecto y la sobrescribe. |
-| M | `training/train_cnn.py` | no compila con `jit_compile=False` (sí lo hace `r3_lnca_train.py`); en GPUs Pascal puede fallar el autotuner de XLA (ver `gpu.md`). |
 | M | `training/tartanair.py` | el dataset representativo para la cuantización no aplica la misma escala que el entrenamiento. |
 | M | `benchmark/benchmark.py` | el índice del p99 (`int(0.99 * N)`) depende de que `N` sea igual a la longitud de la lista. |
 | B | `training/r3_lnca_train.py` | la ayuda de `--init-from` y el nombre `LNCA24+ToF` no coinciden con los ids reales (`LNCA24_ToF`). |

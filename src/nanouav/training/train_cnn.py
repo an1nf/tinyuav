@@ -132,7 +132,8 @@ def train_variant(v, data, epochs, batch, lr):
     steps = int(np.ceil(len(data['Xtr']) / batch)) * epochs
     sched = keras.optimizers.schedules.CosineDecay(lr, steps, alpha=0.02,
                                                    warmup_target=None)
-    model.compile(optimizer=keras.optimizers.Adam(sched), loss=loss, metrics=['mae'])
+    model.compile(optimizer=keras.optimizers.Adam(sched), loss=loss, metrics=['mae'],
+                  jit_compile=False)   # no XLA: its autotuner cannot find fused cuDNN kernels on Pascal GPUs
     t0 = time.time()
     hist = model.fit(make_ds(data['Xtr'], data['Ytr'], batch, True),
                      validation_data=make_ds(data['Xva'], data['Yva'], 64, False),

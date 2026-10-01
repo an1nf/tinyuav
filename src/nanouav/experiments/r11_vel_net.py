@@ -115,7 +115,7 @@ def train(files, epochs):
         m = build(kind)
         feed = lambda ix: ([g[ix]] if kind != 'tof' else []) + ([t[ix]] if kind != 'gray' else []) + [w[ix]]
         m.compile(optimizer=keras.optimizers.Adam(keras.optimizers.schedules.CosineDecay(2e-3, epochs * (len(tr) // 64 + 1))),
-                  loss='huber')
+                  loss='huber', jit_compile=False)          # no XLA (Pascal GPUs)
         t0 = time.time()
         m.fit(feed(tr), Y[tr], batch_size=64, epochs=epochs, verbose=0, validation_split=0.1)
         pr = m.predict(feed(te), verbose=0)
