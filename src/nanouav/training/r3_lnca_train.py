@@ -20,7 +20,7 @@ import numpy as np
 
 ROOT = str(paths.repo_root())
 from nanouav.config import (m_to_norm, norm_to_m, pool_to_tof, ZONE_BOXES, TOF_GRID, D_MIN, D_MAX)
-from nanouav.training.train_cnn import _gen, _gazebo_view
+from nanouav.training.train_cnn import _gen, _gazebo_view, thin_scene
 from nanouav.perception.model_zoo import build_variant, get_depth_loss, depth_metrics, tflite_arena_kb
 from nanouav.perception.lnca_zoo import build_lnca, count_macs
 
@@ -56,15 +56,19 @@ def tof_to_lat(t, valid):
     return g
 
 
-def build_data(n_tr, n_va, n_te, n_gz):
-    if os.path.exists(CACHE):
-        z = np.load(CACHE)
+def build_data(n_tr, n_va, n_te, n_gz, thin=0.0):
+    """thin > 0: thin poles/wires in that fraction of the train/val scenes (own cache); test and
+    Gazebo views stay the original ones."""
+    cache = CACHE if not thin else CACHE.replace('.npz', f'_thin{thin:g}.npz')
+    if os.path.exists(cache):
+        z = np.load(cache)
         if len(z['Xtr']) >= n_tr:
             return {k: z[k] for k in z.files}
-    os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+    os.makedirs(os.path.dirname(cache), exist_ok=True)
+    print(f'[data] generating {n_tr}+{n_va}+{n_te}+{n_gz} scenes (thin={thin:g}) → {cache}', flush=True)
     d = {}
-    d['Xtr'], d['Ytr'] = _gen(n_tr, 0)
-    d['Xva'], d['Yva'] = _gen(n_va, 10_000_000)
+    d['Xtr'], d['Ytr'] = _gen(n_tr, 0, thin_scene(thin))
+    d['Xva'], d['Yva'] = _gen(n_va, 10_000_000, thin_scene(thin))
     d['Xte'], d['Yte'] = _gen(n_te, 20_000_000)
     d['Xgz'], d['Ygz'] = _gen(n_gz, 30_000_000, _gazebo_view)
     rng = np.random.default_rng(7)
@@ -74,7 +78,7 @@ def build_data(n_tr, n_va, n_te, n_gz):
             t, v = tof_sim(norm_to_m(y / 65535.0), rng)
             T.append(t); V.append(v); L.append(tof_to_lat(t, v))
         d['T' + s], d['V' + s], d['L' + s] = np.array(T, np.float32), np.array(V), np.array(L)
-    np.savez_compressed(CACHE, **d)
+    np.savez_compressed(cache, **d)
     return d
 
 
@@ -194,13 +198,17 @@ def main():
                          'the tof_inject layer starts at zero → the model starts out identical to M')
     ap.add_argument('--install', action='store_true',
                     help='copies the resulting .tflite to models/model_<name>.tflite (used by the closed loop)')
+    ap.add_argument('--thin', type=float, default=0.0,
+                    help='fraction of train/val scenes with thin poles and wires (R14); own data cache')
+    ap.add_argument('--suffix', default='',
+                    help='output name suffix (models/model_<name><suffix>.tflite, results key), e.g. _thin')
     ap.add_argument('--out-json', default=str(paths.results_dir() / 'r3_lnca_train.json'))
     a = ap.parse_args()
     import tensorflow as tf, keras
     tf.random.set_seed(0)
     os.makedirs(OUT, exist_ok=True)
     t0 = time.time()
-    d = build_data(a.n_train, 500, 600, 300)
+    d = build_data(a.n_train, 500, 600, 300, thin=a.thin)
     print(f'[data] ready ({time.time() - t0:.0f}s)', flush=True)
     for k in list(d):
         if k.endswith('tr'):
@@ -234,7 +242,8 @@ def main():
         t_train = time.time() - ts
         m1 = fn(1)
         m1.set_weights(m.get_weights())
-        path = os.path.join(OUT, f'{name}.tflite')
+        tag = name + a.suffix
+        path = os.path.join(OUT, f'{tag}.tflite')
         export_int8(m1, d['Xtr'], d['Ltr'], path, with_tof)
         pq, it = predict_int8(path, d['Xte'], d['Lte'])
         pg, _ = predict_int8(path, d['Xgz'], d['Lgz'])
@@ -243,18 +252,19 @@ def main():
              'tflite_kb': os.path.getsize(path) / 1024, 'train_s': t_train,
              'val_loss': [float(x) for x in h.history['val_loss']],
              'int8_test': depth_metrics(Yte, pq), 'int8_gazebo': depth_metrics(Ygz, pg)}
-        results[name] = r
+        r['train_data'] = {'thin': a.thin, 'n_train': a.n_train, 'init_from': a.init_from}
+        results[tag] = r
         if not with_tof:              # same network + global ToF calibration (current pipeline)
-            results[name + '+cal'] = {'int8_test': depth_metrics(Yte, tof_scale(pq, d['Tte'], d['Vte'])),
+            results[tag + '+cal'] = {'int8_test': depth_metrics(Yte, tof_scale(pq, d['Tte'], d['Vte'])),
                                       'int8_gazebo': depth_metrics(Ygz, tof_scale(pg, d['Tgz'], d['Vgz']))}
         json.dump(results, open(resp, 'w'), indent=1)
         if a.install:
             import shutil
-            shutil.copy(path, os.path.join(str(paths.models_dir()), f'model_{name}.tflite'))
-            m1.save(os.path.join(str(paths.models_dir()), f'model_{name}.keras'))
-            print(f'[install] models/model_{name}.tflite', flush=True)
+            shutil.copy(path, os.path.join(str(paths.models_dir()), f'model_{tag}.tflite'))
+            m1.save(os.path.join(str(paths.models_dir()), f'model_{tag}.keras'))
+            print(f'[install] models/model_{tag}.tflite', flush=True)
         q, g = r['int8_test'], r['int8_gazebo']
-        print(f'[{name}] {t_train:.0f}s  test AbsRel {q["abs_rel"]:.3f} δ1 {q["delta1"]:.3f} '
+        print(f'[{tag}] {t_train:.0f}s  test AbsRel {q["abs_rel"]:.3f} δ1 {q["delta1"]:.3f} '
               f'minErr {q["min_dist_mae"]:.3f} rec<1m {q["obs1m_recall"]:.2f} | gz AbsRel {g["abs_rel"]:.3f} '
               f'δ1 {g["delta1"]:.3f} rec<1m {g["obs1m_recall"]:.2f}', flush=True)
     print(f'[done] {time.time() - t0:.0f}s')

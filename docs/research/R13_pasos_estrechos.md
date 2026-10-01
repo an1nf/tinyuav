@@ -55,3 +55,6 @@ Gazebo con profundidad, M_ToF).
 2. Medir M_ToF (bordes más nítidos, AbsRel 0.081) en `estrechos`: debería acercar la CNN al resultado
    con profundidad perfecta.
 3. Para el nano (Ø 0.22 m), `estrechos` con w = 0.45 equivale a w = 1.2 para el X3.
+   **Corrección (2026-10-01):** no equivale. Con profundidad perfecta el nano no cruza w = 0.45, ni
+   con rejilla de 5 cm, y cruza w = 0.6 con un recorrido de 46 m. Los márgenes del MH son absolutos;
+   ver `docs/problemas_conocidos.md` y la suite `narrow_passages` (trabajos `nano-*`).

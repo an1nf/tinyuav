@@ -116,7 +116,8 @@ un experimento están en [docs/experimentos.md](docs/experimentos.md).
 | `smoke.yaml` | 7 | arranque de cada familia (2–4 min); la usa CI en modo `--dry-run` |
 | `baseline.yaml` | 27 | línea base del paper C2 (E3, poste, corredores, dinámicos, ruido de estado) × {M, M_ToF} |
 | `scenarios.yaml` | 12 | los 6 escenarios de Gazebo offline, MH vs carril |
-| `narrow_passages.yaml` | 12 | R13: ancho × planificador × CNN, más profundidad GT como cota |
+| `narrow_passages.yaml` | 19 | R13: ancho × planificador × CNN (X3 y nano), más profundidad GT como cota |
+| `thin_structures.yaml` | 5 | R14 en lazo cerrado: bosque de troncos de 2–5 cm, M vs M_ToF × `fuse_tof2`, más GT |
 | `perception.yaml` | 5 | R14 (métricas por región) y R15 (variantes del filtro dinámico) |
 
 Cada suite escribe en `results/<nombre>/` (un log por trabajo y `jobs.json` con el estado);

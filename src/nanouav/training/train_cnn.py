@@ -61,20 +61,33 @@ def _gazebo_view(seed):
                        rng.normal(0, 0.05), rng=rng)
 
 
-def load_or_build(n_train, n_val, n_test, n_gz):
-    if os.path.exists(CACHE):
-        z = np.load(CACHE)
+def cache_path(thin=0.0):
+    return CACHE if not thin else os.path.join(DATA_DIR, f'synth_v2_thin{thin:g}.npz')
+
+
+def thin_scene(thin):
+    """Scene generator with thin poles/wires in a fraction `thin` of the scenes (0 = original)."""
+    return render_scene if not thin else (lambda seed: render_scene(seed, thin_prob=thin))
+
+
+def load_or_build(n_train, n_val, n_test, n_gz, thin=0.0):
+    """train/val come from the (optionally thin-augmented) generator; test and Gazebo views are
+    always the original ones, so metrics stay comparable across datasets (thin structures are
+    evaluated separately by R14)."""
+    cache = cache_path(thin)
+    if os.path.exists(cache):
+        z = np.load(cache)
         if len(z['Xtr']) >= n_train:
-            print(f'[data] cache {CACHE}')
+            print(f'[data] cache {cache}')
             return {k: z[k] for k in z.files}
     os.makedirs(DATA_DIR, exist_ok=True)
-    print(f'[data] generating {n_train}+{n_val}+{n_test} scenes + {n_gz} Gazebo...')
+    print(f'[data] generating {n_train}+{n_val}+{n_test} scenes + {n_gz} Gazebo (thin={thin:g}) → {cache}')
     d = {}
-    d['Xtr'], d['Ytr'] = _gen(n_train, 0)
-    d['Xva'], d['Yva'] = _gen(n_val, 10_000_000)
+    d['Xtr'], d['Ytr'] = _gen(n_train, 0, thin_scene(thin))
+    d['Xva'], d['Yva'] = _gen(n_val, 10_000_000, thin_scene(thin))
     d['Xte'], d['Yte'] = _gen(n_test, 20_000_000)
     d['Xgz'], d['Ygz'] = _gen(n_gz, 30_000_000, _gazebo_view)
-    np.savez_compressed(CACHE, **d)
+    np.savez_compressed(cache, **d)
     return d
 
 
@@ -122,7 +135,8 @@ def make_ds(X, Y, batch, train):
 
 
 # ── Training a single variant ──────────────────────────────────────────────
-def train_variant(v, data, epochs, batch, lr):
+def train_variant(v, data, epochs, batch, lr, name=None):
+    name = name or v
     import tensorflow as tf
     import keras
 
@@ -145,9 +159,9 @@ def train_variant(v, data, epochs, batch, lr):
     # Export model with fixed batch = 1 (same graph, same weights)
     m1 = build_variant(v, batch_size=1)
     m1.set_weights(model.get_weights())
-    m1.save(os.path.join(CNN_DIR, f'model_{v}.keras'))
+    m1.save(os.path.join(CNN_DIR, f'model_{name}.keras'))
     Xrep, _ = to_float(data['Xtr'][:2000], data['Ytr'][:2000])
-    tfl = os.path.join(CNN_DIR, f'model_{v}.tflite')
+    tfl = os.path.join(CNN_DIR, f'model_{name}.tflite')
     nbytes = export_tflite(m1, Xrep, tfl)
     return m1, hist.history, t_train, nbytes
 
@@ -246,6 +260,10 @@ def main():
     ap.add_argument('--lr', type=float, default=3e-3)
     ap.add_argument('--n-train', type=int, default=12000)
     ap.add_argument('--tartanair', action='store_true')
+    ap.add_argument('--thin', type=float, default=0.0,
+                    help='fraction of train/val scenes with thin poles (r 1–5 cm) and wires (R14); own data cache')
+    ap.add_argument('--suffix', default='',
+                    help='output name suffix: models/model_<v><suffix>.tflite (e.g. _thin), keeps the originals')
     ap.add_argument('--eval-only', action='store_true',
                     help='no training: evaluate the saved models/model_<v>.keras + .tflite and update metrics.json')
     a = ap.parse_args()
@@ -253,7 +271,7 @@ def main():
     import tensorflow as tf
     tf.random.set_seed(0)
     os.makedirs(ASSETS, exist_ok=True)
-    data = load_or_build(a.n_train, 1500, 1000, 400)
+    data = load_or_build(a.n_train, 1500, 1000, 400, thin=a.thin)
     data['Xtr'], data['Ytr'] = data['Xtr'][:a.n_train], data['Ytr'][:a.n_train]
     if a.tartanair:
         Xt, Yt = load_tartanair()
@@ -264,27 +282,31 @@ def main():
           f'test={len(data["Xte"])} gazebo={len(data["Xgz"])}')
 
     mpath = os.path.join(CNN_DIR, 'metrics.json')
-    results = json.load(open(mpath)) if os.path.exists(mpath) else {}
+    results = {}
     histories, preview = {}, None
     for v in a.variants.split(','):
+        name = v + a.suffix
         if a.eval_only:
             model = build_variant(v, batch_size=1)
-            model.load_weights(os.path.join(CNN_DIR, f'model_{v}.keras'))
-            res, prev = evaluate(v, model, data)
+            model.load_weights(os.path.join(CNN_DIR, f'model_{name}.keras'))
+            res, prev = evaluate(name, model, data)
             res['eval_only'] = True              # training history is in the training log, not here
         else:
-            model, hist, t_train, _ = train_variant(v, data, a.epochs, a.batch, a.lr)
-            res, prev = evaluate(v, model, data)
+            model, hist, t_train, _ = train_variant(v, data, a.epochs, a.batch, a.lr, name=name)
+            res, prev = evaluate(name, model, data)
             res['train_s'] = t_train
             res['epochs'] = len(hist['loss'])
             res['val_loss_hist'] = [float(x) for x in hist['val_loss']]
             histories[v] = hist
-        results[v] = res
+        res['train_data'] = {'thin': a.thin, 'n_train': a.n_train, 'tartanair': a.tartanair}
+        # re-read before writing: another run (e.g. --eval-only) may have updated other variants
+        results = json.load(open(mpath)) if os.path.exists(mpath) else {}
+        results[name] = res
         if v == 'M' or preview is None:
             preview = (v, prev)
         json.dump(results, open(mpath, 'w'), indent=2)
         q = res['int8_test']
-        print(f'[{v}] int8: AbsRel={q["abs_rel"]:.3f} RMSE={q["rmse"]:.3f}m '
+        print(f'[{name}] int8: AbsRel={q["abs_rel"]:.3f} RMSE={q["rmse"]:.3f}m '
               f'δ1={q["delta1"]:.3f} minErr={q["min_dist_mae"]:.3f}m '
               f'recall<1m={q["obs1m_recall"]:.2f} | arena={res["arena_kb"]:.0f}KB '
               f'tflite={res["tflite_kb"]:.0f}KB', flush=True)
@@ -293,7 +315,7 @@ def main():
     import shutil
     if os.path.exists(os.path.join(CNN_DIR, 'model_M.tflite')):
         shutil.copy(os.path.join(CNN_DIR, 'model_M.tflite'), os.path.join(CNN_DIR, 'model.tflite'))
-    if not a.eval_only:
+    if not a.eval_only and not a.suffix:
         plots({k: results[k] for k in ['XS', 'S', 'M', 'L'] if k in results}, histories, preview)
     print('\n[done] metrics in models/metrics.json · plots in results/cnn_v2_*.png')
 

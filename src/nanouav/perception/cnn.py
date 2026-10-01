@@ -38,10 +38,18 @@ _real_mode = None
 def _model_path(variant):
     d = str(paths.models_dir())
     p = os.path.join(d, f'model_{variant}.tflite')
-    if not os.path.exists(p) and variant == 'M_ToF':
+    if os.path.exists(p):
+        return p
+    if variant == 'M_ToF':
         raise FileNotFoundError('Missing models/model_M_ToF.tflite: run `nanouav run r03 --models M_ToF '
-                                '--init-from models/model_M.keras --install` (see RUN_LOCAL.md)')
-    return p if os.path.exists(p) else os.path.join(d, 'model.tflite')
+                                '--init-from models/model_M.keras --install` (see docs/artefactos.md)')
+    alias = os.path.join(d, 'model.tflite')            # legacy: model.tflite = M
+    if variant != 'M' and os.path.exists(alias):
+        # models are installed but not this one: never fall back to M silently (results would be
+        # labelled with a variant that did not run)
+        raise FileNotFoundError(f'Missing models/model_{variant}.tflite (installed: '
+                                f'{", ".join(sorted(f[6:-7] for f in os.listdir(d) if f.startswith("model_") and f.endswith(".tflite")))})')
+    return alias
 
 
 class TFLiteRuntimeMissing(ImportError):
@@ -57,9 +65,9 @@ def _get_interp(variant='M'):
     global _real_mode
     if variant in _interps:
         return _interps[variant]
-    path = _model_path(variant)
     it = None
-    if os.path.exists(path) and not settings.flag('FAKE_CNN'):
+    path = None if settings.flag('FAKE_CNN') else _model_path(variant)   # fake mode never needs a file
+    if path is not None and os.path.exists(path):
         try:
             from ai_edge_litert.interpreter import Interpreter
         except ImportError:
@@ -129,7 +137,7 @@ def predict_depth_norm(gray, variant='M', depth_gt=None, tof=None):
         return _infer_real(it, gray, tof)
     if depth_gt is None:
         raise RuntimeError('Fake mode requires depth_gt (no .tflite model available)')
-    noisy = depth_gt + np.random.randn(*depth_gt.shape).astype(np.float32) * _SIGMA_M[variant]
+    noisy = depth_gt + np.random.randn(*depth_gt.shape).astype(np.float32) * _SIGMA_M.get(variant.split('_thin')[0], 0.08)
     return m_to_norm(noisy)
 
 

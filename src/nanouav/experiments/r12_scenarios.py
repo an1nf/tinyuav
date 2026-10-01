@@ -124,7 +124,8 @@ def main():
             out[key] = L
             print(f'== {key}: ok {sum(r["success"] for r in L)}/{len(L)} col {sum(r["collided"] for r in L)}', flush=True)
     os.makedirs(str(paths.results_dir()), exist_ok=True)
-    json.dump(out, open(os.path.join(str(paths.results_dir()), f'g1_{a.world.replace(":", "-").replace("/", "_").replace(";", "_")}_{a.planner.replace(",", "+")}_{P.name}_{mode}_{a.variant}_j{a.jitter:g}.json'), 'w'))
+    ftag = '_fuse2' if settings.flag('FUSE2') else ''        # R14 fusion: keep both results side by side
+    json.dump(out, open(os.path.join(str(paths.results_dir()), f'g1_{a.world.replace(":", "-").replace("/", "_").replace(";", "_")}_{a.planner.replace(",", "+")}_{P.name}_{mode}_{a.variant}_j{a.jitter:g}{ftag}.json'), 'w'))
 
 
 if __name__ == '__main__':

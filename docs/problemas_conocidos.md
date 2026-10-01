@@ -21,6 +21,7 @@ Gravedad: **A** = puede dar resultados erróneos o una excepción en un camino q
 | M | `sim/closed_loop.py` · `MODE_IDX` | no incluye `'EVADE'` (ni los modos del MH: `SQUEEZE`, `INSPECT`, …); en el registro aparecen como 0 (= CRUISE). |
 | B | `control/supervisor.py` | el docstring describe umbrales distintos de los que usa el código. |
 | B | `sim/closed_loop.py` | el docstring de la patada de perturbación dice 3.5 y el código usa 6. |
+| M | `planning/mh_planner.py` · márgenes | los márgenes (`GAP_BIAS`, `M_MIN`, `M_ABS`, `D_EMERG`…) son absolutos y están ajustados para el X3. Con el nano (Ø 0.22 m) y profundidad perfecta, `estrechos` con w = 0.6 se cruza pero dando muchas vueltas (46 m de recorrido), y con w = 0.45 no se cruza ni con rejilla de 5 cm. La equivalencia "w = 0.45 para el nano ≈ w = 1.2 para el X3" de R13 no se cumple. Probar márgenes proporcionales al radio. |
 | — | `planning/mh_planner.py` (comportamiento) | ante una puerta de 1.0 m en una pared de 6 m con salida lateral, el MH prefiere rodear la pared en lugar de cruzar la puerta (con 1.4 m sí la cruza). Es coherente con su margen (`radius` 0.36 + `GAP_BIAS`), pero vale la pena revisarlo junto con R13. `tests/test_planners.py` fija ambos casos. |
 
 ## Percepción

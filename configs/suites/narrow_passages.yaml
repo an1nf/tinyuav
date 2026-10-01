@@ -9,3 +9,12 @@ jobs:
     run: r12 --world scn:estrechos;w={w} --goals 0:0 --planner {planner} --n 10
     env: {NANOUAV_FAKE_CNN: "1"}
     matrix: {w: ["1.2", "1.0"], planner: [mh, mh1]}
+  # nano (Ø 0.22 m). Sanity runs with perfect depth: w = 0.6 passes (slowly), w = 0.45 does not, even
+  # with a 5 cm grid — the MH margins are absolute (tuned for the X3), not scaled with the vehicle.
+  - id: nano-estrechos-w{w}-mh-{variant}
+    run: r12 --profile nano --world scn:estrechos;w={w} --goals 0:0 --planner mh --n 10 --variant {variant}
+    matrix: {w: ["0.6", "0.5"], variant: [M, M_ToF]}
+  - id: nano-estrechos-w{w}-mh-gt
+    run: r12 --profile nano --world scn:estrechos;w={w} --goals 0:0 --planner mh --n 10
+    env: {NANOUAV_FAKE_CNN: "1"}
+    matrix: {w: ["0.6", "0.5", "0.45"]}

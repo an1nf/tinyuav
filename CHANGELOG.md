@@ -3,6 +3,28 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.13.1] — 2026-10-01
+
+Sin cambios en los resultados de simulación (el test de regresión pasa sin regenerar la referencia).
+
+### Añadido
+- `--thin P` en `nanouav run train` y `r03`: postes de 1–5 cm y cables en una fracción P de las
+  escenas de entrenamiento y validación (R14), con caché de datos propia. `--suffix` da nombre propio
+  a los modelos resultantes (`model_M_ToF_thin.tflite`) sin tocar los originales.
+- `nanouav run train --eval-only`: evalúa modelos ya guardados y actualiza `metrics.json`.
+- Escenario `bosque` con `r_min` / `r_max` (bosque de troncos finos), suite `thin_structures.yaml`,
+  y trabajos del nano en `narrow_passages.yaml`.
+- `r12` añade `_fuse2` al nombre del resultado cuando `NANOUAV_FUSE2=1`.
+
+### Corregido
+- La evaluación tras entrenar fallaba en la TITAN X: el modelo exportado sin compilar activaba XLA.
+  XLA queda desactivado también en `train_cnn` y `r11`.
+- Con un modelo .tflite pero sin runtime de TFLite, la CNN pasaba en silencio a profundidad *fake*;
+  ahora lanza `TFLiteRuntimeMissing`. Pedir una variante que no está instalada ya no cae en silencio
+  a `model.tflite` (= M).
+- `metrics.json` se vuelve a leer antes de escribir, para no pisar evaluaciones hechas en paralelo.
+- `docs/gpu.md`: `LD_LIBRARY_PATH` y `ptxas` cubren todas las carpetas `nvidia` de pip.
+
 ## [0.13.0] — 2026-10-01
 
 Reestructuración completa en un paquete instalable. **Sin cambios numéricos**: las salidas de

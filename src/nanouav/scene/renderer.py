@@ -406,8 +406,36 @@ def _safe_pose(world, rng, pos, tries=20):
     return pos
 
 
-def render_scene(seed=None, gazebo_prob=0.15):
-    """Random scene. Returns (gray uint8 96×96, depth_m float32 96×96)."""
+def add_thin_structures(world, pos, rng):
+    """Add 1–2 thin vertical poles (r 1–5 cm) and/or a horizontal wire (Ø 2 cm) in front of `pos`.
+
+    Same families as the R14 evaluation (`nanouav run r14`), which showed that every CNN variant
+    misses them because the training generator never produced anything thinner than 5 cm.
+    """
+    tex = lambda: Texture(str(rng.choice(['uniform', 'noise'])), albedo=rng.uniform(0.15, 0.9),
+                          albedo2=rng.uniform(0.1, 0.5), scale=rng.uniform(0.1, 0.4),
+                          seed=int(rng.integers(1 << 30)))
+    poles, wire = rng.random() < 0.65, rng.random() < 0.5
+    if not (poles or wire):
+        poles = True
+    if poles:
+        for _ in range(int(rng.integers(1, 3))):
+            dx = rng.uniform(0.6, 3.0)
+            world.objects.append(Cylinder(pos[0] + dx, pos[1] + rng.uniform(-0.5, 0.5) * dx,
+                                          rng.uniform(0.01, 0.05), 0.0, 2.5, tex()))
+    if wire:
+        dx = rng.uniform(0.8, 3.0)
+        world.objects.append(Box((pos[0] + dx, pos[1], pos[2] + rng.uniform(-0.35, 0.35)),
+                                 (0.01, 3.0, 0.01), rng.uniform(-0.4, 0.4), tex()))
+    return world
+
+
+def render_scene(seed=None, gazebo_prob=0.15, thin_prob=0.0):
+    """Random scene. Returns (gray uint8 96×96, depth_m float32 96×96).
+
+    thin_prob > 0 adds thin poles / wires (add_thin_structures) to that fraction of the scenes. They
+    use their own random stream, so the base scene and its pose are identical to thin_prob = 0
+    (existing datasets stay reproducible)."""
     rng = np.random.default_rng(seed)
     if rng.random() < gazebo_prob:
         world = gazebo_world()
@@ -418,6 +446,10 @@ def render_scene(seed=None, gazebo_prob=0.15):
         pos = np.array([0.0, 0.0, rng.uniform(0.3, 1.3)])
         yaw = rng.normal(0, 0.1)
     pos = _safe_pose(world, rng, pos)
+    if thin_prob > 0:
+        trng = np.random.default_rng([0 if seed is None else int(seed), 0x7419])
+        if trng.random() < thin_prob:
+            add_thin_structures(world, pos, trng)
     return render_view(world, pos, yaw, rng.normal(0, 0.08), rng.normal(0, 0.07),
                        rng=rng, cam_pitch=CAM_PITCH + rng.normal(0, 0.03))
 

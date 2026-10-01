@@ -34,12 +34,18 @@ y la carpeta `r3/`. No borra nada de origen.
 | XS, S, M, L | `nanouav run train --variants XS,S,M,L --epochs 60 --n-train 30000 --batch 128 --lr 4e-3` | `models/model_*.tflite`, `.keras`, `metrics.json`; figuras en `results/` |
 | con TartanAir | añadir `--tartanair` (datos en `data/tartanair/`, ver abajo) | ídem |
 | M_ToF (fusión temprana) | `nanouav run r03 --models M_ToF --init-from models/model_M.keras --install --n-train 30000 --epochs 60 --batch 128 --lr 4e-3` | `models/r3/M_ToF.tflite` y, con `--install`, `models/model_M_ToF.tflite` |
+| con estructuras finas (R14) | `nanouav run train --variants M --thin 0.3 --suffix _thin ...` y luego `nanouav run r03 --models M_ToF --thin 0.3 --suffix _thin --init-from models/model_M_thin.keras --install ...` | `models/model_M_thin.*`, `models/model_M_ToF_thin.*` (los originales no se tocan) |
 | LNCA | `nanouav run r03 --models M,LNCA24,LNCA24_ToF,LNCA32ds_ToF ...` | `models/r3/*.tflite`, `results/r3_lnca_train.json` |
 | velocidad (R11) | `nanouav run r11 train --data data/r11_big.npz --epochs 80` | `models/r11_vel_*.keras`, `results/r11_vel_net.json` |
 
 Criterios de aceptación de una CNN para el ESP32-S3: arena ≤ 180 KB, int8 ≈ float
 (ΔAbsRel < 0.01), recall de obstáculo a < 1 m ≥ 0.85. `metrics.json` guarda estas cifras.
 Entrenamiento con GPU: [gpu.md](gpu.md).
+
+`--thin` solo cambia los datos de entrenamiento y validación; el conjunto de prueba es siempre el
+original, así que las cifras de `metrics.json` siguen siendo comparables. El rendimiento sobre
+postes y cables se mide con `nanouav run r14 --variants M_ToF,M_ToF_thin`. Para evaluar un modelo
+ya entrenado sin reentrenarlo: `nanouav run train --variants M --eval-only` (con `--suffix` si aplica).
 
 ### Sin modelos
 
@@ -55,6 +61,7 @@ Todos los datasets sintéticos se regeneran de forma determinista desde la semil
 |---|---|---|
 | `data/synth_v2.npz` | `nanouav run train` la primera vez (borrarlo para regenerar con otro `--n-train`) | 5–10 min CPU para 30 k |
 | `data/synth_r3.npz` | `nanouav run r03` la primera vez | ídem |
+| `data/synth_v2_thin0.3.npz`, `data/synth_r3_thin0.3.npz` | `--thin 0.3` en `train` / `r03` (30 % de las escenas con postes de 1–5 cm y cables) | ídem |
 | `data/r11_*.npz` | `nanouav run r11 gen --n 20000 --seed 1 --out data/r11_big.npz` (paralelizable por semilla) | ~20 min CPU |
 | `data/r11_full_*.npz` | `nanouav run r11 genfull --n 800 --seed 33 --out data/r11_full_a.npz` | minutos |
 | `data/tartanair/` | descarga manual de `moge-dataset-tartanair.zip` a `data/tartanair/`; se extrae solo | — |

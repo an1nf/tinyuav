@@ -62,9 +62,10 @@ def obstaculos(seed=0, **kw):
     return s
 
 
-def bosque(seed=0, density=0.35, gap=1.6, length=9.0, width=4.0, **kw):
-    """Tree trunks (r 0.06–0.25 m, 2–3 m) via Poisson-disk sampling: minimum spacing between
-    centers `gap` (1.6 m lets the X3 through; 1.0 the nano). density = target trunks/m²."""
+def bosque(seed=0, density=0.35, gap=1.6, length=9.0, width=4.0, r_min=0.06, r_max=0.25, **kw):
+    """Tree trunks (r r_min–r_max, default 0.06–0.25 m; 2–3 m tall) via Poisson-disk sampling:
+    minimum spacing between centers `gap` (1.6 m lets the X3 through; 1.0 the nano).
+    density = target trunks/m². Thin-pole forest (R14): r_min=0.02, r_max=0.05."""
     rng = np.random.default_rng(seed)
     s = _base('bosque', seed, (length + 1.0, 0.0), rng, t_max=120)
     target = int(density * length * 2 * width)
@@ -77,7 +78,7 @@ def bosque(seed=0, density=0.35, gap=1.6, length=9.0, width=4.0, **kw):
         if all(math.hypot(x - a, y - b) >= gap for a, b in pts):
             pts.append((x, y))
     for x, y in pts:
-        s['objects'].append(_cyl(x, y, rng.uniform(0.06, 0.25), rng.uniform(2.0, 3.0),
+        s['objects'].append(_cyl(x, y, rng.uniform(r_min, r_max), rng.uniform(2.0, 3.0),
                                  _tex(rng, ('noise', 'stripes', 'uniform'), (0.6, 0.25, 0.15))))
     return s
 

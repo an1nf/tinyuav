@@ -1,0 +1,14 @@
+# R14 en lazo cerrado: bosque de troncos finos (r 2–5 cm), M vs M_ToF, con y sin fusión bidireccional
+# (NANOUAV_FUSE2), más profundidad perfecta como cota. Tras reentrenar con --thin, añadir las
+# variantes *_thin a la matriz (p. ej. variant: [M_ToF, M_ToF_thin]).
+name: thin_structures
+description: Thin-pole forest — CNN variant × fuse_tof2, X3, MH planner, n = 20
+matrix: {variant: [M, M_ToF], fuse2: ["0", "1"]}
+jobs:
+  - id: bosque-fino-{variant}-fuse2_{fuse2}
+    run: r12 --world scn:bosque;r_min=0.02;r_max=0.05 --goals 0:0 --planner mh --n 20 --variant {variant}
+    env: {NANOUAV_FUSE2: "{fuse2}"}
+  - id: bosque-fino-gt
+    run: r12 --world scn:bosque;r_min=0.02;r_max=0.05 --goals 0:0 --planner mh --n 20
+    env: {NANOUAV_FAKE_CNN: "1"}
+    matrix: {}
