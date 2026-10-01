@@ -113,7 +113,8 @@ def static():
 
 
 def test_scenarios_exact(static, ref):
-    assert static['scen'] == ref['scen']
+    # scenarios added later are not in the reference; the existing ones must not change
+    assert {k: static['scen'][k] for k in ref['scen']} == ref['scen']
 
 
 @pytest.mark.parametrize('key', ['render_gray', 'render_depth', 'tof', 'fuse', 'fuse2', 'flow'])
@@ -153,7 +154,7 @@ def test_bit_exact_vs_uav_v3(static, monkeypatch):
     g, d = renderer.render_view(w, (s['A'][0], s['A'][1], 0.65), s['yaw0'], 0, 0, rng=np.random.default_rng(0))
     tof = tofmod.tof_8x8(d, rng=np.random.default_rng(1))
     cal, dn = fusion.ToFCalibrator(), config.m_to_norm(d)
-    got = {'scen': static['scen'], 'render': [H(g), H(d)], 'tof': H(tof),
+    got = {'scen': {k: static['scen'][k] for k in gold['scen']}, 'render': [H(g), H(d)], 'tof': H(tof),
            'fuse': H(fusion.fuse_tof(cal.update_and_scale(dn, tof), tof)),
            'fuse2': H(fusion.fuse_tof2(cal.update_and_scale(dn, tof), tof)), 'flow': static['flow'],
            'evasion': H(planner_sequence(EvasionPlanner)), 'mh': H(planner_sequence(MHPlanner))}

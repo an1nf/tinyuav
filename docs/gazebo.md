@@ -83,12 +83,13 @@ Los SDF y JSON quedan en `gazebo/worlds/gen/` y las texturas en `gazebo/models/n
 | nombre | qué prueba | parámetros (`WORLD_KW`) |
 |---|---|---|
 | obstaculos | la "pared" de 3 cajas del mundo original (el X3 no cabe por los huecos) | — |
-| bosque | troncos r 0.06–0.25 m por disco de Poisson; B a 11.5 m | `gap` (separación mín., 1.6), `density` |
+| bosque | troncos r 0.06–0.25 m por disco de Poisson; B a 11.5 m | `gap` (separación mín., 1.6), `density`, `r_min`/`r_max` (bosque fino: 0.02/0.05) |
 | rendijas | slalom de paredes con una abertura cada una, alternando lado | `width` (1.5), `n_walls` (2) |
 | interior | dos salas unidas por una puerta, muebles; B en la otra sala | `door` (1.2) |
 | corredor | el mismo generador aleatorio de E3 | — |
 | dinamico | balón r 0.15 m que cruza el carril en x = 3 m | `v_ball` (1.0) |
 | estrechos | puerta + pasillo de 2.5 m + puerta desplazada en paredes de 32 m (sin rodeo) | `w` (ancho libre, 1.0) |
+| cables | cables horizontales a la altura de vuelo con un hueco alternado, sin rodeo | `gap` (1.2), `d` (diámetro, 0.02), `n_wires` (3), `posts` (0/1) |
 
 ## Nodos (`gazebo/nodes/`)
 

@@ -11,6 +11,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
   Cambia la columna "hits" de los resúmenes, no el éxito ni las colisiones.
 
 ### Añadido
+- Escenario `cables` (cables horizontales a la altura de vuelo, `gap`, `d`, `posts`) y suite
+  `cables.yaml`. Con GT y d = 2 cm el nano choca en parte de los episodios (límite de resolución de
+  96×96); con d = 5 cm la GT pasa.
 - `r10 --scen cross` guarda `bearing_deg` e `in_fov` por velocidad: el balón llega por un rumbo
   constante atan(v_obs / v_dron); con la cámara de 60° solo es visible si v_obs < 0.58·v_dron. Por
   encima, el resultado depende de la suerte en la sincronización, no de la percepción (ver R16).

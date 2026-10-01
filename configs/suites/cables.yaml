@@ -1,0 +1,14 @@
+# R16: cables horizontales a la altura de vuelo (nano, 1 m/s, hueco de 0.7 m, sin rodeo posible).
+# d = 2 cm mide el límite de resolución de la cámara de 96×96 (ni la profundidad perfecta los ve a
+# tiempo); d = 5 cm mide la calidad de la percepción (con GT se cruza). Requiere model_M_thin y
+# model_M_ToF_thin (nanouav run train/r03 --thin 0.3 --suffix _thin).
+name: cables
+description: Wires across the path — CNN variant (with/without thin-structure training) × wire diameter, nano
+matrix: {d: ["0.02", "0.05"], variant: [M, M_thin, M_ToF, M_ToF_thin]}
+jobs:
+  - id: cables-d{d}-{variant}
+    run: r12 --profile nano --v 1.0 --world scn:cables;gap=0.7;d={d} --goals 0:0 --planner mh --n 20 --variant {variant}
+  - id: cables-d{d}-gt
+    run: r12 --profile nano --v 1.0 --world scn:cables;gap=0.7;d={d} --goals 0:0 --planner mh --n 20
+    env: {NANOUAV_FAKE_CNN: "1"}
+    matrix: {d: ["0.02", "0.05"]}

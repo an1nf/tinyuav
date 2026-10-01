@@ -117,6 +117,7 @@ un experimento están en [docs/experimentos.md](docs/experimentos.md).
 | `baseline.yaml` | 27 | línea base del paper C2 (E3, poste, corredores, dinámicos, ruido de estado) × {M, M_ToF} |
 | `scenarios.yaml` | 12 | los 6 escenarios de Gazebo offline, MH vs carril |
 | `narrow_passages.yaml` | 19 | R13: ancho × planificador × CNN (X3 y nano), más profundidad GT como cota |
+| `cables.yaml` | 10 | R16: cables a la altura de vuelo (nano), 2 y 5 cm, M / M_thin / M_ToF / M_ToF_thin + GT |
 | `thin_structures.yaml` | 5 | R14 en lazo cerrado: bosque de troncos de 2–5 cm, M vs M_ToF × `fuse_tof2`, más GT |
 | `perception.yaml` | 5 | R14 (métricas por región) y R15 (variantes del filtro dinámico) |
 

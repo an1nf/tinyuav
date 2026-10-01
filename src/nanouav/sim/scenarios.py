@@ -191,9 +191,33 @@ def estrechos(seed=0, w=1.0, **kw):
     return s
 
 
+def cables(seed=0, n_wires=3, gap=1.2, spacing=2.2, posts=0, d=0.02, **kw):
+    """Horizontal wires (Ø 2 cm) across the path at flight height (R14/R16). Each wire runs to ±8 m (no
+    detour) except for one free gap of width `gap`, alternating side. Without `posts` the gap edges are
+    only the wire ends, so the drone must actually see the wire; posts=1 adds thin posts (r 3 cm) at the
+    edges, as a real installation would have. d = wire diameter (m). X3: gap ≥ 1.2; nano: gap 0.6–0.8.
+    With the 96×96 camera a 2 cm wire is under one pixel beyond ~1.3 m, so even perfect depth sees it
+    late: d = 0.02 measures the sensor's resolution limit, thicker d the perception quality."""
+    rng = np.random.default_rng(seed)
+    s = _base('cables', seed, (1.0 + n_wires * spacing + 1.0, 0.0), rng, t_max=120)
+    Y, z0 = 8.0, s['z_cruise']
+    for i in range(int(n_wires)):
+        x = 1.0 + i * spacing + float(rng.uniform(-0.2, 0.2))
+        yc = (1 if i % 2 == 0 else -1) * float(rng.uniform(0.3, 0.8))
+        z = z0 + float(rng.uniform(-0.08, 0.08))
+        t = {'kind': 'uniform', 'albedo': float(rng.uniform(0.1, 0.9))}
+        lo, hi = yc - gap / 2, yc + gap / 2
+        for a, b in ((-Y, lo), (hi, Y)):
+            s['objects'].append(_box((x, (a + b) / 2, z), (d / 2, (b - a) / 2, d / 2), 0, t))
+        if posts:
+            for yy in (lo - 0.03, hi + 0.03):
+                s['objects'].append(_cyl(x, yy, 0.03, 1.8, _tex(rng)))
+    return s
+
+
 SCENARIOS = {'obstaculos': obstaculos, 'bosque': bosque, 'rendijas': rendijas,
              'interior': interior, 'corredor': corredor, 'dinamico': dinamico,
-             'estrechos': estrechos}
+             'estrechos': estrechos, 'cables': cables}
 
 
 def make(name, seed=0, **kw):
