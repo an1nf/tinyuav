@@ -28,6 +28,7 @@ import numpy as np
 import cv2
 
 from nanouav import settings
+from nanouav.config import CAM_HFOV, D_MAX
 from nanouav.planning.evasion import EvasionPlanner, LocalGrid
 
 
@@ -44,15 +45,38 @@ class MHGrid(LocalGrid):
         self.origin = None
         self.R1, self.R2 = 1.5, 2.5
         self.RANGE_W = False            # R13: tested, makes things worse (distant walls "open" → drone follows the wall)
+        # R17 (opt-in, see MHPlanner.MAP_*): which cells forget, and whether a hit beats a miss in one frame
+        self.view = None                # (x, y, yaw, half_fov, r_max): decay only inside this sector
+        self.hit_wins = False
+
+    def _sector(self, x, y, yaw, half, r):
+        """Index box and boolean mask of the cells whose centers lie in the camera sector."""
+        i0, i1 = max(int((x - r - self.x0) / self.res), 0), min(int((x + r - self.x0) / self.res) + 1, self.nx)
+        j0, j1 = max(int((y - r - self.y0) / self.res), 0), min(int((y + r - self.y0) / self.res) + 1, self.ny)
+        cx = self.x0 + (np.arange(i0, i1) + 0.5) * self.res - x
+        cy = self.y0 + (np.arange(j0, j1) + 0.5) * self.res - y
+        DX, DY = np.meshgrid(cx, cy, indexing='ij')
+        ang = np.abs((np.arctan2(DY, DX) - yaw + np.pi) % (2 * np.pi) - np.pi)
+        return (slice(i0, i1), slice(j0, j1)), (DX * DX + DY * DY < r * r) & (ang < half)
 
     def update(self, occ, free, decay=True):
         """Like LocalGrid.update, but CAMERA evidence (first source of the frame, decay=True) is weighted
         by distance: the CNN is reliable up close and leaves phantoms at 2–4 m. The ToF (subsequent calls)
         weighs 1 at any distance. It also stores the minimum observation distance of each cell."""
         if decay:
-            self.g *= self.decay
+            if self.view is None:
+                self.g *= self.decay
+            else:                       # unobserved cells keep their evidence (no measurement, no update)
+                box, m = self._sector(*self.view)
+                sub = self.g[box]
+                sub[m] *= self.decay
         if len(free):
             ix, iy = self._idx(free)
+            if self.hit_wins and len(occ):   # a cell hit in this frame is not erased by rays grazing it
+                ox = ((occ[:, 0] - self.x0) / self.res).astype(np.int64)
+                oy = ((occ[:, 1] - self.y0) / self.res).astype(np.int64)
+                keep = ~np.isin(ix.astype(np.int64) * self.ny + iy, ox * self.ny + oy)
+                ix, iy = ix[keep], iy[keep]
             self.g[ix, iy] *= getattr(self, 'free_k', 0.5)
             self.seen[ix, iy] = True
             gone = self.g[ix, iy] < 0.5
@@ -128,6 +152,13 @@ class MHPlanner(EvasionPlanner):
         self.STAG_T = 3.0
         self._m_eff, self._relax = self.M_MIN, 0
         self._best_d, self._best_ctg, self._prog_t = np.inf, np.inf, None
+        # R17 mapping (opt-in; defaults = published behaviour). With the global decay (×0.995 per frame) a
+        # thin trunk seen once and then left at the edge of the FOV fades below the threshold in ~6 s and
+        # becomes KNOWN FREE; the drone then sweeps it with its side (the 60° camera cannot see an obstacle
+        # beside the body closer than ~0.8 m). MAP_DECAY_FOV: only cells inside the camera sector decay.
+        # MAP_HIT_WINS: rays passing next to a hit do not erase it in the same frame (thin obstacles
+        # otherwise saturate at g ≈ 2, barely above the threshold 1.5).
+        self.MAP_DECAY_FOV, self.MAP_HIT_WINS = False, False
 
     def set_segment(self, A, B, arrive=True, v_cruise=None):
         super().set_segment(A, B, arrive, v_cruise)
@@ -356,6 +387,12 @@ class MHPlanner(EvasionPlanner):
     def update(self, state, depth_m=None, tof=None, pose=None):
         t = float(state.get('t', 0.0) or 0.0)
         self.grid.origin = np.asarray(state['p'], float)[:2]
+        if self.MAP_DECAY_FOV:
+            pc, yc = (pose[0], pose[1]) if pose is not None else (state['p'], state['yaw'])
+            self.grid.view = (float(pc[0]), float(pc[1]), float(yc), CAM_HFOV / 2, D_MAX)
+        else:
+            self.grid.view = None
+        self.grid.hit_wins = bool(self.MAP_HIT_WINS)
         p, z, occ_xy = self._perceive(state, depth_m, tof, pose)
         v_now = np.asarray(state['v'], float)[:2]
         yaw = float(state['yaw'])
@@ -421,6 +458,7 @@ class MHPlanner(EvasionPlanner):
         self._stuck = 0.0 if progress or arrived else self._stuck + 0.1
 
         mode = 'CRUISE'
+        lims = {}                                              # diagnostics: which speed limit is active
         c_near = float(np.min(self._lookup(self._clr, p[None, :2], fill=1e3))) + self.radius * 0  # m
         if arrived:
             v_xy, mode = np.zeros(2), 'ARRIVED'
@@ -454,6 +492,7 @@ class MHPlanner(EvasionPlanner):
                     head = math.atan2(dsl[1], dsl[0])
                 else:
                     head = self._head_prev if self._head_prev is not None else yaw
+            lims = {'v_nom': v_nom, 'v_stop': float(v_ok[k]), 'v_clr': float(v_clr[k]), 'k_fov': k_fov, 'v_plan': sp}
             sp *= k_fov
             v_xy = u * sp
             lateral = abs(_wrap(head - self.psi_path)) > math.radians(15)
@@ -508,6 +547,6 @@ class MHPlanner(EvasionPlanner):
                 'c_near': c_near, 'y_goal': 0.0, 'n_occ': len(occ_xy), 'plan': plan, 'plan_w': self.plan_w,
                 'arrived': arrived, 'd_goal': d_goal if self.goal is not None else np.inf,
                 'ctg': ctg_here, 'n_feasible': int(np.isfinite(J).sum())}
-        self.dbg = {'v_out': float(np.hypot(*v_world[:2])), 'stuck': self._stuck, 'head': head}
+        self.dbg = {'v_out': float(np.hypot(*v_world[:2])), 'stuck': self._stuck, 'head': head, 'mode': mode, **lims}
         self.last = info
         return v_world, self.yaw_cmd, info

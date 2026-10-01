@@ -3,6 +3,34 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.13.3] — 2026-10-01
+
+Sin cambios en los resultados publicados: las opciones nuevas del planificador están apagadas por
+defecto (el test de regresión pasa sin regenerar la referencia).
+
+### Corregido
+- Gazebo: reiniciar el mundo desde la interfaz (`/clock` vuelve atrás) empieza un episodio nuevo con
+  un planificador nuevo y se guarda por separado (`*_epN.json`). Antes, el nodo seguía con el
+  planificador anterior (contador de estancamiento y margen relajado heredados) y el RTF salía
+  negativo. Tres saltos atrás en 10 s siguen indicando dos simulaciones en el mismo `/clock` y el
+  monitor pasa a tiempo de pared.
+- Gazebo con `V_CRUISE` > 0.8: el nodo usaba los límites de referencia normales en lugar de los
+  `fast` del simulador propio. Ahora ambos usan `nanouav.planning.presets`.
+- `r12 --v` distinto de 0.5 añade `_v<velocidad>` al nombre del resultado (los barridos se
+  sobrescribían).
+- `batch_eval.sh`: el log incluye la variante y la etiqueta (antes M y M_ToF se pisaban).
+
+### Añadido
+- `PLANNER_CFG` / parámetro `planner_cfg` en Gazebo, con la misma sintaxis que `r12 --cfg`.
+- Opciones del MH para obstáculos finos (R17), apagadas por defecto: `FLY_KEEP_NEAR`,
+  `MAP_DECAY_FOV` y `MAP_HIT_WINS`. Con profundidad perfecta en `bosque` pasan de 22/32 a 40/40
+  episodios sin choque; con la CNN local (n = 4) no hay mejora clara. Suite `speed_thin.yaml` para
+  decidir con las redes completas. Informe `docs/research/R17_velocidad_y_troncos_finos.md`.
+- `MHPlanner.dbg` registra qué límite de velocidad manda en cada cuadro (`v_stop`, `v_clr`,
+  `k_fov`, `v_plan`).
+- `nanouav summarize --gazebo` separa filas por velocidad y `planner_cfg`; `nanouav summarize`
+  muestra el tiempo mediano de los éxitos.
+
 ## [0.13.2] — 2026-10-01
 
 ### Documentación

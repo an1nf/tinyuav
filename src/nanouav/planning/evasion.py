@@ -124,6 +124,7 @@ class EvasionPlanner:
         self.INFLATE = inflate                     # optional lateral inflation (m); 0 = published results
         self.GROUND_Z = 0.15                       # below = ground (tolerates depth error)
         self.Z_MAP_MIN = 0.40                      # do not map during takeoff
+        self.FLY_KEEP_NEAR = False                 # R17: keep thin foreground objects (see flying_pixels)
         self.K_LAT, self.V_LAT = 1.0, 0.45
         self.K_Z, self.V_Z = 1.2, 0.35
         self.YAW_FOLLOW, self.YAW_MAX = 0.5, 0.35
@@ -222,16 +223,22 @@ class EvasionPlanner:
         return np.asarray(p) + Rb @ np.asarray(CAM_OFFSET), Rb @ rot_y(CAM_PITCH)
 
     @staticmethod
-    def flying_pixels(depth, rel=0.2):
+    def flying_pixels(depth, rel=0.2, keep_near=False):
         """
         Pixels at depth discontinuities: the CNN smooths edges and produces
         intermediate depths that, once back-projected, create phantom 'trails'
         behind obstacles (occluded areas that are never cleared again).
+        keep_near (R17): keep the NEAR side of the discontinuity (depth within 0.5·rel of the local
+        minimum). By default every pixel within 2 px of an edge is dropped, which removes thin
+        foreground objects entirely (a 0.2 m trunk is < 5 px wide beyond ~2.5 m).
         """
         k = np.ones((5, 5), np.uint8)
         dmax = cv2.dilate(depth, k)
         dmin = cv2.erode(depth, k)
-        return (dmax - dmin) > rel * dmin
+        fly = (dmax - dmin) > rel * dmin
+        if keep_near:
+            fly &= (depth - dmin) > 0.5 * rel * dmin
+        return fly
 
     def _backproject(self, depth, rays, cos_ax, O, Rc, step=1, valid=None):
         d = depth[::step, ::step]
@@ -371,7 +378,7 @@ class EvasionPlanner:
         if depth_m is not None:
             rays, cos_ax = camera_rays(CAM_HFOV)
             P, far, F = self._backproject(depth_m, rays, cos_ax, O, Rc, step=3,
-                                          valid=~self.flying_pixels(depth_m))
+                                          valid=~self.flying_pixels(depth_m, keep_near=self.FLY_KEEP_NEAR))
             occ.append(self._filter(P, far, z, O))
             free.append(self._free(F, z))
             surf.append(P[(~far) & (P[:, 2] > self.GROUND_Z) & (np.abs(P[:, 2] - z) < self.Z_BAND)])

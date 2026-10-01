@@ -1,0 +1,44 @@
+# R17: velocidad de crucero × mapeo de obstáculos finos (MH, X3). En bosque_s2 (el mundo de Gazebo) la
+# profundidad perfecta choca con troncos finos que pasan al borde del campo visual; las tres opciones de
+# mapa del MH (r17 = MAP_DECAY_FOV, MAP_HIT_WINS, FLY_KEEP_NEAR) lo corrigen con GT. Esta suite comprueba
+# si ayudan o empeoran con la CNN, a 0.5 y 1.0 m/s, y que no reabren el vagabundeo de `estrechos`.
+# Los JSON: `nanouav gazebo gen-world --scenario bosque --seed 2` y
+# `nanouav gazebo gen-world --scenario estrechos --seed 0 --kw w=1.2` (o haber lanzado esos mundos).
+# Ver docs/research/R17_velocidad_y_troncos_finos.md.
+name: speed_thin
+description: Cruise speed × thin-obstacle mapping options (MH, X3) — GT, M and M_ToF
+matrix: {v: ["0.5", "1.0"], variant: [M, M_ToF]}
+jobs:
+  - id: bosque_s2-v{v}-{variant}-base
+    run: r12 --world json:gazebo/worlds/gen/bosque_s2.json --goals 0:0 --planner mh --n 10 --v {v} --variant {variant}
+  - id: bosque_s2-v{v}-{variant}-r17
+    run: r12 --world json:gazebo/worlds/gen/bosque_s2.json --goals 0:0 --planner mh --n 10 --v {v} --variant {variant} --cfg MAP_DECAY_FOV=1,MAP_HIT_WINS=1,FLY_KEEP_NEAR=1
+  - id: bosque_s2-v{v}-{variant}-fly
+    run: r12 --world json:gazebo/worlds/gen/bosque_s2.json --goals 0:0 --planner mh --n 10 --v {v} --variant {variant} --cfg FLY_KEEP_NEAR=1
+  - id: bosque-v{v}-{variant}-base
+    run: r12 --world scn:bosque --goals 0:0 --planner mh --n 10 --v {v} --variant {variant}
+  - id: bosque-v{v}-{variant}-r17
+    run: r12 --world scn:bosque --goals 0:0 --planner mh --n 10 --v {v} --variant {variant} --cfg MAP_DECAY_FOV=1,MAP_HIT_WINS=1,FLY_KEEP_NEAR=1
+  - id: bosque_s2-v{v}-gt-base
+    run: r12 --world json:gazebo/worlds/gen/bosque_s2.json --goals 0:0 --planner mh --n 10 --v {v}
+    env: {NANOUAV_FAKE_CNN: "1"}
+    matrix: {v: ["0.5", "1.0", "1.5"]}
+  - id: bosque_s2-v{v}-gt-r17
+    run: r12 --world json:gazebo/worlds/gen/bosque_s2.json --goals 0:0 --planner mh --n 10 --v {v} --cfg MAP_DECAY_FOV=1,MAP_HIT_WINS=1,FLY_KEEP_NEAR=1
+    env: {NANOUAV_FAKE_CNN: "1"}
+    matrix: {v: ["0.5", "1.0", "1.5"]}
+  - id: bosque-v{v}-gt-base
+    run: r12 --world scn:bosque --goals 0:0 --planner mh --n 10 --v {v}
+    env: {NANOUAV_FAKE_CNN: "1"}
+    matrix: {v: ["0.5", "1.0", "1.5"]}
+  - id: bosque-v{v}-gt-r17
+    run: r12 --world scn:bosque --goals 0:0 --planner mh --n 10 --v {v} --cfg MAP_DECAY_FOV=1,MAP_HIT_WINS=1,FLY_KEEP_NEAR=1
+    env: {NANOUAV_FAKE_CNN: "1"}
+    matrix: {v: ["0.5", "1.0", "1.5"]}
+  # the Gazebo world where the M_ToF wandered (R16): the mapping options must not make it worse
+  - id: estrechos_s0-{variant}-base
+    run: r12 --world json:gazebo/worlds/gen/estrechos_s0_w1.2.json --goals 0:0 --planner mh --n 5 --variant {variant}
+    matrix: {variant: [M, M_ToF]}
+  - id: estrechos_s0-{variant}-r17
+    run: r12 --world json:gazebo/worlds/gen/estrechos_s0_w1.2.json --goals 0:0 --planner mh --n 5 --variant {variant} --cfg MAP_DECAY_FOV=1,MAP_HIT_WINS=1,FLY_KEEP_NEAR=1
+    matrix: {variant: [M, M_ToF]}

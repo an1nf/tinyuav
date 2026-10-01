@@ -32,19 +32,41 @@ bash gazebo/gz_docker.sh bash                       # shell dentro del contenedo
 
 Variables de `run_sim.sh` (todas opcionales): `WORLD`, `SEED`, `WORLD_KW`, `REGEN=1`,
 `VARIANT=M|M_ToF`, `PROFILE=x3|nano`, `PLANNER=mh|lane`, `CONSISTENT`, `RF_DYN`, `V_CRUISE`,
-`GOAL_X/GOAL_Y` (sustituyen a B), `LOOP=true`, `T_MAX`, `HEADLESS=true`, `EXIT_ON_DONE=true`,
-`RUN_TAG`, `CONTROL_MODE=velocity|motors`, `YAW_SIGN=-1`, y las banderas `NANOUAV_*`.
+`PLANNER_CFG`, `GOAL_X/GOAL_Y` (sustituyen a B), `LOOP=true`, `T_MAX`, `HEADLESS=true`,
+`EXIT_ON_DONE=true`, `RUN_TAG`, `CONTROL_MODE=velocity|motors`, `YAW_SIGN=-1`, y las banderas
+`NANOUAV_*`.
+
+- **El planificador es el mismo que offline.** El nodo lo configura con `nanouav.planning.presets`,
+  igual que `r12`: con `V_CRUISE` > 0.8 usa la frenada de 1.0 m/s² y los límites de referencia
+  `fast` (aceleración 2.2 m/s², giro 1.2 rad/s), como el simulador propio.
+- **`PLANNER_CFG`** fija atributos del planificador con la misma sintaxis que `r12 --cfg`, por
+  ejemplo `PLANNER_CFG="FLY_KEEP_NEAR=1,MAP_DECAY_FOV=1,MAP_HIT_WINS=1"` (R17). Un nombre que no
+  existe detiene el nodo (no se vuela en silencio el planificador por defecto).
+- **Reiniciar el mundo desde la interfaz de Gazebo** (botón *reset*) empieza un episodio nuevo: el
+  nodo detecta que `/clock` vuelve atrás, descarta el mapa y crea un planificador nuevo, y guarda
+  cada episodio por separado (`…_ep2.json`, `…_ep3.json`). Un episodio interrumpido por el reinicio no
+  se guarda. Tras el *reset* Gazebo queda en pausa hasta pulsar *play* (el log dice `simulation
+  paused`). Si `/clock` retrocede tres veces en 10 s, hay dos simulaciones publicando el mismo reloj:
+  el monitor pasa a tiempo de pared.
+
+Ir más rápido: `V_CRUISE=1.0`. En un bosque denso como `bosque` semilla 2, la ganancia es pequeña:
+el ~80 % del tiempo manda la ley de holgura entre troncos, no el crucero. Con `WORLD_KW="gap=2.2"` el
+tiempo baja un 33 %. Las opciones R17
+(`PLANNER_CFG="FLY_KEEP_NEAR=1,MAP_DECAY_FOV=1,MAP_HIT_WINS=1"`) evitan choques con troncos finos con
+profundidad perfecta, y están pendientes de validar con la CNN. Ver
+`docs/research/R17_velocidad_y_troncos_finos.md`.
 
 ### Lotes sin ventanas
 
 ```bash
 WORLDS=obstaculos,bosque,rendijas,interior SEEDS=0,1,2,3,4 PLANNERS=mh,lane bash gazebo/batch_eval.sh
 PAR=2 ...                                           # contenedores en paralelo (~1–2 núcleos + GPU cada uno)
+VARIANT=M_ToF V_CRUISE=1.0 PLANNER_CFG="..." ...    # se aplican a todos los episodios del lote
 nanouav summarize --gazebo                          # tabla con IC 95 % de Wilson + columna offline
 ```
 
 Cada episodio deja `results/gz_runs/<mundo>_s<semilla>_<planificador>_<variante>_<tag>.json` y su log
-en `results/gz_logs/`.
+en `results/gz_logs/`. El resumen separa las filas por velocidad (`v`) y `PLANNER_CFG`.
 
 ### El mismo escenario offline (CPU, mucho más rápido)
 

@@ -45,7 +45,9 @@ for f in sorted(glob.glob(os.path.join(str(paths.results_dir()), '*.json'))):
             col = sum(bool(r.get('collided')) for r in L)
             tk, tn = tk + k, tn + n
             lo, hi = wilson(k, n)
-            print(f'   {cond:>18s}: {k:3d}/{n:<3d} ({100 * k / n:5.1f} %, CI95 {lo:5.1f}–{hi:5.1f})  collisions {col}')
+            ts = sorted(r['time_s'] for r in L if r['success'] and isinstance(r.get('time_s'), (int, float)))
+            tm = f'  t_med {ts[len(ts) // 2]:.1f} s' if ts else ''        # median time of the successes
+            print(f'   {cond:>18s}: {k:3d}/{n:<3d} ({100 * k / n:5.1f} %, CI95 {lo:5.1f}–{hi:5.1f})  collisions {col}{tm}')
         lo, hi = wilson(tk, tn)
         print(f'   {"TOTAL":>18s}: {tk:3d}/{tn:<3d} ({100 * tk / max(tn, 1):5.1f} %, CI95 {lo:5.1f}–{hi:5.1f})')
     elif name.startswith('r3_') and isinstance(obj, dict):
