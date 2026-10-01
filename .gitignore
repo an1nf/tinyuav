@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Artefactos fuera de git (ver docs/artefactos.md)
+/models/*
+!/models/README.md
+/data/*
+!/data/README.md
+/results/*
+!/results/README.md
+/logs/
+*.tflite
+*.keras
+*.h5
+*.npz
+
+# Gazebo: mundos y texturas generados
+/gazebo/worlds/gen/
+/gazebo/models/nano_textures/materials/textures/
+
+# Editores / SO
+.vscode/
+.idea/
+.DS_Store
+*.swp

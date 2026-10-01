@@ -1,0 +1,11 @@
+# R14/R15: métricas de profundidad por región y falsas detecciones dinámicas (variantes del filtro).
+name: perception
+description: Region-wise depth metrics and dynamic-layer false alarms
+jobs:
+  - id: r14-all
+    run: r14 --n 600 --variants M,S,XS
+  - id: r15-base
+    run: r15 --n 6
+  - id: r15-{cfg}
+    run: r15 --n 6 --cfg {cfg}
+    matrix: {cfg: ["RF_EDGE_INH=0.3", "RF_EDGE_INH=0.3,RF_NET_DISP=0.4", "RF_NET_DISP=0.4"]}

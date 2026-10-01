@@ -1,0 +1,7 @@
+# Todos los escenarios compartidos con Gazebo, MH vs carril, n = 10 (comparable con gazebo/batch_eval.sh).
+name: scenarios
+description: Shared Gazebo scenarios offline — MH vs lane planner
+matrix: {world: [obstaculos, bosque, rendijas, interior, corredor, dinamico], planner: [mh, lane]}
+jobs:
+  - id: "{world}-{planner}"
+    run: r12 --world scn:{world} --goals 0:0 --planner {planner} --n 10

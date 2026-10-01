@@ -1,0 +1,435 @@
+#!/usr/bin/env python3
+"""
+perception_node.py v12 — Percepción + evasión + referencias suaves (ROS 2 Jazzy / Gazebo Harmonic).
+
+Cambios respecto a v11 (semielipse):
+  * SIN ground truth: ya no usa la lista OBSTACLES del SDF. Todo sale de CNN+ToF.
+  * CNN solo en frames NUEVOS de cámara (10 Hz), en un hilo aparte (no bloquea el control).
+  * Profundidad: predict_depth_norm → ToFCalibrator v2 (FOV ToF 40° dentro de cámara 60°).
+  * Planificador EvasionPlanner (grilla local + DP lateral + filtro de seguridad).
+  * Referencias con aceleración/jerk acotados (ReferenceGenerator) y yaw suavizado.
+  * Supervisor de estabilidad sobre la odometría (inclinación, tasas, caída) → RECOVER.
+
+Modos (parámetro ROS control_mode):
+  velocity (defecto): publica Twist al MulticopterVelocityControl del X3 a 50 Hz.
+  motors            : publica setpoints (/nano_uav/setpoint) para flight_controller_node.py,
+                      que cierra los lazos hasta velocidad de motor (control propio).
+"""
+import os, sys, math, threading, time, json
+
+ROOT = os.environ.get('NANOUAV_HOME', os.environ.get('NANO_UAV_ROOT',
+                      os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))))
+sys.path.insert(0, os.path.join(ROOT, 'src'))         # paquete nanouav sin instalar (contenedor)
+os.environ.setdefault('NANOUAV_HOME', ROOT)
+
+import numpy as np
+import cv2
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import Twist
+from std_msgs.msg import Bool
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import Image
+from rosgraph_msgs.msg import Clock
+
+from nanouav import paths
+from nanouav.config import D_MIN, D_MAX
+from nanouav.perception.cnn import predict_depth_norm, is_real_mode
+from nanouav.perception.tof_calibrator import ToFCalibrator, fuse_tof, fuse
+from nanouav.planning.evasion import EvasionPlanner
+from nanouav.planning.mh_planner import MHPlanner
+from nanouav.control.vehicle import PROFILES
+from nanouav.control.flight_stack import ReferenceGenerator, REF_LIMITS, yaw_accel_limit
+from nanouav.control.supervisor import StabilityMonitor
+from nanouav.control.reference import wrap
+from nanouav.control.quad_sim import quat_to_rot, euler_from_rot
+
+
+class PerceptionNode(Node):
+    def __init__(self):
+        super().__init__('nano_uav_perception')
+        self.declare_parameter('control_mode', 'velocity')
+        self.declare_parameter('variant', 'M')
+        self.declare_parameter('profile', 'x3')
+        self.declare_parameter('v_cruise', 0.5)
+        self.declare_parameter('z_cruise', 0.65)
+        self.declare_parameter('twist_frame', 'body')      # marco del Twist que espera el plugin
+        self.declare_parameter('hud', True)
+        self.declare_parameter('consistent', False)   # R5: restricciones consistentes (ley 'brake')
+        self.declare_parameter('rf_dyn', False)       # R10: capa de obstáculos dinámicos (ERF/IRF)
+        # Misión A→B: A = posición al despegar, B = (goal_x, goal_y) en el marco mundo de Gazebo
+        # 'mh' = conjunto de trayectorias + costo-a-meta + yaw hacia la velocidad (Loquercio 2021)
+        # 'lane' = planificador de carril anterior (DP lateral ±2.3 m sobre la recta A→B)
+        self.declare_parameter('planner', 'mh')
+        self.declare_parameter('goal', True)
+        self.declare_parameter('goal_x', 4.5)
+        self.declare_parameter('goal_y', 0.0)
+        self.declare_parameter('loop', False)          # ida y vuelta A↔B indefinidamente
+        # Evaluación del episodio (mundos generados por gen_world.py: JSON con las primitivas)
+        self.declare_parameter('world_json', '')       # vacío = sin monitor de holgura
+        self.declare_parameter('t_max', 0.0)           # s de simulación; 0 = el del JSON (o 120)
+        self.declare_parameter('exit_on_done', False)  # terminar al llegar / chocar / agotar tiempo
+        self.declare_parameter('run_tag', '')
+        gp = lambda n: self.get_parameter(n).value
+        self.mode_ctrl, self.variant = gp('control_mode'), gp('variant')
+        self.twist_frame = gp('twist_frame')
+        P = PROFILES[gp('profile')]
+
+        self.planner_kind = gp('planner')
+        cls = MHPlanner if self.planner_kind == 'mh' else EvasionPlanner
+        self.planner = cls(radius=P.radius, v_cruise=gp('v_cruise'), z_cruise=gp('z_cruise'))
+        if gp('consistent') or self.planner_kind == 'mh':
+            self.planner.speed_law = 'brake'
+            self.planner.CONSISTENT = True
+            self.planner.FOV_OK = math.radians(28)
+            self.planner.T_REACT, self.planner.GAP_BIAS = 0.6, 0.15
+        self.planner.RF_DYN = bool(gp('rf_dyn'))
+        self.goal_on, self.loop = bool(gp('goal')), bool(gp('loop'))
+        self.B = np.array([gp('goal_x'), gp('goal_y')], float)
+        self.A = None                        # se fija con la primera odometría
+        self.leg, self.t_leg, self.t_arr, self.t_log = 0, None, None, 0.0
+        self.v_cruise = gp('v_cruise')
+        if self.goal_on:
+            self.get_logger().info(f"misión A→B: B=({self.B[0]:.2f}, {self.B[1]:.2f}) loop={self.loop}")
+        self.get_logger().info(f"planificador: {self.planner_kind} consistent={gp('consistent')} rf_dyn={gp('rf_dyn')} variant={gp('variant')}")
+        self.P = P
+        self.scn = None
+        wj = gp('world_json')
+        if wj:
+            try:
+                self.scn = json.load(open(wj))
+                self.get_logger().info(f"mundo {self.scn['name']} (semilla {self.scn['seed']}): "
+                                       f"{len(self.scn['objects'])} obstáculos, {len(self.scn['dynamic'])} dinámicos")
+            except Exception as e:
+                self.get_logger().warn(f'world_json no legible ({wj}): {e}')
+        self.t_max = gp('t_max') or (self.scn['t_max'] if self.scn else 120.0)
+        self.exit_on_done, self.run_tag = bool(gp('exit_on_done')), gp('run_tag')
+        self.variant_name, self.profile_name = gp('variant'), P.name
+        self.ep = {'t_takeoff': None, 'min_clear': np.inf, 'collisions': 0, 'in_coll': False, 'path': 0.0,
+                   'p_prev': None, 'result': None, 'modes': {}, 'traj': [], 'rtf': []}
+        self.done = False
+        self.sim_t, self._rtf_ref = None, None
+        self.dyn_pos = {}
+        self.cal = ToFCalibrator()
+        self.ref = ReferenceGenerator(dict(REF_LIMITS['normal'], yaw_a=yaw_accel_limit(P)))
+        self.sup = StabilityMonitor()
+        self.hold_z, self.hold_yaw = gp('z_cruise'), 0.0
+
+        self._lock = threading.Lock()
+        self._frame_evt = threading.Event()
+        self.state = None                   # {'p','v','R','w','yaw','roll','pitch'}
+        self.gray, self.gray_pose = None, None
+        self.tof = np.full((8, 8), D_MAX, np.float32)
+        self.hud = {'gray': np.zeros((96, 96), np.uint8), 'depth': np.full((96, 96), D_MAX, np.float32),
+                    'info': {}, 'mode': 'NORMAL'}
+        self.t0 = time.monotonic()
+        self.last_ctrl = None
+
+        self.enable_pub = self.create_publisher(Bool, '/nano_uav/enable', 10)
+        if self.mode_ctrl == 'velocity':
+            self.cmd_pub = self.create_publisher(Twist, '/nano_uav/gazebo/command/twist', 10)
+            self.create_timer(0.02, self.control_loop)                 # 50 Hz
+        else:
+            self.sp_pub = self.create_publisher(Twist, '/nano_uav/setpoint', 10)
+        self.create_subscription(Odometry, '/model/nano_uav/odometry', self.odom_cb, 20)
+        self.create_subscription(Image, '/nano_uav/camera/image', self.cam_cb, 5)
+        self.create_subscription(Image, '/nano_uav/depth/image', self.depth_cb, 5)
+        self.create_timer(0.5, self.arm)
+        self.create_subscription(Clock, '/clock', self.clock_cb, 10)
+        for d in (self.scn['dynamic'] if self.scn else []):
+            self.create_subscription(Odometry, f"/model/{d['name']}/odometry",
+                                     lambda m, n=d['name'], r=d['r']: self._dyn_cb(m, n, r), 10)
+        self.create_timer(0.05, self.monitor)                           # 20 Hz
+        threading.Thread(target=self._perception_loop, daemon=True).start()
+        if gp('hud') and os.environ.get('DISPLAY'):
+            threading.Thread(target=self._hud_loop, daemon=True).start()
+        self.get_logger().info(f'Nano-UAV v12 · control={self.mode_ctrl} · perfil={P.name} · '
+                               f'CNN {"REAL int8" if is_real_mode(self.variant) else "FAKE"} ({self.variant})')
+
+    # ── entradas ──────────────────────────────────────────────────────────
+    def arm(self):
+        # velocity: habilita el controlador del plugin; motors: lo DESHABILITA
+        self.enable_pub.publish(Bool(data=self.mode_ctrl == 'velocity'))
+
+    def odom_cb(self, msg):
+        q = msg.pose.pose.orientation
+        R = quat_to_rot((q.w, q.x, q.y, q.z))
+        p = msg.pose.pose.position
+        tl, ta = msg.twist.twist.linear, msg.twist.twist.angular
+        v = np.array([tl.x, tl.y, tl.z])
+        v = R @ v if self.twist_frame == 'body' else v             # odom twist en marco hijo
+        roll, pitch, yaw = euler_from_rot(R)
+        with self._lock:
+            self.state = {'p': np.array([p.x, p.y, p.z]), 'v': v, 'R': R,
+                          'w': np.array([ta.x, ta.y, ta.z]), 'yaw': yaw, 'roll': roll, 'pitch': pitch}
+
+    def cam_cb(self, msg):
+        try:
+            buf = np.frombuffer(msg.data, np.uint8)
+            if msg.encoding in ('mono8', 'L8'):
+                g = buf.reshape(msg.height, msg.width)
+            elif msg.encoding in ('rgb8', 'bgr8'):
+                code = cv2.COLOR_RGB2GRAY if msg.encoding == 'rgb8' else cv2.COLOR_BGR2GRAY
+                g = cv2.cvtColor(buf.reshape(msg.height, msg.width, 3), code)
+            else:
+                return
+            if g.shape != (96, 96):
+                g = cv2.resize(g, (96, 96))
+            with self._lock:
+                if self.state is None:
+                    return
+                s = self.state
+                self.gray = g.copy()
+                self.gray_pose = (s['p'].copy(), s['yaw'], s['pitch'], s['roll'])
+            self._frame_evt.set()
+        except Exception as e:
+            self.get_logger().warn(f'cam: {e}')
+
+    def depth_cb(self, msg):
+        try:
+            if msg.encoding == '32FC1':
+                a = np.frombuffer(msg.data, np.float32).reshape(msg.height, msg.width)
+            elif msg.encoding == '16UC1':
+                a = np.frombuffer(msg.data, np.uint16).reshape(msg.height, msg.width) / 1000.0
+            else:
+                return
+            a = np.nan_to_num(a, nan=D_MAX, posinf=D_MAX)
+            a = np.clip(a, 0.02, D_MAX).astype(np.float32)
+            if a.shape != (8, 8):
+                a = cv2.resize(a, (8, 8), interpolation=cv2.INTER_AREA)
+            with self._lock:
+                self.tof = a
+        except Exception as e:
+            self.get_logger().warn(f'depth: {e}')
+
+    # ── percepción + planificación (hilo, un frame nuevo = una inferencia) ─
+    def _perception_loop(self):
+        while rclpy.ok():
+            if not self._frame_evt.wait(0.5):
+                continue
+            self._frame_evt.clear()
+            with self._lock:
+                gray, pose, tof, st = self.gray, self.gray_pose, self.tof.copy(), dict(self.state)
+            try:
+                # tof se pasa a la CNN: las variantes con fusión temprana (M_ToF) lo usan; M lo ignora
+                depth = fuse(self.cal.update_and_scale(predict_depth_norm(gray, self.variant, tof=tof), tof), tof)
+            except RuntimeError:                  # sin modelo .tflite → solo ToF
+                depth = None
+            st['t'] = time.monotonic() - self.t0      # lo usan las capas RF_DYN / VO
+            if self.goal_on:
+                self._mission_step(st)
+            v_t, yaw_t, info = self.planner.update(st, depth, tof, pose)
+            if self.goal_on:
+                self._mission_log(st, info)
+            with self._lock:
+                if self.mode_ctrl == 'velocity':
+                    if self.sup.mode == 'NORMAL':
+                        self.ref.set_target(v_t, yaw_t)
+                else:
+                    sp = Twist()
+                    sp.linear.x, sp.linear.y, sp.linear.z = map(float, v_t)
+                    sp.angular.z = float(yaw_t)
+                    self.sp_pub.publish(sp)
+                self.hud.update(gray=gray, info=dict(info, scale=self.cal.scale_ema))
+                if depth is not None:
+                    self.hud['depth'] = depth
+
+    # ── reloj de simulación y monitor del episodio ────────────────────────
+    def clock_cb(self, msg):
+        self.sim_t = msg.clock.sec + 1e-9 * msg.clock.nanosec
+        w = time.monotonic()
+        if self._rtf_ref is None:
+            self._rtf_ref = (w, self.sim_t)
+        elif w - self._rtf_ref[0] > 5.0:
+            rtf = (self.sim_t - self._rtf_ref[1]) / (w - self._rtf_ref[0])
+            self._rtf_ref = (w, self.sim_t)
+            self.ep['rtf'].append(round(rtf, 3))
+            if rtf < 0.8:
+                self.get_logger().warn(f'factor de tiempo real {rtf:.2f} (< 0.8: render lento, ¿GPU en el contenedor?)')
+
+    def _dyn_cb(self, msg, name, r):
+        p = msg.pose.pose.position
+        self.dyn_pos[name] = (np.array([p.x, p.y, p.z]), r)
+
+    def _now(self):
+        return self.sim_t if self.sim_t is not None else time.monotonic() - self.t0
+
+    def monitor(self):
+        if self.done:
+            return
+        with self._lock:
+            st = self.state
+        if st is None:
+            return
+        t, p, ep = self._now(), st['p'], self.ep
+        if ep['t_takeoff'] is None:
+            if p[2] > 0.3:
+                ep['t_takeoff'] = t
+            return
+        if ep['p_prev'] is not None:
+            ep['path'] += float(np.linalg.norm(p[:2] - ep['p_prev']))
+        ep['p_prev'] = p[:2].copy()
+        m = self.hud['info'].get('mode', '-')
+        ep['modes'][m] = ep['modes'].get(m, 0) + 1
+        if len(ep['traj']) == 0 or t - ep['traj'][-1][0] > 0.5:
+            ep['traj'].append([round(t - ep['t_takeoff'], 2), round(float(p[0]), 2), round(float(p[1]), 2), round(float(p[2]), 2)])
+        if self.scn is not None:
+            from nanouav.sim import scenarios as SC
+            c = SC.clearance(self.scn, p, list(self.dyn_pos.values()))
+            ep['min_clear'] = min(ep['min_clear'], c)
+            hit = c < self.P.radius
+            if hit and not ep['in_coll']:
+                ep['collisions'] += 1
+                self.get_logger().error(f'COLISIÓN #{ep["collisions"]} en ({p[0]:.2f}, {p[1]:.2f}) holgura {c:.2f} m')
+            ep['in_coll'] = hit
+        el = t - ep['t_takeoff']
+        res = None
+        if self.t_arr is not None:
+            res = 'success' if ep['collisions'] == 0 else 'success_with_collision'
+        elif self.exit_on_done and ep['collisions'] > 0:
+            res = 'collision'
+        elif el > self.t_max:
+            res = 'timeout'
+        if res and not self.loop:
+            self._finish(res, el)
+
+    def _finish(self, res, el):
+        self.done = True
+        ep = self.ep
+        out = {'result': res, 'success': res == 'success', 'time_s': round(el, 2), 'path_m': round(ep['path'], 2),
+               'min_clearance_m': (round(float(ep['min_clear']), 3) if np.isfinite(ep['min_clear']) else None),
+               'collisions': ep['collisions'], 'planner': self.planner_kind, 'variant': self.variant_name,
+               'profile': self.profile_name, 'world': self.scn['name'] if self.scn else 'nano_uav_world',
+               'seed': self.scn['seed'] if self.scn else None, 'A': self.A.tolist() if self.A is not None else None,
+               'B': self.B.tolist(), 'modes': ep['modes'], 'rtf': ep['rtf'], 'traj': ep['traj'],
+               'sim_time': self.sim_t is not None}
+        d = os.path.join(str(paths.results_dir()), 'gz_runs')
+        os.makedirs(d, exist_ok=True)
+        tag = self.run_tag or time.strftime('%Y%m%d_%H%M%S')
+        fn = os.path.join(d, f"{out['world']}_s{out['seed']}_{self.planner_kind}_{self.variant_name}_{tag}.json")
+        json.dump(out, open(fn, 'w'), indent=1)
+        self.get_logger().info(f"=== EPISODIO: {res} · t={el:.1f} s · recorrido {ep['path']:.1f} m · holgura mín "
+                               f"{out['min_clearance_m']} m · colisiones {ep['collisions']} · RTF {ep['rtf'][-3:]} → {fn}")
+
+    # ── misión A→B ───────────────────────────────────────────────────────
+    def _mission_step(self, st):
+        if self.A is None:
+            self.A = st['p'][:2].copy()
+            self.planner.set_segment(self.A, self.B, arrive=True, v_cruise=self.v_cruise)
+            self.t_leg = st['t']
+            self.get_logger().info(f"A=({self.A[0]:.2f}, {self.A[1]:.2f}) → B=({self.B[0]:.2f}, {self.B[1]:.2f}) "
+                                   f"distancia {np.linalg.norm(self.B - self.A):.2f} m")
+        elif self.loop and self.t_arr is not None and st['t'] - self.t_arr > 3.0:
+            src, dst = (self.B, self.A) if self.leg % 2 == 0 else (self.A, self.B)
+            self.leg += 1
+            self.planner.set_segment(src, dst, arrive=True, v_cruise=self.v_cruise)
+            self.t_leg, self.t_arr = st['t'], None
+            self.get_logger().info(f"tramo {self.leg}: ({src[0]:.2f}, {src[1]:.2f}) → ({dst[0]:.2f}, {dst[1]:.2f})")
+
+    def _mission_log(self, st, info):
+        t = st['t']
+        if info.get('arrived') and self.t_arr is None:
+            self.t_arr = t
+            self.get_logger().info(f"*** LLEGADA tramo {self.leg} en {t - self.t_leg:.1f} s · pos=({st['p'][0]:.2f}, "
+                                   f"{st['p'][1]:.2f}, {st['p'][2]:.2f}) error={info.get('d_goal', 0):.2f} m ***")
+        if t - self.t_log > 2.0:
+            self.t_log = t
+            self.get_logger().info(f"t={t:5.1f}s pos=({st['p'][0]:5.2f}, {st['p'][1]:5.2f}, {st['p'][2]:4.2f}) "
+                                   f"d_B={info.get('d_goal', float('nan')):4.2f} m modo={info.get('mode')} "
+                                   f"v={np.hypot(*st['v'][:2]):.2f} m/s"
+                                   + (f" holg={info.get('c_near', 0) - self.P.radius:.2f} margen={self.planner._m_eff:.3f}"
+                                      f" estanc={getattr(self.planner, '_stag', 0):.0f}s" if hasattr(self.planner, '_m_eff') else ''))
+
+    # ── control de referencia (modo velocity, 50 Hz) ──────────────────────
+    def control_loop(self):
+        now = time.monotonic()
+        dt = 0.02 if self.last_ctrl is None else min(now - self.last_ctrl, 0.1)
+        self.last_ctrl = now
+        with self._lock:
+            st = self.state
+            if st is None:
+                return
+            mode, entered = self.sup.update(st, False, now - self.t0, dt)
+            if entered:                                           # transferencia sin salto
+                self.ref.vel.reset(st['v'], self.ref.vel.a)
+                self.ref.yaw.reset(st['yaw'])
+                self.hold_z, self.hold_yaw = max(st['p'][2], 0.35), st['yaw']
+                self.ref.vel.set_limits(REF_LIMITS['recover']['a'], REF_LIMITS['recover']['j'])
+                self.get_logger().warn(f'RECOVER: {self.sup.cause}')
+            if mode == 'RECOVER':
+                vz = float(np.clip(1.5 * (self.hold_z - st['p'][2]), -0.3, 0.5))
+                self.ref.set_target((0.0, 0.0, vz), self.hold_yaw)
+            elif self.hud['mode'] == 'RECOVER':                   # salida
+                self.ref.vel.reset(st['v'], self.ref.vel.a)
+                self.ref.vel.set_limits(REF_LIMITS['normal']['a'], REF_LIMITS['normal']['j'])
+                self.get_logger().info('RECOVER → NORMAL')
+            self.hud['mode'] = mode
+            v_ref, _, psi_ref, r_ref = self.ref.update(dt)
+            yaw = st['yaw']
+        tw = Twist()
+        if self.twist_frame == 'body':
+            c, s = math.cos(yaw), math.sin(yaw)
+            tw.linear.x, tw.linear.y = c * v_ref[0] + s * v_ref[1], -s * v_ref[0] + c * v_ref[1]
+        else:
+            tw.linear.x, tw.linear.y = float(v_ref[0]), float(v_ref[1])
+        tw.linear.z = float(v_ref[2])
+        tw.angular.z = float(r_ref + 1.5 * wrap(psi_ref - yaw))
+        self.cmd_pub.publish(tw)
+
+    # ── HUD: cámara | profundidad CNN calibrada | mapa local + plan ───────
+    def _hud_loop(self):
+        win = 'Nano-UAV v12'
+        cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(win, 900, 300)
+        while rclpy.ok():
+            with self._lock:
+                h = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in self.hud.items()}
+                st = dict(self.state) if self.state else None
+            cam = cv2.cvtColor(cv2.resize(h['gray'], (288, 288), interpolation=cv2.INTER_NEAREST), cv2.COLOR_GRAY2BGR)
+            dn = ((1 - (h['depth'] - D_MIN) / (D_MAX - D_MIN)) * 255).clip(0, 255).astype(np.uint8)
+            dep = cv2.applyColorMap(cv2.resize(dn, (288, 288), interpolation=cv2.INTER_NEAREST), cv2.COLORMAP_TURBO)
+            mp = np.full((288, 288, 3), 25, np.uint8)
+            if st is not None:
+                sc, cx, cy = 48.0, 144, 240                 # 48 px/m, dron abajo al centro
+                px = lambda x, y: (int(cx - (y - st['p'][1]) * sc), int(cy - (x - st['p'][0]) * sc))
+                for x, y in self.planner.grid.occupied():
+                    cv2.rectangle(mp, px(x + 0.05, y + 0.05), px(x - 0.05, y - 0.05), (60, 60, 220), -1)
+                plan = h['info'].get('plan')
+                if plan is not None:
+                    pts = np.array([px(x, y) for x, y in zip(*plan)], np.int32)
+                    cv2.polylines(mp, [pts], False, (80, 220, 120), 2)
+                cv2.circle(mp, px(*st['p'][:2]), int(self.planner.radius * sc), (230, 200, 60), 2)
+                if self.goal_on:
+                    if self.A is not None:
+                        cv2.circle(mp, px(*self.A), 6, (255, 140, 40), -1)
+                        cv2.line(mp, px(*self.A), px(*self.B), (120, 120, 120), 1)
+                    cv2.circle(mp, px(*self.B), int(self.planner.ACCEPT * sc), (40, 230, 40), 2)
+                    cv2.putText(mp, 'B', px(self.B[0] + 0.15, self.B[1] - 0.1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (40, 230, 40), 1)
+            txt = f"{h['info'].get('mode', '-')}  sup={h['mode']}  s={h['info'].get('scale', 1):.2f}"
+            if self.ep['rtf']:
+                txt += f"  RTF={self.ep['rtf'][-1]:.2f}"
+            dg = h['info'].get('d_goal', np.inf)
+            if np.isfinite(dg):
+                txt += f"  d_B={dg:.2f}m"
+            cv2.putText(mp, txt, (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+            cv2.imshow(win, np.hstack([cam, dep, mp]))
+            if cv2.waitKey(50) == ord('q'):
+                break
+        cv2.destroyAllWindows()
+
+
+def main():
+    rclpy.init()
+    node = PerceptionNode()
+    try:
+        while rclpy.ok() and not (node.done and node.exit_on_done):
+            rclpy.spin_once(node, timeout_sec=0.1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

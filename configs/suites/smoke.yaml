@@ -1,0 +1,19 @@
+# Prueba de humo (~2–4 min en 4 núcleos): cada familia de experimentos arranca y escribe resultados.
+name: smoke
+description: Quick end-to-end check of the main experiment families
+jobs:
+  - id: e3-fake
+    run: e3 --profile nano --n 1 --only-mc
+    env: {NANOUAV_FAKE_CNN: "1"}
+  - id: r05-pole
+    run: r05 --profile nano --law consistent --n 1 --speeds 1.0
+  - id: r06-corridor
+    run: r06 --profile nano --law consistent --n 1 --speeds 1.0
+  - id: r12-mh
+    run: r12 --world scn:obstaculos --goals 0:0 --planner mh --n 1
+  - id: r14-metrics
+    run: r14 --n 10 --variants M
+  - id: r15-egomotion
+    run: r15 --n 1 --kinds H
+  - id: r04-analytic
+    run: r04

@@ -1,0 +1,230 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <world name="nano_uav_world">
+
+    <physics name="4ms" type="ignored">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system"          name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-user-commands-system"    name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-sensors-system"          name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system"              name="gz::sim::systems::Imu"/>
+
+    <!-- Luz solar -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.85 0.85 0.85 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation><range>1000</range><constant>0.9</constant><linear>0.01</linear><quadratic>0.001</quadratic></attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Suelo checker -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="col">
+          <geometry><plane><normal>0 0 1</normal><size>30 30</size></plane></geometry>
+        </collision>
+        <visual name="vis">
+          <geometry><plane><normal>0 0 1</normal><size>30 30</size></plane></geometry>
+          <material>
+            <ambient>0.9 0.9 0.9 1</ambient>
+            <diffuse>0.9 0.9 0.9 1</diffuse>
+            <!-- Checker manual: alternar tiles oscuros -->
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Tiles oscuros del checker (4x4 grid 1m) -->
+    <model name="checker">
+      <static>true</static>
+      <pose>0 0 0.001 0 0 0</pose>
+      <link name="link">
+        <!-- fila 0 -->
+        <visual name="t00"><pose>-3 -3 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t02"><pose>-1 -3 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t04"><pose>1 -3 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t06"><pose>3 -3 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <!-- fila 1 -->
+        <visual name="t11"><pose>-2 -2 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t13"><pose>0 -2 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t15"><pose>2 -2 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <!-- fila 2 -->
+        <visual name="t20"><pose>-3 -1 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t22"><pose>-1 -1 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t24"><pose>1 -1 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t26"><pose>3 -1 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <!-- fila 3 -->
+        <visual name="t31"><pose>-2 0 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t33"><pose>0 0 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t35"><pose>2 0 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <!-- fila 4 -->
+        <visual name="t40"><pose>-3 1 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t42"><pose>-1 1 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t44"><pose>1 1 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t46"><pose>3 1 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <!-- fila 5 -->
+        <visual name="t51"><pose>-2 2 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t53"><pose>0 2 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t55"><pose>2 2 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <!-- fila 6 -->
+        <visual name="t60"><pose>-3 3 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t62"><pose>-1 3 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t64"><pose>1 3 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+        <visual name="t66"><pose>3 3 0 0 0 0</pose><geometry><box><size>1 1 0.001</size></box></geometry><material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Obstáculo frontal naranja -->
+    <model name="obs_front">
+      <static>true</static><pose>1.8 0 0.3 0 0 0</pose>
+      <link name="link">
+        <collision name="col"><geometry><box><size>0.4 0.4 0.6</size></box></geometry></collision>
+        <visual name="vis"><geometry><box><size>0.4 0.4 0.6</size></box></geometry>
+          <material><ambient>0.9 0.4 0.05 1</ambient><diffuse>0.9 0.4 0.05 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Obstáculo derecha verde -->
+    <model name="obs_right">
+      <static>true</static><pose>1.2 -1.0 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="col"><geometry><box><size>0.35 0.35 0.5</size></box></geometry></collision>
+        <visual name="vis"><geometry><box><size>0.35 0.35 0.5</size></box></geometry>
+          <material><ambient>0.1 0.7 0.2 1</ambient><diffuse>0.1 0.7 0.2 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Obstáculo izquierda azul -->
+    <model name="obs_left">
+      <static>true</static><pose>1.0 1.1 0.4 0 0 0</pose>
+      <link name="link">
+        <collision name="col"><geometry><box><size>0.3 0.3 0.8</size></box></geometry></collision>
+        <visual name="vis"><geometry><box><size>0.3 0.3 0.8</size></box></geometry>
+          <material><ambient>0.2 0.3 0.9 1</ambient><diffuse>0.2 0.3 0.9 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Obstáculo fondo amarillo -->
+    <model name="obs_back">
+      <static>true</static><pose>3.0 0.4 0.35 0 0 0</pose>
+      <link name="link">
+        <collision name="col"><geometry><cylinder><radius>0.18</radius><length>0.7</length></cylinder></geometry></collision>
+        <visual name="vis"><geometry><cylinder><radius>0.18</radius><length>0.7</length></cylinder></geometry>
+          <material><ambient>0.85 0.75 0.05 1</ambient><diffuse>0.85 0.75 0.05 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- Punto A (despegue, azul): solo visual (sin colisión), plano sobre el suelo -->
+    <model name="punto_A">
+      <static>true</static><pose>-1.5 0 0.004 0 0 0</pose>
+      <link name="l">
+        <visual name="disk"><geometry><cylinder><radius>0.25</radius><length>0.004</length></cylinder></geometry>
+          <material><ambient>0.1 0.4 1.0 1</ambient><diffuse>0.1 0.4 1.0 1</diffuse><emissive>0.1 0.4 1.0 1</emissive></material></visual>
+        <visual name="center"><pose>0 0 0.001 0 0 0</pose><geometry><cylinder><radius>0.08</radius><length>0.004</length></cylinder></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><emissive>1 1 1 1</emissive></material></visual>
+      </link>
+    </model>
+
+    <!-- Meta B (verde) — GOAL_X/GOAL_Y por defecto: solo visual (sin colisión), plano sobre el suelo -->
+    <model name="meta_B">
+      <static>true</static><pose>4.5 0 0.004 0 0 0</pose>
+      <link name="l">
+        <visual name="disk"><geometry><cylinder><radius>0.25</radius><length>0.004</length></cylinder></geometry>
+          <material><ambient>0.1 0.9 0.1 1</ambient><diffuse>0.1 0.9 0.1 1</diffuse><emissive>0.1 0.9 0.1 1</emissive></material></visual>
+        <visual name="center"><pose>0 0 0.001 0 0 0</pose><geometry><cylinder><radius>0.08</radius><length>0.004</length></cylinder></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><emissive>1 1 1 1</emissive></material></visual>
+      </link>
+    </model>
+
+    <!-- X3 UAV desde Fuel con MulticopterVelocityControl -->
+    <include>
+      <uri>model://X3_UAV/6</uri>
+      <pose>-1.5 0 0.5 0 0 0</pose>
+      <name>nano_uav</name>
+
+      <!-- 4 motores -->
+      <plugin filename="gz-sim-multicopter-motor-model-system" name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>nano_uav</robotNamespace>
+        <jointName>X3/rotor_0_joint</jointName><linkName>X3/rotor_0</linkName>
+        <turningDirection>ccw</turningDirection><timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown><maxRotVelocity>800.0</maxRotVelocity>
+        <motorConstant>8.54858e-06</motorConstant><momentConstant>0.016</momentConstant>
+        <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+        <actuator_number>0</actuator_number><rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/0</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim><motorType>velocity</motorType>
+      </plugin>
+      <plugin filename="gz-sim-multicopter-motor-model-system" name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>nano_uav</robotNamespace>
+        <jointName>X3/rotor_1_joint</jointName><linkName>X3/rotor_1</linkName>
+        <turningDirection>ccw</turningDirection><timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown><maxRotVelocity>800.0</maxRotVelocity>
+        <motorConstant>8.54858e-06</motorConstant><momentConstant>0.016</momentConstant>
+        <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+        <actuator_number>1</actuator_number><rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/1</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim><motorType>velocity</motorType>
+      </plugin>
+      <plugin filename="gz-sim-multicopter-motor-model-system" name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>nano_uav</robotNamespace>
+        <jointName>X3/rotor_2_joint</jointName><linkName>X3/rotor_2</linkName>
+        <turningDirection>cw</turningDirection><timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown><maxRotVelocity>800.0</maxRotVelocity>
+        <motorConstant>8.54858e-06</motorConstant><momentConstant>0.016</momentConstant>
+        <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+        <actuator_number>2</actuator_number><rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/2</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim><motorType>velocity</motorType>
+      </plugin>
+      <plugin filename="gz-sim-multicopter-motor-model-system" name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>nano_uav</robotNamespace>
+        <jointName>X3/rotor_3_joint</jointName><linkName>X3/rotor_3</linkName>
+        <turningDirection>cw</turningDirection><timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown><maxRotVelocity>800.0</maxRotVelocity>
+        <motorConstant>8.54858e-06</motorConstant><momentConstant>0.016</momentConstant>
+        <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+        <actuator_number>3</actuator_number><rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/3</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim><motorType>velocity</motorType>
+      </plugin>
+
+      <!-- Control de velocidad -->
+      <plugin filename="gz-sim-multicopter-control-system" name="gz::sim::systems::MulticopterVelocityControl">
+        <robotNamespace>nano_uav</robotNamespace>
+        <commandSubTopic>gazebo/command/twist</commandSubTopic>
+        <enableSubTopic>enable</enableSubTopic>
+        <comLinkName>X3/base_link</comLinkName>
+        <velocityGain>2.7 2.7 2.7</velocityGain>
+        <attitudeGain>2 3 0.15</attitudeGain>
+        <angularRateGain>0.4 0.52 0.18</angularRateGain>
+        <maximumLinearAcceleration>2 2 2</maximumLinearAcceleration>
+        <maximumLinearVelocity>1.2 1.2 0.8</maximumLinearVelocity>
+        <maximumAngularVelocity>3 3 1</maximumAngularVelocity>
+        <rotorConfiguration>
+          <rotor><jointName>X3/rotor_0_joint</jointName><forceConstant>8.54858e-06</forceConstant><momentConstant>0.016</momentConstant><direction>1</direction></rotor>
+          <rotor><jointName>X3/rotor_1_joint</jointName><forceConstant>8.54858e-06</forceConstant><momentConstant>0.016</momentConstant><direction>1</direction></rotor>
+          <rotor><jointName>X3/rotor_2_joint</jointName><forceConstant>8.54858e-06</forceConstant><momentConstant>0.016</momentConstant><direction>-1</direction></rotor>
+          <rotor><jointName>X3/rotor_3_joint</jointName><forceConstant>8.54858e-06</forceConstant><momentConstant>0.016</momentConstant><direction>-1</direction></rotor>
+        </rotorConfiguration>
+      </plugin>
+
+      <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+        <dimensions>3</dimensions>
+        <odom_publish_frequency>250</odom_publish_frequency>
+      </plugin>    </include>
+
+  </world>
+</sdf>

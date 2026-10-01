@@ -1,0 +1,24 @@
+FROM osrf/ros:jazzy-desktop
+
+RUN apt-get update && apt-get install -y curl && \
+    curl -sSL https://packages.osrfoundation.org/gazebo.gpg \
+        -o /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] \
+        http://packages.osrfoundation.org/gazebo/ubuntu-stable noble main" \
+        > /etc/apt/sources.list.d/gazebo-stable.list && \
+    apt-get update && \
+    apt-get install -y \
+        gz-harmonic \
+        ros-jazzy-ros-gz \
+        ros-jazzy-ros-gz-sim \
+        ros-jazzy-actuator-msgs \
+        python3-pip \
+        python3-opencv \
+        git && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --break-system-packages \
+    "numpy<2" \
+    ai-edge-litert
+
+WORKDIR /sim

@@ -1,0 +1,31 @@
+# Línea base del paper C2 (antes jobs_A.txt + jobs_B.txt): cada trabajo se repite con M y M_ToF.
+# M_ToF necesita models/model_M_ToF.tflite (nanouav run r03 ... --install, ver docs/experiments.md).
+name: baseline
+description: Paper C2 baseline — E3, pole, corridors, dynamic, state noise; CNN M vs M_ToF
+matrix: {variant: [M, M_ToF]}
+jobs:
+  - id: e3-nano-{variant}
+    run: e3 --profile nano --n 30 --variant {variant}
+  - id: e3-x3-{variant}
+    run: e3 --profile x3 --n 30 --variant {variant}
+  - id: r05-brake-{variant}
+    run: r05 --profile nano --law brake --n 10 --variant {variant}
+  - id: r05-consistent-{variant}
+    run: r05 --profile nano --law consistent --n 10 --variant {variant}
+  - id: r05-consistent-gt
+    run: r05 --profile nano --law consistent --n 10 --variant M
+    env: {NANOUAV_FAKE_CNN: "1"}
+    matrix: {}
+  - id: r06-{profile}-{law}-{variant}
+    run: r06 --profile {profile} --law {law} --speeds 1.5 --n 50 --variant {variant}
+    matrix: {profile: [nano, x3], law: [brake, consistent], variant: [M, M_ToF]}
+  - id: r06-nano-speeds-{variant}
+    run: r06 --profile nano --law consistent --speeds 1.0,2.0 --n 30 --variant {variant}
+  - id: r10-head-{variant}
+    run: r10 --scen head --n 20 --variant {variant}
+  - id: r10-head-rf-{variant}
+    run: r10 --scen head --rf --aggr --n 20 --variant {variant}
+  - id: r10-cross-rf-{variant}
+    run: r10 --scen cross --rf --aggr --vobs 0.3,0.5,1,2 --n 20 --variant {variant}
+  - id: r08-noise-{variant}
+    run: r08 --law consistent --n 30 --thrust --variant {variant}

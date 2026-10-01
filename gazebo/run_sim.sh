@@ -1,0 +1,120 @@
+#!/bin/bash
+# Nano-UAV · Gazebo Harmonic + ROS 2 Jazzy (dentro del contenedor)
+#
+#   bash gazebo/run_sim.sh                              → mundo generado 'obstaculos' semilla 0, planificador MH
+#   WORLD=bosque SEED=3 bash gazebo/run_sim.sh          → escenarios: obstaculos bosque rendijas interior corredor dinamico
+#   WORLD=bosque WORLD_KW="gap=1.0,density=0.5" ...     → parámetros del escenario (ver gazebo/scenarios.py)
+#   WORLD=base bash gazebo/run_sim.sh                   → mundo original (gazebo/worlds/nano_uav_world.sdf)
+#   HEADLESS=true EXIT_ON_DONE=true ...                 → sin ventanas; termina al acabar el episodio (lotes)
+#
+# Otras variables: VARIANT=M|M_ToF  PROFILE=x3|nano  PLANNER=mh|lane  CONSISTENT=true|false  RF_DYN=true|false
+#                  V_CRUISE=0.5  GOAL_X/GOAL_Y (sobrescriben B)  LOOP=true  T_MAX=120  RUN_TAG=...  CONTROL_MODE=motors
+set -e
+source /opt/ros/jazzy/setup.bash
+ROOT=${NANO_UAV_ROOT:-/sim/nano_uav}
+export NANO_UAV_ROOT=$ROOT
+export GZ_SIM_RESOURCE_PATH=$ROOT/gazebo/models:$GZ_SIM_RESOURCE_PATH
+export GZ_PARTITION=${GZ_PARTITION:-nano_uav_sim_$$}
+export PYTHONPATH=$ROOT/src:$PYTHONPATH
+export NANOUAV_HOME=$ROOT
+MODE=${CONTROL_MODE:-velocity}
+WORLD=${WORLD:-obstaculos}
+SEED=${SEED:-0}
+
+# ── mundo ──────────────────────────────────────────────────────────────────
+WJSON=""
+if [ "$WORLD" = "base" ]; then
+    SDF=$ROOT/gazebo/worlds/nano_uav_world.sdf
+    DEF_GX=4.5; DEF_GY=0.0
+else
+    KWARGS=""; KTAG=""
+    if [ -n "$WORLD_KW" ]; then
+        KWARGS="--kw $WORLD_KW"
+        KTAG=$(python3 -c "import sys; print(''.join('_%s%g' % (k, float(v)) for k, v in (x.split('=') for x in sys.argv[1].split(',') if x)))" "$WORLD_KW")
+    fi
+    TAG=${WORLD}_s${SEED}${KTAG}
+    SDF=$ROOT/gazebo/worlds/gen/$TAG.sdf
+    WJSON=$ROOT/gazebo/worlds/gen/$TAG.json
+    if [ ! -f "$SDF" ] || [ ! -f "$WJSON" ] || [ -n "$REGEN" ]; then
+        echo "generando mundo $TAG ..."
+        python3 $ROOT/gazebo/tools/gen_world.py --scenario $WORLD --seed $SEED $KWARGS
+    fi
+    read DEF_GX DEF_GY DYN <<< $(python3 -c "import json,sys; s=json.load(open(sys.argv[1])); print(s['B'][0], s['B'][1], len(s['dynamic']))" "$WJSON")
+fi
+GOAL_X=${GOAL_X:-$DEF_GX}; GOAL_Y=${GOAL_Y:-$DEF_GY}
+
+echo "=== Nano-UAV · Gazebo · mundo=$WORLD semilla=$SEED · planificador=${PLANNER:-mh} · control=$MODE ==="
+if [ -n "$DISPLAY" ] && [ "${HEADLESS:-false}" != "true" ]; then
+    gz sim $SDF -r &
+else
+    gz sim $SDF -r -s --headless-rendering &
+fi
+GZ_PID=$!
+
+# esperar a que el mundo esté cargado (con render por software puede tardar > 30 s)
+for i in $(seq 1 120); do
+    gz service -l 2>/dev/null | grep -q "/world/nano_uav_world/create" && break
+    sleep 1
+done
+echo "mundo cargado en ~${i} s"
+
+BRIDGES="/nano_uav/gazebo/command/twist@geometry_msgs/msg/Twist@gz.msgs.Twist
+/nano_uav/gazebo/command/motor_speed@actuator_msgs/msg/Actuators@gz.msgs.Actuators
+/nano_uav/enable@std_msgs/msg/Bool@gz.msgs.Boolean
+/model/nano_uav/odometry@nav_msgs/msg/Odometry@gz.msgs.Odometry
+/nano_uav/imu@sensor_msgs/msg/Imu@gz.msgs.IMU
+/nano_uav/camera/image@sensor_msgs/msg/Image@gz.msgs.Image
+/nano_uav/depth/image@sensor_msgs/msg/Image@gz.msgs.Image
+/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"
+if [ -n "$WJSON" ] && [ "${DYN:-0}" -gt 0 ]; then
+    for n in $(python3 -c "import json,sys; print(' '.join(d['name'] for d in json.load(open(sys.argv[1]))['dynamic']))" "$WJSON"); do
+        BRIDGES="$BRIDGES
+/model/$n/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist
+/model/$n/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry"
+    done
+fi
+ros2 run ros_gz_bridge parameter_bridge $BRIDGES > /tmp/bridge.log 2>&1 &
+BRIDGE_PID=$!
+sleep 2
+
+# marcador de B solo si se sobrescribe la meta del mundo
+spawn_marker () {   # nombre x y r g b
+    MSDF="<sdf version='1.9'><model name='$1'><static>true</static><pose>$2 $3 0.008 0 0 0</pose><link name='l'>\
+<visual name='v'><geometry><cylinder><radius>0.25</radius><length>0.004</length></cylinder></geometry>\
+<material><ambient>$4 $5 $6 1</ambient><diffuse>$4 $5 $6 1</diffuse><emissive>$4 $5 $6 1</emissive></material></visual>\
+</link></model></sdf>"
+    gz service -s /world/nano_uav_world/create --reqtype gz.msgs.EntityFactory --reptype gz.msgs.Boolean \
+        --timeout 5000 --req "sdf: \"$MSDF\" allow_renaming: true" 2>/dev/null | grep -q true \
+        && echo "marcador $1 en ($2, $3)" || echo "aviso: no se pudo crear el marcador $1"
+}
+if [ "$GOAL_X" != "$DEF_GX" ] || [ "$GOAL_Y" != "$DEF_GY" ]; then
+    spawn_marker meta_B_custom $GOAL_X $GOAL_Y 0.1 0.9 0.1
+fi
+
+DYN_PID=""
+if [ -n "$WJSON" ] && [ "${DYN:-0}" -gt 0 ]; then
+    python3 $ROOT/gazebo/nodes/dyn_obstacles_node.py --ros-args -p world_json:=$WJSON &
+    DYN_PID=$!
+fi
+FC_PID=""
+if [ "$MODE" = "motors" ]; then
+    python3 $ROOT/gazebo/nodes/flight_controller_node.py --ros-args -p yaw_sign:=${YAW_SIGN:-1} &
+    FC_PID=$!
+fi
+python3 $ROOT/gazebo/nodes/perception_node.py --ros-args -p control_mode:=$MODE \
+    -p variant:=${VARIANT:-M} -p profile:=${PROFILE:-x3} -p consistent:=${CONSISTENT:-false} \
+    -p rf_dyn:=${RF_DYN:-false} -p v_cruise:=${V_CRUISE:-0.5} \
+    -p planner:=${PLANNER:-mh} -p goal:=${GOAL:-true} -p goal_x:=$GOAL_X -p goal_y:=$GOAL_Y -p loop:=${LOOP:-false} \
+    -p world_json:="$WJSON" -p t_max:=${T_MAX:-0.0} -p exit_on_done:=${EXIT_ON_DONE:-false} \
+    -p run_tag:="${RUN_TAG:-}" -p hud:=$([ "${HEADLESS:-false}" = "true" ] && echo false || echo true) &
+NODE_PID=$!
+
+cleanup () { kill $NODE_PID $DYN_PID $FC_PID $BRIDGE_PID $GZ_PID 2>/dev/null; sleep 1; kill -9 $GZ_PID 2>/dev/null; pkill -f "gz sim" 2>/dev/null; true; }
+trap "cleanup; exit 0" SIGINT SIGTERM
+echo "Ctrl+C para detener"
+if [ "${EXIT_ON_DONE:-false}" = "true" ]; then
+    wait $NODE_PID || true
+    cleanup
+else
+    wait $GZ_PID
+fi

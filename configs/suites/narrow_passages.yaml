@@ -1,0 +1,11 @@
+# R13: pasos estrechos (puerta + pasillo + puerta, sin rodeo) con distintos anchos, planificadores y CNN.
+name: narrow_passages
+description: Narrow passages — width × planner × CNN variant (X3), plus ground-truth depth as upper bound
+matrix: {w: ["1.2", "1.0"], planner: [mh, mh1], variant: [M, M_ToF]}
+jobs:
+  - id: estrechos-w{w}-{planner}-{variant}
+    run: r12 --world scn:estrechos;w={w} --goals 0:0 --planner {planner} --n 10 --variant {variant}
+  - id: estrechos-w{w}-{planner}-gt
+    run: r12 --world scn:estrechos;w={w} --goals 0:0 --planner {planner} --n 10
+    env: {NANOUAV_FAKE_CNN: "1"}
+    matrix: {w: ["1.2", "1.0"], planner: [mh, mh1]}
