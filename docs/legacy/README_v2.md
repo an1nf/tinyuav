@@ -1,3 +1,6 @@
+> **Documento histórico** de la estructura plana anterior (`uav_v2`/`uav_v3`). Los comandos y rutas
+> ya no son válidos; ver [docs/migracion.md](../migracion.md) para su equivalente con `nanouav`.
+
 # Nano-UAV — percepción monocular + ToF y control hasta motores (simulación)
 
 Pipeline completo de un nano-cuadricóptero ESP32-S3 simulado en Python y en

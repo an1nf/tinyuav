@@ -27,7 +27,7 @@ htmlcov/
 
 # Gazebo: mundos y texturas generados
 /gazebo/worlds/gen/
-/gazebo/models/nano_textures/materials/textures/
+/gazebo/models/nano_textures/
 
 # Editores / SO
 .vscode/

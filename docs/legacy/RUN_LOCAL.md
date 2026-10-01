@@ -1,3 +1,6 @@
+> **Documento histórico** de la estructura plana anterior (`uav_v2`/`uav_v3`). Los comandos y rutas
+> ya no son válidos; ver [docs/migracion.md](../migracion.md) para su equivalente con `nanouav`.
+
 # Pruebas en el equipo local (GPU 12 GB + pesos entrenados de v2)
 
 Todo corre desde la raíz del proyecto. **Solo el entrenamiento usa GPU**; las simulaciones de

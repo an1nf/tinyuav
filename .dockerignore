@@ -1,0 +1,16 @@
+# El repositorio se monta en /sim/nano_uav al ejecutar (gz_docker.sh); la imagen solo necesita el código.
+.git/
+.venv/
+venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+data/
+results/
+models/*.keras
+gazebo/worlds/gen/
+gazebo/models/nano_textures/
+*.zip
+*.bundle

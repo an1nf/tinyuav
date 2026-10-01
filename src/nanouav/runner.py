@@ -36,6 +36,7 @@ from pathlib import Path
 from nanouav import paths
 from nanouav.experiments import get as get_experiment
 
+PKG_SRC = Path(__file__).resolve().parents[1]
 THREAD_ENV = {'OMP_NUM_THREADS': '1', 'TF_NUM_INTRAOP_THREADS': '1', 'TF_NUM_INTEROP_THREADS': '1',
               'TF_CPP_MIN_LOG_LEVEL': '3', 'MPLBACKEND': 'Agg'}
 
@@ -112,6 +113,8 @@ def run_suite(path: str | Path, workers: int | None = None, out: str | None = No
 
     def _one(job: Job) -> int:
         env = {**os.environ, **THREAD_ENV, **job.env, 'NANOUAV_RESULTS': str(out_dir)}
+        # the child must import the same nanouav as this process (also without `pip install -e .`)
+        env['PYTHONPATH'] = os.pathsep.join(p for p in (str(PKG_SRC), os.environ.get('PYTHONPATH', '')) if p)
         if not job.gpu:
             env['CUDA_VISIBLE_DEVICES'] = ''
         log = out_dir / 'logs' / f'{job.id}.log'

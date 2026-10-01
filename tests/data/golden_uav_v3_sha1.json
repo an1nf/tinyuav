@@ -1,0 +1,36 @@
+{
+ "episode": [
+  "a1222f978e5d24b0",
+  2.410701,
+  false
+ ],
+ "evasion": "424135a2d978a905",
+ "flow": [
+  40,
+  0.000439
+ ],
+ "fuse": "94bf6634094c0d1c",
+ "fuse2": "41089bdb4b4001a9",
+ "mh": "024b2ee5740b659d",
+ "render": [
+  "3d6af633eb74c4bd",
+  "03348990c5da8af7"
+ ],
+ "scen": {
+  "bosque_0": "7c24d912bd84742b",
+  "bosque_1": "67766d8909364f0e",
+  "corredor_0": "4c9ac6fee2cf43cc",
+  "corredor_1": "8398b274b2d38697",
+  "dinamico_0": "319311b4fb8c2539",
+  "dinamico_1": "54bacdadbd008e9c",
+  "estrechos_0": "bf86c922a153933e",
+  "estrechos_1": "2d431b564843441a",
+  "interior_0": "c885d0bf4acdbb20",
+  "interior_1": "0075886079381d4a",
+  "obstaculos_0": "a39605bd71883986",
+  "obstaculos_1": "51ee8a0c5c6d193c",
+  "rendijas_0": "c48c373df483f69e",
+  "rendijas_1": "935e1286dfd58507"
+ },
+ "tof": "55882e75accab115"
+}

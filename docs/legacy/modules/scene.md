@@ -1,3 +1,6 @@
+> **Documento histórico** de la estructura plana anterior (`uav_v2`/`uav_v3`). Los comandos y rutas
+> ya no son válidos; ver [docs/migracion.md](../../migracion.md) para su equivalente con `nanouav`.
+
 # 00 · Generador de escenas sintéticas
 
 ## Qué es
