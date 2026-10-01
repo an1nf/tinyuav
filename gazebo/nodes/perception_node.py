@@ -108,7 +108,7 @@ class PerceptionNode(Node):
         self.ep = {'t_takeoff': None, 'min_clear': np.inf, 'collisions': 0, 'in_coll': False, 'path': 0.0,
                    'p_prev': None, 'result': None, 'modes': {}, 'traj': [], 'rtf': []}
         self.done = False
-        self.sim_t, self._rtf_ref = None, None
+        self.sim_t, self._rtf_ref, self._clock_bad = None, None, False
         self.dyn_pos = {}
         self.cal = ToFCalibrator()
         self.ref = ReferenceGenerator(dict(REF_LIMITS['normal'], yaw_a=yaw_accel_limit(P)))
@@ -236,8 +236,21 @@ class PerceptionNode(Node):
 
     # ── simulation clock and episode monitor ──────────────────────────────
     def clock_cb(self, msg):
-        self.sim_t = msg.clock.sec + 1e-9 * msg.clock.nanosec
+        new = msg.clock.sec + 1e-9 * msg.clock.nanosec
         w = time.monotonic()
+        if self._clock_bad:
+            return
+        if self.sim_t is not None and new < self.sim_t - 1e-3:
+            # simulation time went backwards: a second /clock publisher (another simulation in the same
+            # ROS domain / Gazebo partition) or a world reset → stop trusting the simulation clock and
+            # continue the episode on wall time (the elapsed time so far is kept)
+            self.get_logger().error('/clock went backwards (%.1f → %.1f s): another simulation publishing /clock? '
+                                    'Episode monitor falls back to wall time.' % (self.sim_t, new))
+            if self.ep['t_takeoff'] is not None:
+                self.ep['t_takeoff'] = (w - self.t0) - (self.sim_t - self.ep['t_takeoff'])
+            self._clock_bad = True
+            return
+        self.sim_t = new
         if self._rtf_ref is None:
             self._rtf_ref = (w, self.sim_t)
         elif w - self._rtf_ref[0] > 5.0:
@@ -252,7 +265,9 @@ class PerceptionNode(Node):
         self.dyn_pos[name] = (np.array([p.x, p.y, p.z]), r)
 
     def _now(self):
-        return self.sim_t if self.sim_t is not None else time.monotonic() - self.t0
+        if self.sim_t is not None and not self._clock_bad:
+            return self.sim_t
+        return time.monotonic() - self.t0
 
     def monitor(self):
         if self.done:
@@ -302,7 +317,7 @@ class PerceptionNode(Node):
                'profile': self.profile_name, 'world': self.scn['name'] if self.scn else 'nano_uav_world',
                'seed': self.scn['seed'] if self.scn else None, 'A': self.A.tolist() if self.A is not None else None,
                'B': self.B.tolist(), 'modes': ep['modes'], 'rtf': ep['rtf'], 'traj': ep['traj'],
-               'sim_time': self.sim_t is not None}
+               'sim_time': self.sim_t is not None and not self._clock_bad}
         d = os.path.join(str(paths.results_dir()), 'gz_runs')
         os.makedirs(d, exist_ok=True)
         tag = self.run_tag or time.strftime('%Y%m%d_%H%M%S')

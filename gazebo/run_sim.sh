@@ -14,7 +14,11 @@ source /opt/ros/jazzy/setup.bash
 ROOT=${NANO_UAV_ROOT:-/sim/nano_uav}
 export NANO_UAV_ROOT=$ROOT
 export GZ_SIM_RESOURCE_PATH=$ROOT/gazebo/models:$GZ_SIM_RESOURCE_PATH
-export GZ_PARTITION=${GZ_PARTITION:-nano_uav_sim_$$}
+# Isolate every container: with a shared partition / ROS domain, two simulations running at the same time
+# (batch_eval.sh PAR>1, or a leftover container) see each other's /clock and topics → negative real-time
+# factor, timeouts that never fire, commands from the other drone.
+export GZ_PARTITION=nano_uav_$(hostname)_$$
+export ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-LOCALHOST}
 export PYTHONPATH=$ROOT/src:$PYTHONPATH
 export NANOUAV_HOME=$ROOT
 MODE=${CONTROL_MODE:-velocity}

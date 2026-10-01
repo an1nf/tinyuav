@@ -187,3 +187,19 @@ def test_flight_controller_outputs_motor_speeds(ros):
         n.loop()
     msg = n.publishers['/nano_uav/gazebo/command/motor_speed'].msgs[-1]
     assert len(msg.velocity) == 4 and all(np.isfinite(msg.velocity)) and min(msg.velocity) > 0
+
+
+def test_clock_going_backwards_falls_back_to_wall_time(ros, world_json):
+    """Two simulations on the same /clock (shared partition/domain) must not freeze the episode monitor."""
+    node, s = make_perception(ros, world_json)
+    node.subscriptions['/clock'](clock(50.0))
+    node.subscriptions['/model/nano_uav/odometry'](odom((*s['A'], 0.65)))
+    node.monitor()                                            # take-off at sim 50 s
+    node.subscriptions['/clock'](clock(52.0))
+    node.subscriptions['/clock'](clock(3.0))                  # another simulation's clock
+    assert node._clock_bad
+    el = node._now() - node.ep['t_takeoff']
+    assert 1.5 < el < 3.0                                     # elapsed time preserved across the switch
+    node.ep['t_takeoff'] -= 10.0                              # pretend 10 more (wall) seconds went by
+    node.monitor()
+    assert node.done                                          # t_max = 5 s → timeout fires on wall time
