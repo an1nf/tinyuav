@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Resumen de episodios de Gazebo (assets/gz_runs/*.json) con IC95 de Wilson, y al lado el resultado del
-simulador propio en el MISMO escenario si existe (assets/g1_scn-<mundo>_<planificador>_*.json).
-  python3 gazebo/summarize_gz.py [--tag batch_0930_1800]
+Summary of Gazebo episodes (results/gz_runs/*.json) with Wilson 95% CIs, shown next to the result of our
+own simulator in the SAME scenario if it exists (results/g1_scn-<world>_<planner>_*.json).
+  nanouav summarize --gazebo [--tag batch_0930_1800]
 """
 import os, sys, json, glob, math, argparse
 from collections import defaultdict
@@ -45,9 +45,9 @@ def main():
         r = json.load(open(f))
         G[(r['world'], r['planner'], r['variant'], r['profile'])].append(r)
     if not G:
-        print('sin resultados en assets/gz_runs'); return
-    print(f"{'mundo':12s} {'plan':5s} {'CNN':6s} {'perfil':5s} {'éxito':>7s} {'IC95':>13s} {'col':>4s} {'t_med':>6s} "
-          f"{'camino':>6s} {'holg_mín':>8s} {'RTF':>5s} │ {'offline':>9s}")
+        print('no results in results/gz_runs'); return
+    print(f"{'world':12s} {'plan':5s} {'CNN':6s} {'prof':5s} {'success':>7s} {'CI95':>13s} {'col':>4s} {'t_med':>6s} "
+          f"{'path':>6s} {'min_clr':>8s} {'RTF':>5s} │ {'offline':>9s}")
     for (w, p, v, pr), L in sorted(G.items()):
         n, k = len(L), sum(r['success'] for r in L)
         lo, hi = wilson(k, n)
@@ -60,7 +60,7 @@ def main():
         off_s = f'{sum(off)}/{len(off)}' if off else '—'
         print(f'{w:12s} {p:5s} {v:6s} {pr:5s} {k:3d}/{n:<3d} [{lo:.2f}, {hi:.2f}] {col:4d} {tm:6.1f} {pm:6.1f} '
               f'{cm:8.2f} {rtf:5.2f} │ {off_s:>9s}')
-    print('\nresultado por episodio: ' + ', '.join(sorted({r["result"] for L in G.values() for r in L})))
+    print('\nresult per episode: ' + ', '.join(sorted({r["result"] for L in G.values() for r in L})))
 
 
 if __name__ == '__main__':

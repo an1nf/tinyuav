@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-dyn_obstacles_node.py — mueve los obstáculos dinámicos de un mundo generado (gen_world.py).
+dyn_obstacles_node.py — moves the dynamic obstacles of a generated world (`nanouav gazebo gen-world`).
 
-Cada entrada de scn['dynamic'] = {name, p0, axis, amp, v} va y viene sobre p0 + s·axis, s ∈ [0, amp],
-a velocidad v, mediante el plugin VelocityControl del modelo (/model/<name>/cmd_vel) y su odometría
-(/model/<name>/odometry). Mismo movimiento que el simulador propio (g1_gazebo_world.py, onda triangular).
-Uso: python3 dyn_obstacles_node.py --ros-args -p world_json:=/sim/nano_uav/gazebo/worlds/gen/dinamico_s0.json
+Each entry of scn['dynamic'] = {name, p0, axis, amp, v} moves back and forth along p0 + s·axis, s ∈ [0, amp],
+at speed v, via the model's VelocityControl plugin (/model/<name>/cmd_vel) and its odometry
+(/model/<name>/odometry). Same motion as in our own simulator (`nanouav run r12`, triangle wave).
+Usage: python3 dyn_obstacles_node.py --ros-args -p world_json:=/sim/nano_uav/gazebo/worlds/gen/dinamico_s0.json
 """
 import json
 import numpy as np
@@ -19,7 +19,7 @@ class DynNode(Node):
     def __init__(self):
         super().__init__('nano_uav_dyn_obstacles')
         self.declare_parameter('world_json', '')
-        self.declare_parameter('delay', 8.0)           # s tras la primera odometría antes de mover
+        self.declare_parameter('delay', 8.0)           # s after the first odometry before starting to move
         scn = json.load(open(self.get_parameter('world_json').value))
         self.delay = float(self.get_parameter('delay').value)
         self.items = []
@@ -32,7 +32,7 @@ class DynNode(Node):
                                                                                     m.pose.pose.position.z])), 10)
             self.items.append(it)
         self.create_timer(0.05, self.step)
-        self.get_logger().info(f'{len(self.items)} obstáculos dinámicos: '
+        self.get_logger().info(f'{len(self.items)} dynamic obstacles: '
                                + ', '.join(f"{it['d']['name']} v={it['d']['v']} m/s" for it in self.items))
 
     def step(self):
@@ -52,8 +52,8 @@ class DynNode(Node):
                 elif s < 0.0:
                     it['dir'] = 1.0
                 v = ax * d['v'] * it['dir']
-                v[2] = 1.5 * (d['p0'][2] - p[2])             # mantener la altura
-                # el balón no rota (VelocityControl fija ω = 0) → marco del modelo = mundo
+                v[2] = 1.5 * (d['p0'][2] - p[2])             # hold the height
+                # the ball does not rotate (VelocityControl fixes ω = 0) → model frame = world frame
                 tw.linear.x, tw.linear.y, tw.linear.z = map(float, v)
             it['pub'].publish(tw)
 

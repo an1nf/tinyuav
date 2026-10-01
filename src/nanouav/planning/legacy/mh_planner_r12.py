@@ -1,27 +1,27 @@
 """
-MHPlanner · planificador local con conjunto de trayectorias (Loquercio et al., Science Robotics 2021,
-"Learning High-Speed Flight in the Wild"), adaptado a nuestro mapa de profundidad monocular + ToF.
+MHPlanner · local planner with a trajectory set (Loquercio et al., Science Robotics 2021,
+"Learning High-Speed Flight in the Wild"), adapted to our monocular depth map + ToF.
 
-Qué se toma del paper y por qué:
-  1. Referencia global + planificador local receding-horizon. El paper condiciona la política a una
-     trayectoria de referencia; aquí la referencia es un campo de costo-a-meta (Dijkstra sobre la grilla
-     local, desconocido = transitable con penalización, "optimista"), que existe aunque la recta A→B
-     esté bloqueada. El planificador de carril (EvasionPlanner) solo mira ±2.3 m de la recta y se
-     bloquea cuando los huecos son más angostos que el dron (X3: r = 0.36 m) → deadlock observado en
-     Gazebo en x ≈ 0.4.
-  2. Hipótesis múltiples: el experto privilegiado del paper muestrea (Metropolis-Hastings) muchas
-     trayectorias libres de colisión y la red predice varias (multimodal) con un costo por cada una.
-     Aquí se evalúa un abanico de K arcos (rumbo × curvatura) y se elige el de menor costo; histéresis
-     sobre la hipótesis previa para no alternar izquierda/derecha.
-  3. Consistencia percepción-acción: el paper vuela con el rumbo alineado a la velocidad (la cámara
-     mira hacia donde se va). Aquí yaw = rumbo de la trayectoria elegida y la velocidad se limita
-     mientras el desalineo supera FOV_OK: primero girar para ver, luego avanzar. Antes, el limitador
-     de FOV anulaba cualquier desplazamiento lateral (k_fov = 0 a 90°) → el dron no podía rodear.
-  4. Velocidad limitada por el alcance percibido (v·τ + v²/2a ≤ distancia libre y OBSERVADA a lo
-     largo de la trayectoria), como en su análisis de velocidad máxima vs. alcance del sensor.
+What is taken from the paper and why:
+  1. Global reference + receding-horizon local planner. The paper conditions the policy on a
+     reference trajectory; here the reference is a cost-to-go field (Dijkstra over the local grid,
+     unknown = traversable with a penalty, "optimistic"), which exists even when the straight line A→B
+     is blocked. The lane planner (EvasionPlanner) only looks ±2.3 m around the line and gets
+     stuck when the gaps are narrower than the drone (X3: r = 0.36 m) → deadlock observed in
+     Gazebo at x ≈ 0.4.
+  2. Multiple hypotheses: the paper's privileged expert samples (Metropolis-Hastings) many
+     collision-free trajectories and the network predicts several (multimodal) with a cost for each.
+     Here a fan of K arcs (heading × curvature) is evaluated and the lowest-cost one is chosen; hysteresis
+     on the previous hypothesis avoids alternating left/right.
+  3. Perception-action consistency: the paper flies with the heading aligned to the velocity (the camera
+     looks where the drone is going). Here yaw = heading of the chosen trajectory and the speed is limited
+     while the misalignment exceeds FOV_OK: first turn to see, then advance. Previously, the FOV
+     limiter cancelled any lateral motion (k_fov = 0 at 90°) → the drone could not detour.
+  4. Speed limited by the perceived range (v·τ + v²/2a ≤ free AND OBSERVED distance along
+     the trajectory), as in their analysis of maximum speed vs. sensor range.
 
-Interfaz idéntica a EvasionPlanner (update → v_mundo, yaw, info); reutiliza _perceive, la grilla,
-set_segment, el filtro de barrera y el freno de emergencia.
+Same interface as EvasionPlanner (update → v_world, yaw, info); reuses _perceive, the grid,
+set_segment, the barrier filter and the emergency brake.
 """
 import math
 import numpy as np
@@ -39,15 +39,15 @@ class MHPlannerV1(EvasionPlanner):
         super().__init__(*a, **kw)
         self.CONSISTENT = True
         self.speed_law = 'brake'
-        self.N_HEAD, self.TURN = 36, (-0.6, -0.3, 0.0, 0.3, 0.6)   # 10° × 5 curvaturas = 180 hipótesis
-        self.T_H, self.DT_H = 2.5, 0.125                         # horizonte (s), paso de evaluación
-        self.W_CLR, self.C_PREF = 3.0, 0.35                      # penalización por holgura < r_safe + C_PREF
+        self.N_HEAD, self.TURN = 36, (-0.6, -0.3, 0.0, 0.3, 0.6)   # 10° × 5 curvatures = 180 hypotheses
+        self.T_H, self.DT_H = 2.5, 0.125                         # horizon (s), evaluation step
+        self.W_CLR, self.C_PREF = 3.0, 0.35                      # penalty for clearance < r_safe + C_PREF
         self.W_HYST, self.W_TURN, self.W_UNK = 1.5, 0.15, 0.6
-        self.OBS_COST = 25.0                                     # por celda dentro de r_safe (soft)
-        self.UNK_COST = 0.5                                      # costo extra por celda desconocida (Dijkstra)
-        self.CTG_PERIOD = 0.3                                    # s entre recálculos del campo de costo
+        self.OBS_COST = 25.0                                     # per cell inside r_safe (soft)
+        self.UNK_COST = 0.5                                      # extra cost per unknown cell (Dijkstra)
+        self.CTG_PERIOD = 0.3                                    # s between cost-field recomputations
         self.NEAR_GOAL = 1.2
-        self.SCAN_RATE = 0.6                                     # rad/s de giro de exploración sin salida
+        self.SCAN_RATE = 0.6                                     # rad/s exploration turn when there is no way out
         self._ctg, self._ctg_t, self._ctg_box = None, -1e9, None
         self._head_prev = None
         self._stuck = 0.0
@@ -55,26 +55,26 @@ class MHPlannerV1(EvasionPlanner):
 
     def set_segment(self, A, B, arrive=True, v_cruise=None):
         super().set_segment(A, B, arrive, v_cruise)
-        self._ctg, self._head_prev = None, None                 # nueva meta → recalcular referencia
+        self._ctg, self._head_prev = None, None                 # new goal → recompute reference
 
-    # ── mapa: holgura y costo-a-meta ────────────────────────────────────
+    # ── map: clearance and cost-to-go ───────────────────────────────────
     def _goal_xy(self, p):
         if self.goal is not None:
             return np.asarray(self.goal, float)
-        xd, _ = self._to_path(p[:2])                              # sin meta: 6 m por delante sobre el carril
+        xd, _ = self._to_path(p[:2])                              # no goal: 6 m ahead along the lane
         return self._from_path(np.array([[xd + 6.0, self.lane]]))[0]
 
     def _fields(self, p, goal, t):
         G = self.grid
         occ = G.g > 1.5
         free = (~occ).astype(np.uint8)
-        clr = cv2.distanceTransform(free, cv2.DIST_L2, 5) * G.res - 0.5 * G.res   # m a la celda ocupada
+        clr = cv2.distanceTransform(free, cv2.DIST_L2, 5) * G.res - 0.5 * G.res   # m to the nearest occupied cell
         if not occ.any():
             clr[:] = 1e3
         self._clr = clr
         if self._ctg is not None and t - self._ctg_t < self.CTG_PERIOD:
             return
-        # caja de cálculo: dron y meta ± 4 m
+        # computation box: drone and goal ± 4 m
         lo = np.minimum(p[:2], goal) - 4.0
         hi = np.maximum(p[:2], goal) + 4.0
         i0 = max(int((lo[0] - G.x0) / G.res), 0); i1 = min(int((hi[0] - G.x0) / G.res) + 1, G.nx)
@@ -83,9 +83,9 @@ class MHPlannerV1(EvasionPlanner):
         r_safe = self.radius + self.GAP_BIAS
         cost = 1.0 + self.UNK_COST * (~G.seen[i0:i1, j0:j1]) \
             + 4.0 * np.clip((r_safe + self.C_PREF - c) / self.C_PREF, 0, 1)
-        # obstáculos del mapa como costo ALTO pero finito: la CNN deja fantasmas a 2–4 m (fuera del alcance
-        # del ToF) que, como restricción dura, encierran al dron (campo = inf). La restricción dura de colisión
-        # la aplican los arcos (≤ 1.25 m, donde el mapa es fiable); la referencia global es optimista.
+        # map obstacles as a HIGH but finite cost: the CNN leaves phantoms at 2–4 m (beyond the ToF
+        # range) that, as a hard constraint, enclose the drone (field = inf). The hard collision constraint
+        # is enforced by the arcs (≤ 1.25 m, where the map is reliable); the global reference is optimistic.
         cost[c < r_safe] += self.OBS_COST
         D = np.full(c.shape, np.inf, np.float32)
         gi = int(np.clip((goal[0] - G.x0) / G.res - i0, 0, c.shape[0] - 1))
@@ -115,7 +115,7 @@ class MHPlannerV1(EvasionPlanner):
         out[ok] = F[ix[ok], iy[ok]]
         return out
 
-    # ── hipótesis ───────────────────────────────────────────────────────
+    # ── hypotheses ──────────────────────────────────────────────────────
     def _rollouts(self, p, v_nom):
         th0 = np.arange(self.N_HEAD) * 2 * math.pi / self.N_HEAD
         H, W = np.meshgrid(th0, np.array(self.TURN), indexing='ij')
@@ -143,25 +143,25 @@ class MHPlannerV1(EvasionPlanner):
         v_nom = max(abs(self.v_cruise), 0.2)
         H, Wt, P, ds = self._rollouts(p, v_nom)                 # (K,), (K,), (K,N,2)
         K, N = P.shape[:2]
-        clr = self._lookup(self._clr, P, fill=1e3)             # holgura en cada punto
+        clr = self._lookup(self._clr, P, fill=1e3)             # clearance at each point
         seen = self._lookup(G.seen.astype(np.float32), P, fill=0.0) > 0.5
         s = np.arange(1, N + 1) * ds
         bad = clr < r_safe
         first_bad = np.where(bad.any(1), s[bad.argmax(1)], np.inf)
         first_unk = np.where((~seen).any(1), s[(~seen).argmax(1)], np.inf)
-        s_free = np.minimum(first_bad, first_unk)              # libre Y observado
+        s_free = np.minimum(first_bad, first_unk)              # free AND observed
         v_ok = -a * tau + np.sqrt((a * tau) ** 2 + 2 * a * np.maximum(s_free - 0.3, 0.0))
         creeping = self._stuck > 1.5
         v_ok = np.where((first_unk <= first_bad) & creeping, np.maximum(v_ok, self.V_CREEP), v_ok)
         v_ex = np.minimum(v_ok, v_nom)
-        # extremo efectivo: lo que se avanza a la velocidad ejecutable en el horizonte
+        # effective endpoint: how far the drone gets at the executable speed within the horizon
         n_eff = np.clip(np.round(v_ex / v_nom * N).astype(int) - 1, -1, N - 1)
-        n_bad = np.where(bad.any(1), bad.argmax(1) - 2, N - 1)     # solo cuenta el tramo libre del arco
+        n_bad = np.where(bad.any(1), bad.argmax(1) - 2, N - 1)     # only the free segment of the arc counts
         n_eff = np.minimum(n_eff, n_bad)
         end = np.where(n_eff[:, None] >= 0, P[np.arange(K), np.maximum(n_eff, 0)], p[:2][None, :])
         ctg_end = self._lookup(self._ctg, end, self._ctg_box)
         ctg_here = float(self._lookup(self._ctg, p[None, :2], self._ctg_box)[0])
-        feasible = first_bad > 0.6                             # al menos 0.6 m del arco sin colisión
+        feasible = first_bad > 0.6                             # at least 0.6 m of the arc collision-free
         pen_clr = self.W_CLR * np.clip((r_safe + self.C_PREF - clr[:, :max(int(1.2 / ds), 1)]) / self.C_PREF,
                                        0, 1).mean(1)
         dpsi = np.abs(_wrap(H - yaw))
@@ -171,7 +171,7 @@ class MHPlannerV1(EvasionPlanner):
         J = np.where(feasible & np.isfinite(ctg_end), J, np.inf)
         k = int(np.argmin(J))
         ok = np.isfinite(J[k])
-        # ¿progresa? (si ninguna hipótesis reduce el costo-a-meta, contar atasco → creep en desconocido)
+        # making progress? (if no hypothesis reduces the cost-to-go, count as stuck → creep into unknown)
         progress = ok and (not np.isfinite(ctg_here) or ctg_here - ctg_end[k] > 0.02)
         self._stuck = 0.0 if progress or arrived else self._stuck + 0.1
 
@@ -182,20 +182,20 @@ class MHPlannerV1(EvasionPlanner):
             head = self._head_prev if self._head_prev is not None else yaw
         elif d_goal < self.NEAR_GOAL and self.goal is not None and self.arrive and \
                 (self._lookup(self._clr, p[:2] + np.linspace(0, 1, 8)[:, None] * (goal - p[:2]), fill=1e3) > r_safe).all():
-            # tramo final: aproximación directa (holonómica) con frenado de llegada, yaw fijo
+            # final segment: direct (holonomic) approach with arrival braking, fixed yaw
             u = (goal - p[:2]) / max(d_goal, 1e-6)
             sp = min(v_nom, math.sqrt(2 * self.A_ARRIVE * max(d_goal - 0.05, 0.0)), 1.2 * d_goal)
             v_xy, mode = u * sp, 'APPROACH'
             head = self._head_prev if self._head_prev is not None else yaw
         elif ok:
-            i_l = min(max(int(0.5 / ds), 1), N) - 1                # dirección hacia el punto a 0.5 m
+            i_l = min(max(int(0.5 / ds), 1), N) - 1                # direction toward the point at 0.5 m
             dvec = P[k, i_l] - p[:2]
             u = dvec / max(np.linalg.norm(dvec), 1e-6)
-            head = math.atan2(u[1], u[0])                          # la cámara mira hacia donde se va
+            head = math.atan2(u[1], u[0])                          # the camera looks where the drone is going
             sp = float(v_ex[k])
             if self.goal is not None and self.arrive:
                 sp = min(sp, math.sqrt(2 * self.A_ARRIVE * max(d_goal - 0.05, 0.0)))
-            # consistencia percepción-acción: avanzar solo lo que la cámara ya ve (girar primero)
+            # perception-action consistency: only advance into what the camera already sees (turn first)
             th = abs(_wrap(math.atan2(u[1], u[0]) - yaw))
             k_fov = float(np.clip(1.0 - (th - self.FOV_OK) / (self.FOV_LIM - self.FOV_OK), 0.0, 1.0))
             sp *= k_fov
@@ -205,12 +205,12 @@ class MHPlannerV1(EvasionPlanner):
             if sp < 0.05:
                 mode = 'TURN'
         else:
-            # sin hipótesis factible: detenerse y girar para observar (exploración de rumbo)
+            # no feasible hypothesis: stop and turn to observe (heading exploration)
             v_xy, mode = np.zeros(2), 'SCAN'
             head = yaw + self.SCAN_RATE
         self._head_prev = head
 
-        # filtro de barrera (igual que EvasionPlanner) + freno de emergencia
+        # barrier filter (same as EvasionPlanner) + emergency brake
         if len(occ_xy):
             dv = p[:2] - occ_xy
             dist = np.hypot(dv[:, 0], dv[:, 1])
@@ -230,11 +230,11 @@ class MHPlannerV1(EvasionPlanner):
                 v_xy, mode = 0.3 * away, 'BRAKE'
         else:
             c_near = np.inf
-        if z < self.z_cruise - 0.15:                           # despegue: primero altura
+        if z < self.z_cruise - 0.15:                           # takeoff: altitude first
             v_xy = np.zeros(2)
         v_z = float(np.clip(self.K_Z * (self.z_cruise - z), -self.V_Z, self.V_Z))
         v_world = np.array([v_xy[0], v_xy[1], v_z])
-        # suavizado de objetivos (sin filtrar si se frena)
+        # target smoothing (unfiltered when braking)
         slowing = self.v_prev is not None and np.hypot(*v_world[:2]) < np.hypot(*self.v_prev[:2]) - 0.05
         if self.v_prev is not None and mode != 'BRAKE' and not slowing:
             v_world = self.v_prev + self.TARGET_ALPHA * (v_world - self.v_prev)

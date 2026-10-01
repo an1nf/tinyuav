@@ -1,14 +1,14 @@
 """
-E0-C · Política P3 con medición de latencia real de activación CNN.
+E0-C · Policy P3 with real measurement of CNN activation latency.
 
-Qué mide:
-  - Latencia de inferencia CNN (time.perf_counter) por frame activado
-  - Latencia total del pipeline P3 (flow + decisión + CNN si activa)
-  - Distribución de divergencia: cuándo se activa y cuándo no
-  - Comparativa de tiempo de reacción: P1 (siempre) vs P3 (condicional)
+What it measures:
+  - CNN inference latency (time.perf_counter) per triggered frame
+  - Total P3 pipeline latency (flow + decision + CNN if triggered)
+  - Divergence distribution: when it triggers and when it does not
+  - Reaction-time comparison: P1 (always) vs P3 (conditional)
 
-La latencia que se mide aquí es real (tu CPU), no estimada.
-El factor de escala al ESP32-S3 es aproximadamente 8–15× más lento.
+The latency measured here is real (your CPU), not estimated.
+The scaling factor to the ESP32-S3 is roughly 8–15× slower.
 """
 import time
 import sys
@@ -33,17 +33,17 @@ def _now() -> float:
 
 def run(n: int = N_FRAMES, variant: str = VARIANT) -> dict:
     """
-    Corre el pipeline P3 completo y recolecta métricas de latencia.
-    Retorna dict con arrays de resultados.
+    Runs the full P3 pipeline and collects latency metrics.
+    Returns a dict of result arrays.
     """
     records = {
-        # por frame
+        # per frame
         'div':           np.zeros(n),
         'cnn_triggered': np.zeros(n, dtype=bool),
-        'lat_flow_ms':   np.zeros(n),   # tiempo de flujo óptico solo
-        'lat_cnn_ms':    np.zeros(n),   # tiempo de inferencia CNN (0 si no activa)
-        'lat_p3_ms':     np.zeros(n),   # tiempo total P3 (flow + cnn si activa)
-        'lat_p1_ms':     np.zeros(n),   # tiempo P1 (siempre CNN) para comparar
+        'lat_flow_ms':   np.zeros(n),   # optical-flow time only
+        'lat_cnn_ms':    np.zeros(n),   # CNN inference time (0 if not triggered)
+        'lat_p3_ms':     np.zeros(n),   # total P3 time (flow + CNN if triggered)
+        'lat_p1_ms':     np.zeros(n),   # P1 time (always CNN) for comparison
         'min_dist_p3':   np.zeros(n),
         'min_dist_p1':   np.zeros(n),
         'action_p3':     [],
@@ -56,12 +56,12 @@ def run(n: int = N_FRAMES, variant: str = VARIANT) -> dict:
         gray, depth_gt = synthetic_scene(t)
         tof = tof_8x8(depth_gt)
 
-        # ── Flujo óptico (siempre corre) ─────────────────────────────────
+        # ── Optical flow (always runs) ───────────────────────────────────
         t0 = _now()
         flow_pts, div = optical_flow(prev_gray, gray) if prev_gray is not None else ([], 0.0)
         t_flow = _now() - t0
 
-        # ── P3: CNN condicional ───────────────────────────────────────────
+        # ── P3: conditional CNN ───────────────────────────────────────────
         t0 = _now()
         triggered = should_trigger_cnn(div) or float(tof.min()) < 0.4
         lat_cnn = 0.0
@@ -71,18 +71,18 @@ def run(n: int = N_FRAMES, variant: str = VARIANT) -> dict:
             lat_cnn = _now() - t_cnn0
             dec_p3 = policy_p3(div, tof, depth_pred)
         else:
-            # sin CNN: usa ToF o retorna libre
+            # no CNN: use the ToF or return free
             depth_pred_dummy = np.full((96, 96), 4.0, dtype=np.float32)
             dec_p3 = policy_p3(div, tof, depth_pred_dummy)
         lat_p3 = _now() - t0 + t_flow
 
-        # ── P1: CNN siempre ───────────────────────────────────────────────
+        # ── P1: CNN always ────────────────────────────────────────────────
         t0 = _now()
         depth_pred_p1 = predict_depth(gray, depth_gt, variant)
         dec_p1 = policy_p1(depth_pred_p1)
         lat_p1 = _now() - t0
 
-        # ── Registrar ─────────────────────────────────────────────────────
+        # ── Record ────────────────────────────────────────────────────────
         records['div'][i]           = div
         records['cnn_triggered'][i] = triggered
         records['lat_flow_ms'][i]   = t_flow

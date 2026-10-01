@@ -1,16 +1,16 @@
 """
-E2-B · Experimento: calibración ToF→CNN en tiempo de ejecución.
+E2-B · Experiment: runtime ToF→CNN calibration.
 
-Simula un vuelo de N frames donde el calibrador ajusta
-progresivamente la escala de profundidad de la CNN usando el ToF.
+Simulates a flight of N frames in which the calibrator progressively
+adjusts the CNN depth scale using the ToF.
 
-Ejecutar:
+Run:
     conda activate nano_uav
-    python e2b_tof_calibration.py
+    nanouav run e2b
 
-Produce:
-    assets/e2b_calibration.png   — convergencia del estimador de escala
-    assets/e2b_depth_compare.png — profundidad antes/después de calibrar
+Produces:
+    results/e2b_calibration.png   — convergence of the scale estimator
+    results/e2b_depth_compare.png — depth before/after calibration
 """
 import os, sys, time
 import numpy as np
@@ -52,42 +52,42 @@ def _style(ax, title='', xlabel='', ylabel=''):
 
 
 _load_interpreter()
-print(f'[E2-B] CNN modo {"REAL" if is_real_mode() else "FAKE"}')
-print(f'       {N_FRAMES} frames · variante {VARIANT}\n')
+print(f'[E2-B] CNN mode {"REAL" if is_real_mode() else "FAKE"}')
+print(f'       {N_FRAMES} frames · variant {VARIANT}\n')
 
 cal = ToFCalibrator(alpha=0.15)
 
-# Acumuladores
+# Accumulators
 frames       = np.arange(N_FRAMES)
-gt_min       = np.zeros(N_FRAMES)    # profundidad mínima real
-raw_min      = np.zeros(N_FRAMES)    # CNN sin calibrar
-cal_min      = np.zeros(N_FRAMES)    # CNN calibrada
-tof_min_arr  = np.zeros(N_FRAMES)    # ToF mínimo
-scale_arr    = np.zeros(N_FRAMES)    # escala EMA
+gt_min       = np.zeros(N_FRAMES)    # true minimum depth
+raw_min      = np.zeros(N_FRAMES)    # uncalibrated CNN
+cal_min      = np.zeros(N_FRAMES)    # calibrated CNN
+tof_min_arr  = np.zeros(N_FRAMES)    # minimum ToF
+scale_arr    = np.zeros(N_FRAMES)    # EMA scale
 
-# Guardar 4 frames para visualización
+# Store 4 frames for visualization
 preview_frames = [10, 30, 60, 120]
 previews = {}
 
 for i in range(N_FRAMES):
-    # Escena: alternar entre renderer 3D y escena sintética original
+    # Scene: alternate between the 3D renderer and the original synthetic scene
     if i % 3 == 0:
         gray, depth_gt = render_scene(seed=i * 7)
     else:
         gray, depth_gt = synthetic_scene(t=i * 0.06)
 
-    # Inferencia CNN (salida normalizada [0,1])
+    # CNN inference (normalized output [0,1])
     depth_pred_norm = predict_depth_norm(gray, VARIANT, depth_gt)
-    # Metros sin calibrar (escala aprendida por la CNN)
+    # Uncalibrated meters (scale learned by the CNN)
     depth_raw_m = norm_to_m(depth_pred_norm)
 
-    # ToF simulado (metros absolutos)
+    # Simulated ToF (absolute meters)
     tof = tof_8x8(depth_gt)
 
-    # Calibrar y obtener profundidad en metros
+    # Calibrate and get depth in meters
     depth_cal_m = cal.update_and_scale(depth_pred_norm, tof)
 
-    # Registrar métricas
+    # Record metrics
     gt_min[i]      = float(depth_gt.min())
     raw_min[i]     = float(depth_raw_m.min())
     cal_min[i]     = float(depth_cal_m.min())
@@ -106,58 +106,58 @@ for i in range(N_FRAMES):
         }
 
 summary = cal.summary()
-print(f'Escala EMA final:  {summary["scale_ema"]:.3f}')
-print(f'Actualizaciones:   {summary["n_updates"]}')
-print(f'Escala media:      {summary["scale_mean"]:.3f} ± {summary["scale_std"]:.3f}')
+print(f'Final EMA scale:   {summary["scale_ema"]:.3f}')
+print(f'Updates:           {summary["n_updates"]}')
+print(f'Mean scale:        {summary["scale_mean"]:.3f} ± {summary["scale_std"]:.3f}')
 
-# Error de profundidad mínima: CNN raw vs calibrada vs ground truth
+# Minimum-depth error: raw CNN vs calibrated CNN vs ground truth
 err_raw = np.abs(raw_min - gt_min)
 err_cal = np.abs(cal_min - gt_min)
-print(f'\nError distancia mínima (MAE):')
-print(f'  CNN sin calibrar: {err_raw.mean():.3f} m')
-print(f'  CNN calibrada:    {err_cal.mean():.3f} m')
-print(f'  Mejora:           {(1 - err_cal.mean()/err_raw.mean())*100:.1f}%')
+print(f'\nMinimum-distance error (MAE):')
+print(f'  Uncalibrated CNN: {err_raw.mean():.3f} m')
+print(f'  Calibrated CNN:   {err_cal.mean():.3f} m')
+print(f'  Improvement:      {(1 - err_cal.mean()/err_raw.mean())*100:.1f}%')
 
 
-# ── Figura 1: Convergencia del calibrador ────────────────────────────────
+# ── Figure 1: Calibrator convergence ─────────────────────────────────────
 fig, axes = plt.subplots(2, 2, figsize=(13, 8), facecolor=BG)
-fig.suptitle('E2-B · Calibración ToF→CNN: convergencia del estimador de escala',
+fig.suptitle('E2-B · ToF→CNN calibration: convergence of the scale estimator',
              color='white', fontsize=11)
 
 ax = axes[0, 0]
-_style(ax, 'Factor de escala EMA a lo largo del vuelo',
+_style(ax, 'EMA scale factor along the flight',
        'frame', 'escala')
 ax.plot(frames, scale_arr, color='#5DCAA5', lw=1.5)
-ax.axhline(1.0, color='white', lw=0.6, ls='--', label='escala=1 (sin calibrar)')
+ax.axhline(1.0, color='white', lw=0.6, ls='--', label='scale=1 (uncalibrated)')
 ax.fill_between(frames, scale_arr * 0.9, scale_arr * 1.1,
                 alpha=0.1, color='#5DCAA5')
-ax.axvline(5, color='#EF9F27', lw=0.8, ls=':', label='calibrado (5 updates)')
+ax.axvline(5, color='#EF9F27', lw=0.8, ls=':', label='calibrated (5 updates)')
 ax.legend(fontsize=8, facecolor='#222', edgecolor='#333', labelcolor='white')
-ax.text(0.97, 0.05, f'escala final: {summary["scale_ema"]:.3f}',
+ax.text(0.97, 0.05, f'final scale: {summary["scale_ema"]:.3f}',
         transform=ax.transAxes, color='#5DCAA5', fontsize=8, ha='right')
 
 ax = axes[0, 1]
-_style(ax, 'Distancia mínima detectada', 'frame', 'metros')
-ax.plot(frames, gt_min,      color='white',    lw=1.0, alpha=0.6, label='GT real')
+_style(ax, 'Minimum detected distance', 'frame', 'metros')
+ax.plot(frames, gt_min,      color='white',    lw=1.0, alpha=0.6, label='ground truth')
 ax.plot(frames, tof_min_arr, color='#9B59B6',  lw=1.2, alpha=0.8, label='ToF')
-ax.plot(frames, raw_min,     color='#E24B4A',  lw=1.2, alpha=0.8, label='CNN sin cal.')
-ax.plot(frames, cal_min,     color='#5DCAA5',  lw=1.5, label='CNN calibrada')
+ax.plot(frames, raw_min,     color='#E24B4A',  lw=1.2, alpha=0.8, label='CNN uncal.')
+ax.plot(frames, cal_min,     color='#5DCAA5',  lw=1.5, label='calibrated CNN')
 ax.axhline(0.5, color='#E24B4A', lw=0.6, ls='--')
 ax.legend(fontsize=7, facecolor='#222', edgecolor='#333', labelcolor='white')
 
 ax = axes[1, 0]
-_style(ax, 'Error absoluto: distancia mínima', 'frame', '|error| (m)')
-ax.plot(frames, err_raw, color='#E24B4A', lw=1.2, alpha=0.8, label=f'Sin cal. MAE={err_raw.mean():.3f}m')
-ax.plot(frames, err_cal, color='#5DCAA5', lw=1.5, label=f'Calibrada MAE={err_cal.mean():.3f}m')
+_style(ax, 'Absolute error: minimum distance', 'frame', '|error| (m)')
+ax.plot(frames, err_raw, color='#E24B4A', lw=1.2, alpha=0.8, label=f'Uncal. MAE={err_raw.mean():.3f}m')
+ax.plot(frames, err_cal, color='#5DCAA5', lw=1.5, label=f'Calibrated MAE={err_cal.mean():.3f}m')
 ax.fill_between(frames, 0, err_raw - err_cal,
                 where=err_raw > err_cal, alpha=0.15, color='#5DCAA5',
-                label='mejora')
+                label='improvement')
 ax.legend(fontsize=8, facecolor='#222', edgecolor='#333', labelcolor='white')
 
 ax = axes[1, 1]
-_style(ax, 'Histograma error (m)', '|error| (m)', 'frecuencia')
-ax.hist(err_raw, bins=30, color='#E24B4A', alpha=0.6, label='Sin calibrar')
-ax.hist(err_cal, bins=30, color='#5DCAA5', alpha=0.7, label='Calibrada')
+_style(ax, 'Histograma error (m)', '|error| (m)', 'frequency')
+ax.hist(err_raw, bins=30, color='#E24B4A', alpha=0.6, label='Uncalibrated')
+ax.hist(err_cal, bins=30, color='#5DCAA5', alpha=0.7, label='Calibrated')
 ax.axvline(err_raw.mean(), color='#E24B4A', lw=1, ls='--')
 ax.axvline(err_cal.mean(), color='#5DCAA5', lw=1, ls='--')
 ax.legend(fontsize=8, facecolor='#222', edgecolor='#333', labelcolor='white')
@@ -169,12 +169,12 @@ plt.close(fig)
 print(f'\n[plot] {out}')
 
 
-# ── Figura 2: Comparativa visual antes/después ────────────────────────────
+# ── Figure 2: Before/after visual comparison ──────────────────────────────
 n_prev = len(previews)
 fig, axes = plt.subplots(n_prev, 4, figsize=(13, n_prev * 3), facecolor=BG)
-fig.suptitle('E2-B · Profundidad CNN: sin calibrar vs calibrada vs GT',
+fig.suptitle('E2-B · CNN depth: uncalibrated vs calibrated vs GT',
              color='white', fontsize=11)
-cols = ['Cámara', 'CNN sin calibrar', 'CNN calibrada', 'ToF 8×8 GT']
+cols = ['Camera', 'CNN uncalibrated', 'CNN calibrated', 'ToF 8×8 GT']
 
 for row, (fidx, pv) in enumerate(sorted(previews.items())):
     for col in range(4):
@@ -201,4 +201,4 @@ out2 = os.path.join(ASSETS, 'e2b_depth_compare.png')
 plt.savefig(out2, dpi=130, bbox_inches='tight', facecolor=BG)
 plt.close(fig)
 print(f'[plot] {out2}')
-print('\n[E2-B] Listo.')
+print('\n[E2-B] Done.')

@@ -1,6 +1,6 @@
 """
-Nano-UAV · Nivel 0 — Ejecución completa del pipeline
-Genera todas las visualizaciones en assets/
+Nano-UAV · Level 0 — Full pipeline run
+Generates all visualizations in results/
 """
 import os
 import sys
@@ -47,14 +47,14 @@ depth_pred = predict_depth(gray, depth_gt, 'M')
 tof = tof_8x8(depth_gt)
 
 fig, axes = plt.subplots(1, 3, figsize=(12, 4), facecolor=BG)
-fig.suptitle('Pipeline de percepción · variante M · 9 fps', color='white', fontsize=12)
+fig.suptitle('Perception pipeline · variant M · 9 fps', color='white', fontsize=12)
 for ax in axes: _style(ax)
 
 axes[0].imshow(gray, cmap='gray', vmin=0, vmax=255)
-axes[0].set_title('Cámara 96×96', color='white', fontsize=10); axes[0].axis('off')
+axes[0].set_title('Camera 96×96', color='white', fontsize=10); axes[0].axis('off')
 
 im = axes[1].imshow(depth_pred, cmap=_cmap, vmin=0.2, vmax=4.0)
-axes[1].set_title(f'Profundidad CNN  (mín: {depth_pred.min():.2f} m)', color='white', fontsize=10)
+axes[1].set_title(f'CNN depth  (min: {depth_pred.min():.2f} m)', color='white', fontsize=10)
 axes[1].axis('off'); plt.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04)
 
 im2 = axes[2].imshow(tof, cmap=_cmap, vmin=0.2, vmax=4.0)
@@ -64,13 +64,13 @@ axes[2].axis('off'); plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
 fig.tight_layout()
 plt.savefig(os.path.join(ASSETS, 'snapshot.png'), dpi=120, bbox_inches='tight', facecolor=BG)
 plt.close(fig)
-print('  → assets/snapshot.png')
+print('  → results/snapshot.png')
 
 
-# ── 2. Flujo óptico + trigger P3 ─────────────────────────────────────────
-print('[2/4] Flujo óptico...')
+# ── 2. Optical flow + P3 trigger ─────────────────────────────────────────
+print('[2/4] Optical flow...')
 fig, axes = plt.subplots(2, 4, figsize=(14, 6), facecolor=BG)
-fig.suptitle('Flujo óptico y trigger P3 · 8 instantes', color='white', fontsize=11)
+fig.suptitle('Optical flow and P3 trigger · 8 time steps', color='white', fontsize=11)
 
 prev_g = None
 for i, ax in enumerate(axes.flat):
@@ -82,7 +82,7 @@ for i, ax in enumerate(axes.flat):
     ax.imshow(vis)
     triggered = should_trigger_cnn(div)
     color = '#E24B4A' if triggered else '#5DCAA5'
-    ax.set_title(f't={t_i:.2f}  div={div:.3f}\n{"CNN ACTIVA" if triggered else "CNN reposo"}',
+    ax.set_title(f't={t_i:.2f}  div={div:.3f}\n{"CNN ACTIVE" if triggered else "CNN idle"}',
                  color=color, fontsize=7)
     ax.axis('off')
     prev_g = gray_i.copy()
@@ -90,11 +90,11 @@ for i, ax in enumerate(axes.flat):
 fig.tight_layout()
 plt.savefig(os.path.join(ASSETS, 'optical_flow.png'), dpi=120, bbox_inches='tight', facecolor=BG)
 plt.close(fig)
-print('  → assets/optical_flow.png')
+print('  → results/optical_flow.png')
 
 
-# ── 3. Políticas P1/P2/P3 ────────────────────────────────────────────────
-print('[3/4] Comparativa de políticas...')
+# ── 3. Policies P1/P2/P3 ─────────────────────────────────────────────────
+print('[3/4] Policy comparison...')
 N_FRAMES = 60
 records = {p: {'dists': [], 'cnn_on': []} for p in ['P1','P2','P3']}
 prev_g = None
@@ -117,18 +117,18 @@ for i in range(N_FRAMES):
 fig, axes = plt.subplots(1, 2, figsize=(12, 4), facecolor=BG)
 for ax in axes: _style(ax)
 
-axes[0].set_title('Distancia detectada por política', color='white', fontsize=10)
+axes[0].set_title('Detected distance per policy', color='white', fontsize=10)
 for p, rec in records.items():
     axes[0].plot(rec['dists'], label=p, color=PCOLS[p], lw=1.5, alpha=0.9)
-axes[0].axhline(0.5, color='#E24B4A', lw=0.7, ls='--', label='evasión')
-axes[0].axhline(1.0, color='#EF9F27', lw=0.7, ls='--', label='precaución')
-axes[0].set_ylabel('distancia mínima (m)', color='#888'); axes[0].set_xlabel('frame', color='#888')
+axes[0].axhline(0.5, color='#E24B4A', lw=0.7, ls='--', label='avoidance')
+axes[0].axhline(1.0, color='#EF9F27', lw=0.7, ls='--', label='caution')
+axes[0].set_ylabel('minimum distance (m)', color='#888'); axes[0].set_xlabel('frame', color='#888')
 axes[0].legend(fontsize=8, facecolor='#222', edgecolor='#333', labelcolor='white')
 
 act_pcts = {p: sum(rec['cnn_on'])/N_FRAMES*100 for p, rec in records.items()}
 bars = axes[1].bar(list(act_pcts.keys()), list(act_pcts.values()),
                    color=[PCOLS[p] for p in act_pcts], alpha=0.85)
-axes[1].set_title('CNN activa (% frames)', color='white', fontsize=10)
+axes[1].set_title('CNN active (% frames)', color='white', fontsize=10)
 axes[1].set_ylabel('%', color='#888'); axes[1].set_ylim(0, 115)
 for bar, (p, pct) in zip(bars, act_pcts.items()):
     axes[1].text(bar.get_x()+bar.get_width()/2, pct+1, f'{pct:.0f}%',
@@ -137,11 +137,11 @@ for bar, (p, pct) in zip(bars, act_pcts.items()):
 fig.tight_layout()
 plt.savefig(os.path.join(ASSETS, 'policy_comparison.png'), dpi=120, bbox_inches='tight', facecolor=BG)
 plt.close(fig)
-print('  → assets/policy_comparison.png')
+print('  → results/policy_comparison.png')
 
 
-# ── 4. Benchmark variantes ────────────────────────────────────────────────
-print('[4/4] Benchmark variantes...')
+# ── 4. Variant benchmark ──────────────────────────────────────────────────
+print('[4/4] Variant benchmark...')
 COLORS = {'XS':'#5DCAA5','S':'#378ADD','M':'#EF9F27','L':'#E24B4A'}
 N = 200
 results = {}
@@ -160,14 +160,14 @@ for vname in VARIANTS:
 fig, axes = plt.subplots(1, 2, figsize=(12, 4), facecolor=BG)
 for ax in axes: _style(ax)
 
-axes[0].set_title('Jitter PID por variante', color='white', fontsize=10)
+axes[0].set_title('PID jitter per variant', color='white', fontsize=10)
 for vname, res in results.items():
     axes[0].plot(res['j'], label=vname, color=COLORS[vname], lw=1.2, alpha=0.85)
-axes[0].axhline(200, color='white', lw=0.7, ls='--', label='límite 200 µs')
+axes[0].axhline(200, color='white', lw=0.7, ls='--', label='200 µs limit')
 axes[0].set_ylabel('Jitter (µs)', color='#888'); axes[0].set_xlabel('Frame', color='#888')
 axes[0].legend(fontsize=8, facecolor='#222', edgecolor='#333', labelcolor='white')
 
-axes[1].set_title('Trade-off jitter p99 vs FPS', color='white', fontsize=10)
+axes[1].set_title('p99 jitter vs FPS trade-off', color='white', fontsize=10)
 for vname, res in results.items():
     p99 = sorted(res['j'])[int(0.99*N)]
     fps = VARIANTS[vname]['fps']
@@ -175,14 +175,14 @@ for vname, res in results.items():
     axes[1].annotate(vname, (fps, p99), xytext=(5,5), textcoords='offset points',
                      color=COLORS[vname], fontsize=9)
 axes[1].axhline(200, color='white', lw=0.7, ls='--')
-axes[1].set_xlabel('FPS inferencia', color='#888'); axes[1].set_ylabel('Jitter p99 (µs)', color='#888')
+axes[1].set_xlabel('Inference FPS', color='#888'); axes[1].set_ylabel('Jitter p99 (µs)', color='#888')
 
 fig.tight_layout()
 plt.savefig(os.path.join(ASSETS, 'benchmark.png'), dpi=120, bbox_inches='tight', facecolor=BG)
 plt.close(fig)
-print('  → assets/benchmark.png')
+print('  → results/benchmark.png')
 
-print(f'\n{"Variante":<8} {"FPS":>5} {"Arena KB":>9} {"SRAM?":>6} {"p99 µs":>8} {"d_safe cm":>10}')
+print(f'\n{"Variant":<8} {"FPS":>5} {"Arena KB":>9} {"SRAM?":>6} {"p99 µs":>8} {"d_safe cm":>10}')
 print('─' * 52)
 for vname, v in VARIANTS.items():
     p99 = sorted(results[vname]['j'])[int(0.99*N)]
@@ -190,4 +190,4 @@ for vname, v in VARIANTS.items():
     sram = '✓' if fits_in_sram(vname) else '✗ PSRAM'
     print(f'{vname:<8} {v["fps"]:>5} {v["arena_kb"]:>9} {sram:>6} {p99:>8} {d_safe:>9.0f}')
 
-print('\nHecho. Todas las imágenes en assets/')
+print('\nDone. All images in results/')

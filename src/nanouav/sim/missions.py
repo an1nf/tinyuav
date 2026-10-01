@@ -1,18 +1,18 @@
 """
-E4 · Misiones: recorrido por waypoints, seguimiento de objetivo móvil y alta velocidad.
+E4 · Missions: waypoint route, moving-target following and high speed.
 
-  waypoints : A → B → C en un campo de obstáculos, barrido de velocidad de crucero
-  follow    : seguir un objetivo que se mueve entre obstáculos (medidas ruidosas
-              10 Hz con pérdidas, filtro α-β), manteniéndolo en cámara
-  speed     : Monte Carlo de corredores (E3) a 1.0 / 1.5 / 2.0 m/s
-  popup     : obstáculo que aparece de golpe delante del dron a alta velocidad
+  waypoints : A → B → C in an obstacle field, cruise-speed sweep
+  follow    : follow a target that moves among obstacles (noisy 10 Hz
+              measurements with dropouts, α-β filter), keeping it in the camera view
+  speed     : Monte Carlo of corridors (E3) at 1.0 / 1.5 / 2.0 m/s
+  popup     : obstacle that suddenly appears in front of the drone at high speed
 
-Todo usa el mismo lazo que E3 (render → CNN int8 → ToF → planificador → control
-→ motores → 6-DOF); la capa de misión solo fija tramo, velocidad y modo de yaw.
+Everything uses the same loop as E3 (render → int8 CNN → ToF → planner → control
+→ motors → 6-DOF); the mission layer only sets the segment, the speed and the yaw mode.
 
-Uso:
-    python e4_missions.py                                  # todo, x3
-    python e4_missions.py --profile nano --only follow,popup --n 10
+Usage:
+    nanouav run e4                                  # everything, x3
+    nanouav run e4 --profile nano --only follow,popup --n 10
 """
 import os, sys, json, math, time, argparse
 import numpy as np
@@ -30,19 +30,19 @@ ASSETS = str(paths.results_dir())
 
 
 def fast_kw(v):
-    """Parámetros del planificador y de la referencia según velocidad."""
+    """Planner and reference parameters as a function of speed."""
     fast = v > 0.8
     return ({'v_max': v, 'a_brake': 1.0 if fast else 0.8}, 'fast' if fast else 'normal')
 
 
 def set_brake_law(planner):
     planner.speed_law = 'brake'
-    planner.W_LANE = 0.6          # misiones: volver a la recta del tramo pesa más que la histéresis
-    planner.T_REACT = 0.6         # frame 0.1 s + latencia 0.06 + rampa de jerk + retardo de seguimiento
-    planner.GAP_BIAS = 0.15       # error de mapa (CNN + celda) observado a mayor velocidad
+    planner.W_LANE = 0.6          # missions: returning to the segment line weighs more than the hysteresis
+    planner.T_REACT = 0.6         # 0.1 s frame + 0.06 latency + jerk ramp + tracking delay
+    planner.GAP_BIAS = 0.15       # map error (CNN + cell) observed at higher speed
 
 
-# ── mundos ─────────────────────────────────────────────────────────────────
+# ── worlds ─────────────────────────────────────────────────────────────────
 def _seg_dist(p, a, b):
     ab = b - a
     t = np.clip(np.dot(p - a, ab) / max(np.dot(ab, ab), 1e-9), 0, 1)
@@ -50,14 +50,14 @@ def _seg_dist(p, a, b):
 
 
 def field_world(rng, wps, n=12, keep=0.9, on_path=3):
-    """Obstáculos altos dispersos; algunos sobre las rectas del recorrido."""
+    """Scattered tall obstacles; some placed on the straight segments of the route."""
     wps = [np.asarray(w, float)[:2] for w in wps]
     lo = np.min(wps, 0) - 1.0
     hi = np.max(wps, 0) + 1.0
     objs, placed = [], []
     for k in range(n + on_path):
         for _ in range(60):
-            if k < on_path:                          # sobre un tramo
+            if k < on_path:                          # on a segment
                 i = int(rng.integers(0, len(wps) - 1))
                 c = wps[i] + rng.uniform(0.3, 0.7) * (wps[i + 1] - wps[i]) + rng.normal(0, 0.15, 2)
             else:
@@ -76,11 +76,11 @@ def field_world(rng, wps, n=12, keep=0.9, on_path=3):
 
 
 class MovingTarget:
-    """Objetivo visible (cilindro) que recorre una curva suave a velocidad v."""
+    """Visible target (cylinder) that travels along a smooth curve at speed v."""
 
     def __init__(self, center, ax, ay, v, r=0.2, phase=0.0):
         self.c, self.ax, self.ay, self.v, self.r = np.asarray(center, float), ax, ay, v, r
-        L = 2 * math.pi * math.sqrt((ax ** 2 + ay ** 2) / 2)      # perímetro aprox. de la elipse
+        L = 2 * math.pi * math.sqrt((ax ** 2 + ay ** 2) / 2)      # approx. perimeter of the ellipse
         self.w = 2 * math.pi * v / L
         self.phase = phase
         self.obj = Cylinder(*self.pos(0.0), r, 0.0, 1.2, Texture('stripes', 0.85, 0.2, 0.25))
@@ -93,7 +93,7 @@ class MovingTarget:
         self.obj.cx, self.obj.cy = self.pos(t)
 
 
-# ── escenarios ─────────────────────────────────────────────────────────────
+# ── scenarios ──────────────────────────────────────────────────────────────
 def run_waypoints(P, v, seed, variant, log=False):
     rng = np.random.default_rng(seed)
     wps = [(-1.0, 0.0), (3.0 + rng.uniform(-0.5, 0.5), 2.5 + rng.uniform(-0.5, 0.5)),
@@ -121,11 +121,11 @@ def run_waypoints(P, v, seed, variant, log=False):
 
 def run_follow(P, v_target, seed, variant, T=45.0, noise=0.05, dropout=0.1,
                sensor='oracle', guidance='base'):
-    """sensor: 'oracle' (posición + ruido, E4 original) | 'bbox' | 'bbox_tof' (VisualTargetSensor)."""
+    """sensor: 'oracle' (position + noise, original E4) | 'bbox' | 'bbox_tof' (VisualTargetSensor)."""
     rng = np.random.default_rng(seed)
     tgt = MovingTarget((4.0, 0.0), 3.2, 2.4, v_target, phase=rng.uniform(0, 2 * math.pi))
     path = np.array([tgt.pos(t) for t in np.linspace(0, 2 * math.pi / tgt.w, 200)])
-    # obstáculos lejos de la trayectoria del objetivo
+    # obstacles away from the target trajectory
     objs = []
     for _ in range(200):
         c = rng.uniform([-1.5, -3.5], [9.5, 3.5])
@@ -164,7 +164,7 @@ def run_follow(P, v_target, seed, variant, T=45.0, noise=0.05, dropout=0.1,
     def extra(t):
         return list(tgt.pos(t))
 
-    # colisión con el objetivo = colisión (está en world.objects)
+    # collision with the target = collision (it is in world.objects)
     s, R, _, _ = run_episode(w, P, seed=seed, start=start, t_max=T, variant=variant, on_frame=on_frame,
                              on_step=on_step, done_fn=lambda t, p: t >= T - 0.01, planner_kw=kw,
                              limits=lim, record_extra=extra)
@@ -172,7 +172,7 @@ def run_follow(P, v_target, seed, variant, T=45.0, noise=0.05, dropout=0.1,
     d = np.hypot(tx - R[:, C['x']], ty - R[:, C['y']])
     bearing = np.arctan2(ty - R[:, C['y']], tx - R[:, C['x']])
     off = np.abs((bearing - R[:, C['yaw']] + np.pi) % (2 * np.pi) - np.pi)
-    m = R[:, 0] > 5.0                                      # tras la convergencia inicial
+    m = R[:, 0] > 5.0                                      # after the initial convergence
     s['follow_err_mean'] = float(np.mean(np.abs(d[m] - fol.d_follow)))
     s['follow_err_p95'] = float(np.percentile(np.abs(d[m] - fol.d_follow), 95))
     s['target_in_fov_pct'] = float(100 * np.mean(off[m] < 0.5 * 1.047))
@@ -180,7 +180,7 @@ def run_follow(P, v_target, seed, variant, T=45.0, noise=0.05, dropout=0.1,
     s['success'] = bool(not s['collided'] and not s['ground_contact'])
     if vis is not None:
         s.update(vis.stats)
-        s['lost_gt5s'] = bool(vis.max_gap > 5.0)            # criterio de fallo de Su et al.
+        s['lost_gt5s'] = bool(vis.max_gap > 5.0)            # failure criterion of Su et al.
         s['success'] = s['success'] and not s['lost_gt5s']
     s['sensor'], s['guidance'] = sensor, guidance
     return s, R, w
@@ -211,7 +211,7 @@ def run_popup(P, v, seed, variant, D=2.5):
     return s, R, w
 
 
-# ── gráficas ───────────────────────────────────────────────────────────────
+# ── plots ──────────────────────────────────────────────────────────────────
 def _ax(ax, t):
     ax.set_facecolor('#111111'); ax.tick_params(colors='#888', labelsize=8)
     for sp in ax.spines.values(): sp.set_edgecolor('#333')
@@ -237,7 +237,7 @@ def plot_missions(wp_runs, follow_run, path):
     import matplotlib.pyplot as plt
     fig, axs = plt.subplots(1, len(wp_runs) + 1, figsize=(5.2 * (len(wp_runs) + 1), 4.8), facecolor='#1a1a1a')
     for ax, (v, s, R, w, wps) in zip(axs, wp_runs):
-        _ax(ax, f'Waypoints v={v} m/s · {"OK" if s["success"] else "FALLO"} · {s["time_s"]:.0f}s')
+        _ax(ax, f'Waypoints v={v} m/s · {"OK" if s["success"] else "FAIL"} · {s["time_s"]:.0f}s')
         _draw_world(ax, w)
         sp = np.linalg.norm(R[:, [C['vx'], C['vy']]], axis=1)
         sc = ax.scatter(R[::20, C['x']], R[::20, C['y']], c=sp[::20], cmap='viridis', s=4, vmin=0, vmax=max(v, 0.5))
@@ -249,10 +249,10 @@ def plot_missions(wp_runs, follow_run, path):
     if follow_run is not None:
         s, R, w = follow_run
         ax = axs[-1]
-        _ax(ax, f'Seguimiento · err medio {s["follow_err_mean"]:.2f} m · en FOV {s["target_in_fov_pct"]:.0f}%')
+        _ax(ax, f'Following · mean err {s["follow_err_mean"]:.2f} m · en FOV {s["target_in_fov_pct"]:.0f}%')
         _draw_world(ax, w, skip=w.objects[-1])
-        ax.plot(R[:, len(C)], R[:, len(C) + 1], color='#EF9F27', lw=1, label='objetivo')
-        ax.plot(R[:, C['x']], R[:, C['y']], color='#5DCAA5', lw=1, label='dron')
+        ax.plot(R[:, len(C)], R[:, len(C) + 1], color='#EF9F27', lw=1, label='target')
+        ax.plot(R[:, C['x']], R[:, C['y']], color='#5DCAA5', lw=1, label='drone')
         ax.legend(fontsize=7, facecolor='#222', labelcolor='white')
         ax.set_aspect('equal')
     fig.tight_layout()
@@ -264,7 +264,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--profile', default='x3', choices=list(PROFILES))
     ap.add_argument('--variant', default='M')
-    ap.add_argument('--n', type=int, default=6, help='repeticiones por condición (MC)')
+    ap.add_argument('--n', type=int, default=6, help='repetitions per condition (MC)')
     ap.add_argument('--speeds', default='0.5,1.0,1.5,2.0')
     ap.add_argument('--only', default='waypoints,follow,speed,popup')
     a = ap.parse_args()
@@ -301,7 +301,7 @@ def main():
                 res.append(short(s, ('follow_err_mean', 'follow_err_p95', 'target_in_fov_pct', 'min_dist_target')))
                 if follow_run is None:
                     follow_run = (s, R, w)
-                print(f'[follow v_obj={vt}] {i}: {res[-1]}  ({time.time() - t0:.0f}s)', flush=True)
+                print(f'[follow v_target={vt}] {i}: {res[-1]}  ({time.time() - t0:.0f}s)', flush=True)
             out['follow'][str(vt)] = res
     if 'speed' in todo:
         out['speed'] = {}

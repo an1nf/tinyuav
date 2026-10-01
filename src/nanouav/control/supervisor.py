@@ -1,16 +1,16 @@
 """
-_06_control/supervisor.py — Monitor de estabilidad y recuperación.
+nanouav/control/supervisor.py — Stability monitor and recovery.
 
-Dispara RECOVER si:
-  * inclinación > tilt_trip, o |ω| > rate_trip, o caída vz < vz_trip
-  * saturación de roll/pitch del mezclador sostenida > sat_time (la de yaw no:
-    el mezclador la resuelve cediendo yaw)
-En RECOVER el FlightStack:
-  * transfiere la referencia sin salto (bumpless: v_ref ← v medida)
-  * lleva la velocidad horizontal a 0 con límites suaves, sostiene altitud (≥ z_min)
-  * congela el yaw en el ángulo actual y reduce la inclinación máxima a 15°
-Sale a NORMAL tras 'hold' s con inclinación, tasas y velocidad dentro de umbral
-(histéresis) — evita oscilar entre modos.
+Triggers RECOVER if:
+  * tilt > tilt_trip, or |ω| > rate_trip, or falling vz < vz_trip
+  * mixer roll/pitch saturation sustained > sat_time (yaw saturation does not count:
+    the mixer resolves it by yielding yaw)
+In RECOVER the FlightStack:
+  * transfers the reference without a jump (bumpless: v_ref ← measured v)
+  * brings horizontal velocity to 0 with smooth limits, holds altitude (≥ z_min)
+  * freezes yaw at the current angle and reduces the maximum tilt to 15°
+Returns to NORMAL after 'hold' s with tilt, rates and velocity within threshold
+(hysteresis) — avoids oscillating between modes.
 """
 import numpy as np
 
@@ -25,7 +25,7 @@ class StabilityMonitor:
         self.t_sat = 0.0
         self.t_ok = 0.0
         self.t_enter = None
-        self.events = []          # (t_inicio, t_fin, causa)
+        self.events = []          # (t_start, t_end, cause)
         self.cause = ''
 
     def update(self, st, saturated, t, dt):
@@ -43,7 +43,7 @@ class StabilityMonitor:
             elif v[2] < self.vz_trip:
                 cause = f'vz {v[2]:.1f} m/s'
             elif self.t_sat > self.sat_time:
-                cause = 'saturación'
+                cause = 'saturation'
             if cause:
                 self.mode, self.t_enter, self.t_ok, self.cause = 'RECOVER', t, 0.0, cause
                 entered = True

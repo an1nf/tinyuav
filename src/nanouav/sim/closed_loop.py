@@ -1,19 +1,19 @@
 """
-E3 · Simulación en lazo cerrado percepción → control → motores.
+E3 · Closed-loop simulation perception → control → motors.
 
-  render (cámara 10 Hz, pose real del dron) → CNN int8 → calibración ToF
-  → planificador de evasión (con latencia de percepción) → referencia suave
-  → control en cascada 500 Hz → mezclador → motores (1er orden) → dinámica 6-DOF
+  render (10 Hz camera, true drone pose) → int8 CNN → ToF calibration
+  → avoidance planner (with perception latency) → smooth reference
+  → 500 Hz cascaded control → mixer → motors (1st order) → 6-DOF dynamics
 
-Escenarios:
-  gazebo     : réplica del world SDF, vuelo de x=-1.5 a x=4.5
-  kick       : igual + golpe de torque (≈3.5 rad/s) y ráfaga lateral en plena evasión
-  montecarlo : N mundos aleatorios con obstáculos en el carril
-  ablation   : mismos mundos, referencia SIN suavizado (escalones como en v11)
+Scenarios:
+  gazebo     : replica of the SDF world, flight from x=-1.5 to x=4.5
+  kick       : same + torque kick (≈3.5 rad/s) and lateral gust in the middle of the avoidance
+  montecarlo : N random worlds with obstacles in the lane
+  ablation   : same worlds, reference WITHOUT smoothing (steps as in v11)
 
-Uso:
-    python e3_closed_loop.py                       # todo, perfil x3 (Gazebo)
-    python e3_closed_loop.py --profile nano --n 20
+Usage:
+    nanouav run e3                       # everything, x3 profile (Gazebo)
+    nanouav run e3 --profile nano --n 20
 """
 import os, sys, json, time, argparse
 import math
@@ -38,11 +38,11 @@ MODE_IDX = {'CRUISE': 0, 'AVOID': 1, 'RETURN': 2, 'BRAKE': 3, 'ARRIVED': 0}
 DT_CTRL = 0.002
 T_CAM = 0.1
 INFLATE = 0.0
-LATENCY = 0.06          # captura → comando (render + CNN + planificación)
+LATENCY = 0.06          # capture → command (render + CNN + planning)
 
 
 def random_corridor_world(rng):
-    """Obstáculos en el carril (x 1–6 m) + laterales; siempre queda un hueco ≥ 1.2 m."""
+    """Obstacles in the lane (x 1–6 m) + lateral ones; a gap ≥ 1.2 m always remains."""
     objs, placed = [], []
     n = int(rng.integers(2, 5))
     for k in range(n):
@@ -58,7 +58,7 @@ def random_corridor_world(rng):
             objs.append(Box((x, y, 0.75), (hx, hy, 0.75), rng.uniform(-1, 1), tex))
         else:
             objs.append(Cylinder(x, y, rng.uniform(0.08, 0.3), 0.0, rng.uniform(1.0, 2.0), tex))
-    if rng.random() < 0.5:           # obstáculo bajo que debe sobrevolarse, no esquivarse
+    if rng.random() < 0.5:           # low obstacle that must be flown over, not dodged
         objs.append(Box((rng.uniform(1, 5), rng.uniform(-0.3, 0.3), 0.1), (0.2, 0.2, 0.1), 0.0,
                         Texture('uniform', albedo=rng.uniform(0.2, 0.8))))
     return World(objs, random_ground(rng), **random_lighting(rng))
@@ -69,12 +69,12 @@ def run_episode(world, P, seed=0, start=(-1.5, 0.0, 0.3), goal_x=4.5, t_max=40.0
                 on_frame=None, on_step=None, done_fn=None, planner_kw=None, limits='normal',
                 start_yaw=0.0, record_extra=None, est_noise=None, thrust_m=1.0, planner_cls=None):
     """
-    Hooks (E4 misiones): on_frame(t, st, planner) antes de planificar cada frame;
-    on_step(t, sim) cada paso de control (mundo dinámico); done_fn(t, p) → fin exitoso;
-    record_extra(t) → lista de floats añadida a cada fila del registro.
-    est_noise (R8, Loquercio 2021 §S1): dict(sb, sw, tau) → el planificador y el controlador
-    ven v_est = v + sesgo Gauss-Markov(σ=sb, τ) + blanco(σ=sw, 100 Hz) y p_est = p + ∫(v_est − v);
-    la cámara, el ToF y las colisiones usan el estado verdadero. thrust_m: factor de empuje (≤ 1).
+    Hooks (E4 missions): on_frame(t, st, planner) before planning each frame;
+    on_step(t, sim) at every control step (dynamic world); done_fn(t, p) → successful end;
+    record_extra(t) → list of floats appended to each row of the log.
+    est_noise (R8, Loquercio 2021 §S1): dict(sb, sw, tau) → the planner and the controller
+    see v_est = v + Gauss-Markov bias(σ=sb, τ) + white(σ=sw, 100 Hz) and p_est = p + ∫(v_est − v);
+    the camera, the ToF and the collisions use the true state. thrust_m: thrust factor (≤ 1).
     """
     rng = np.random.default_rng(seed)
     sim = QuadSim(P, pos=start, yaw=start_yaw, gyro_noise=0.01, seed=seed)
@@ -84,7 +84,7 @@ def run_episode(world, P, seed=0, start=(-1.5, 0.0, 0.3), goal_x=4.5, t_max=40.0
     planner.yaw_cmd = start_yaw
     cal = ToFCalibrator()
     t, t_next_cam = 0.0, 0.0
-    pending = []                       # (t_aplicar, v, yaw)
+    pending = []                       # (t_apply, v, yaw)
     rec, frames = [], []
     min_clear, collided, reached = np.inf, False, False
     coll_info = None
@@ -105,17 +105,17 @@ def run_episode(world, P, seed=0, start=(-1.5, 0.0, 0.3), goal_x=4.5, t_max=40.0
             st = dict(st)
             st['v'] = st['v'] + dv
             st['p'] = st['p'] + p_drift
-        if getattr(planner, 'VO', False):                      # R9b: corrección de sesgo por VO
+        if getattr(planner, 'VO', False):                      # R9b: VO bias correction
             b = np.r_[planner.v_bias_hat, 0.0]
             vo_fix -= b * DT_CTRL
-            if planner.p_jump.any():                           # corrección de posición a ~1 Hz
+            if planner.p_jump.any():                           # position correction at ~1 Hz
                 vo_fix += np.r_[planner.p_jump, 0.0]
                 planner.p_jump = np.zeros(2)
             st = dict(st)
             st['v'] = st['v'] - b
             st['p'] = st['p'] + vo_fix
         roll, pitch, yaw = euler_from_rot(st['R'])
-        if t >= t_next_cam:                                    # percepción
+        if t >= t_next_cam:                                    # perception
             t_next_cam += T_CAM
             gray, depth_gt = render_view(world, st_true['p'], yaw, pitch, roll, rng=rng)
             tof = tof_8x8(depth_gt, rng=rng)
@@ -123,7 +123,7 @@ def run_episode(world, P, seed=0, start=(-1.5, 0.0, 0.3), goal_x=4.5, t_max=40.0
             depth_cal = fuse(cal.update_and_scale(dn, tof), tof)
             if on_frame is not None:
                 on_frame(t, {'p': st['p'], 'v': st['v'], 'yaw': yaw}, planner)
-            planner._p_true = np.asarray(st_true['p'])            # solo diagnóstico (R9)
+            planner._p_true = np.asarray(st_true['p'])            # diagnostics only (R9)
             v_t, yaw_t, info = planner.update({'p': st['p'], 'v': st['v'], 'yaw': yaw, 't': t},
                                               depth_cal, tof, (st['p'], yaw, pitch, roll))
             pending.append((t + LATENCY, v_t, yaw_t))
@@ -146,7 +146,7 @@ def run_episode(world, P, seed=0, start=(-1.5, 0.0, 0.3), goal_x=4.5, t_max=40.0
             on_step(t, sim)
         w_cmd, ci = fs.update(st, t, DT_CTRL)
         if thrust_m != 1.0:
-            w_cmd = np.asarray(w_cmd) * math.sqrt(thrust_m)      # f ∝ ω² → pérdida de empuje
+            w_cmd = np.asarray(w_cmd) * math.sqrt(thrust_m)      # f ∝ ω² → thrust loss
         sim.step(w_cmd, DT_CTRL)
         t += DT_CTRL
         c = world.clearance(sim.p)
@@ -183,7 +183,7 @@ def summarize(R, P, collided, min_clear, reached, fs):
     tilt = np.degrees(np.arccos(np.clip(np.cos(R[:, C['roll']]) * np.cos(R[:, C['pitch']]), -1, 1)))
     a_ref = R[:, [C['arx'], C['ary'], C['arz']]]
     j_ref = np.diff(a_ref, axis=0) / dt
-    # jerk real: derivada de la aceleración filtrada a 10 Hz (excluye vibración numérica)
+    # actual jerk: derivative of the acceleration filtered at 10 Hz (excludes numerical vibration)
     k = int(0.1 / dt)
     acc = R[:, [C['ax'], C['ay'], C['az']]]
     acc_f = np.apply_along_axis(lambda s: np.convolve(s, np.ones(k) / k, 'same'), 0, acc)
@@ -209,7 +209,7 @@ def summarize(R, P, collided, min_clear, reached, fs):
     }
 
 
-# ── Gráficas ───────────────────────────────────────────────────────────────
+# ── Plots ──────────────────────────────────────────────────────────────────
 def plot_episode(R, world, title, path, frames=None):
     import matplotlib
     matplotlib.use('Agg')
@@ -225,7 +225,7 @@ def plot_episode(R, world, title, path, frames=None):
     fig = plt.figure(figsize=(15, 9), facecolor=BG)
     fig.suptitle(title, color='white')
     gs = fig.add_gridspec(3, 3)
-    ax = fig.add_subplot(gs[:, 0]); sty(ax, 'Trayectoria (vista superior)')
+    ax = fig.add_subplot(gs[:, 0]); sty(ax, 'Trajectory (top view)')
     for o in world.objects:
         if isinstance(o, Box):
             ax.add_patch(Rectangle((o.center[0] - o.half[0], o.center[1] - o.half[1]),
@@ -241,25 +241,25 @@ def plot_episode(R, world, title, path, frames=None):
         ax.scatter(R[rec, C['x']][::10], R[rec, C['y']][::10], c='#9B59B6', s=10, label='RECOVER')
         ax.legend(fontsize=7, facecolor='#222', labelcolor='white')
     ax.set_aspect('equal'); ax.set_xlim(-2, 5.5); ax.set_ylim(-2.2, 2.2)
-    ax.set_xlabel('x (m)  · verde crucero · naranja evasión · azul retorno · rojo freno', color='#888', fontsize=7)
+    ax.set_xlabel('x (m)  · green cruise · orange avoidance · blue return · red brake', color='#888', fontsize=7)
 
     t = R[:, 0]
     panels = [
-        ('Velocidad vs referencia (m/s)', [('vx', 'vrx', '#5DCAA5'), ('vy', 'vry', '#EF9F27'), ('vz', 'vrz', '#378ADD')]),
-        ('Inclinación y yaw (°)', None),
-        ('Aceleración de referencia (m/s²)', [('arx', None, '#5DCAA5'), ('ary', None, '#EF9F27'), ('arz', None, '#378ADD')]),
-        ('Motores (% ω_max)', None),
-        ('Tasas angulares (rad/s)', [('wx', None, '#5DCAA5'), ('wy', None, '#EF9F27'), ('wz', None, '#378ADD')]),
-        ('Altura (m)', [('z', None, '#5DCAA5')]),
+        ('Velocity vs reference (m/s)', [('vx', 'vrx', '#5DCAA5'), ('vy', 'vry', '#EF9F27'), ('vz', 'vrz', '#378ADD')]),
+        ('Tilt and yaw (°)', None),
+        ('Reference acceleration (m/s²)', [('arx', None, '#5DCAA5'), ('ary', None, '#EF9F27'), ('arz', None, '#378ADD')]),
+        ('Motors (% ω_max)', None),
+        ('Angular rates (rad/s)', [('wx', None, '#5DCAA5'), ('wy', None, '#EF9F27'), ('wz', None, '#378ADD')]),
+        ('Altitude (m)', [('z', None, '#5DCAA5')]),
     ]
     for i, (ttl, series) in enumerate(panels):
         ax = fig.add_subplot(gs[i % 3, 1 + i // 3]); sty(ax, ttl)
-        if ttl.startswith('Inclinación'):
+        if ttl.startswith('Tilt'):
             ax.plot(t, np.degrees(R[:, C['roll']]), color='#5DCAA5', lw=1, label='roll')
             ax.plot(t, np.degrees(R[:, C['pitch']]), color='#EF9F27', lw=1, label='pitch')
             ax.plot(t, np.degrees(R[:, C['yaw']]), color='#378ADD', lw=1, label='yaw')
             ax.plot(t, np.degrees(R[:, C['psir']]), color='#378ADD', lw=0.8, ls='--')
-        elif ttl.startswith('Motores'):
+        elif ttl.startswith('Motors'):
             for m, c in zip(['m0', 'm1', 'm2', 'm3'], ['#5DCAA5', '#EF9F27', '#378ADD', '#E24B4A']):
                 ax.plot(t, 100 * R[:, C[m]], color=c, lw=0.8, label=m)
             ax.axhline(100, color='white', lw=0.6, ls='--')
@@ -281,10 +281,10 @@ def plot_mc(res_s, res_a, path):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     DARK, BG = '#111111', '#1a1a1a'
-    keys = [('p99_jerk', 'Jerk real p99 (m/s³)'), ('max_tilt_deg', 'Inclinación máx (°)'),
-            ('sat_pct', 'Saturación roll/pitch (%)'), ('min_clearance_m', 'Holgura mínima (m)')]
+    keys = [('p99_jerk', 'Jerk real p99 (m/s³)'), ('max_tilt_deg', 'Max tilt (°)'),
+            ('sat_pct', 'Roll/pitch saturation (%)'), ('min_clearance_m', 'Minimum clearance (m)')]
     fig, axs = plt.subplots(1, 4, figsize=(15, 4), facecolor=BG)
-    fig.suptitle(f'Monte Carlo · suavizado vs escalones · éxito {sum(r["success"] for r in res_s)}/{len(res_s)} '
+    fig.suptitle(f'Monte Carlo · smoothed vs steps · success {sum(r["success"] for r in res_s)}/{len(res_s)} '
                  f'vs {sum(r["success"] for r in res_a)}/{len(res_a)}', color='white')
     for ax, (k, ttl) in zip(axs, keys):
         ax.set_facecolor(DARK); ax.tick_params(colors='#888', labelsize=8)
@@ -293,7 +293,7 @@ def plot_mc(res_s, res_a, path):
         bp = ax.boxplot([[r[k] for r in res_s], [r[k] for r in res_a]], patch_artist=True)
         for b, c in zip(bp['boxes'], ['#5DCAA5', '#E24B4A']):
             b.set_facecolor(c)
-        ax.set_xticks([1, 2]); ax.set_xticklabels(['suavizado', 'escalones'], color='#aaa')
+        ax.set_xticks([1, 2]); ax.set_xticklabels(['shaped', 'steps'], color='#aaa')
     fig.tight_layout()
     fig.savefig(path, dpi=110, facecolor=BG)
     plt.close(fig)
@@ -304,25 +304,25 @@ def main():
     ap.add_argument('--profile', default='x3', choices=list(PROFILES))
     ap.add_argument('--n', type=int, default=20)
     ap.add_argument('--variant', default='M')
-    ap.add_argument('--inflate', type=float, default=0.0, help='inflado lateral del mapa (m), p.ej. 0.1')
-    ap.add_argument('--only-mc', action='store_true', help='solo Monte Carlo')
+    ap.add_argument('--inflate', type=float, default=0.0, help='lateral inflation of the map (m), e.g. 0.1')
+    ap.add_argument('--only-mc', action='store_true', help='Monte Carlo only')
     a = ap.parse_args()
     P = PROFILES[a.profile]
     global INFLATE
     INFLATE = a.inflate
     os.makedirs(ASSETS, exist_ok=True)
-    print(f'[E3] perfil {P.name} · T/W {P.thrust_to_weight:.2f} · CNN '
+    print(f'[E3] profile {P.name} · T/W {P.thrust_to_weight:.2f} · CNN '
           f'{"REAL int8" if is_real_mode(a.variant) else "FAKE"} ({a.variant})')
     out = {'profile': P.name}
 
     if not a.only_mc:
-        # 1) world Gazebo
+        # 1) Gazebo world
         s, R, frames, _ = run_episode(gazebo_world(), P, seed=1, variant=a.variant, log=True)
         out['gazebo'] = s
         print('[gazebo]', json.dumps(s))
         plot_episode(R, gazebo_world(), f'E3 · world Gazebo · {P.name}', os.path.join(ASSETS, f'e3_gazebo_{P.name}' + ('' if a.variant == 'M' else f'_{a.variant}') + '.png'))
 
-        # 2) golpe de torque (Δω nominal 6 rad/s en 60 ms) + ráfaga lateral 0.35 g durante la evasión
+        # 2) torque kick (nominal Δω 6 rad/s in 60 ms) + 0.35 g lateral gust during the avoidance
         def kick(dw):
             Tk = np.array([1.0, 0.6, 0.0]) * (dw * P.J[0] / 0.06)
             Fg = np.array([0.0, 1.0, 0.0]) * 0.35 * P.mass * 9.81
@@ -330,9 +330,9 @@ def main():
         s, R, _, _ = run_episode(gazebo_world(), P, seed=2, disturbances=kick(6.0), variant=a.variant)
         out['kick'] = s
         print('[kick]', json.dumps(s))
-        plot_episode(R, gazebo_world(), f'E3 · golpe Δω≈6 rad/s t=4.2 s + ráfaga 0.35 g t=8.5 s · {P.name}',
+        plot_episode(R, gazebo_world(), f'E3 · kick Δω≈6 rad/s t=4.2 s + gust 0.35 g t=8.5 s · {P.name}',
                      os.path.join(ASSETS, f'e3_kick_{P.name}' + ('' if a.variant == 'M' else f'_{a.variant}') + '.png'))
-        # envolvente de recuperación
+        # recovery envelope
         env = []
         for dw in (3.0, 6.0, 9.0, 12.0):
             s, R, _, _ = run_episode(gazebo_world(), P, seed=3, disturbances=kick(dw)[:1], variant=a.variant)
@@ -345,7 +345,7 @@ def main():
             print('  kick', env[-1])
         out['kick_envelope'] = env
 
-    # 3) Monte Carlo y ablación sin suavizado
+    # 3) Monte Carlo and ablation without smoothing
     res_s, res_a = [], []
     t0 = time.time()
     for i in range(a.n):
@@ -354,8 +354,8 @@ def main():
         w = random_corridor_world(np.random.default_rng(1000 + i))
         ra, _, _, _ = run_episode(w, P, seed=i, goal_x=6.5, t_max=60, shaping=False, variant=a.variant)
         res_s.append(rs); res_a.append(ra)
-        print(f'  mc {i:02d}: suave {"OK " if rs["success"] else "FAIL"} clear={rs["min_clearance_m"]:.2f} '
-              f'jerk99={rs["p99_jerk"]:.1f} tilt={rs["max_tilt_deg"]:.1f} | escalón '
+        print(f'  mc {i:02d}: smooth {"OK " if rs["success"] else "FAIL"} clear={rs["min_clearance_m"]:.2f} '
+              f'jerk99={rs["p99_jerk"]:.1f} tilt={rs["max_tilt_deg"]:.1f} | step '
               f'{"OK " if ra["success"] else "FAIL"} jerk99={ra["p99_jerk"]:.1f} tilt={ra["max_tilt_deg"]:.1f} '
               f'({time.time() - t0:.0f}s)', flush=True)
     agg = lambda L, k: float(np.median([r[k] for r in L]))

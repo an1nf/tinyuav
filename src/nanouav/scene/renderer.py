@@ -1,23 +1,23 @@
 """
-_00_scene/renderer.py — Renderer sintético v2 (raycasting en marco mundo).
+nanouav/scene/renderer.py — Synthetic renderer v2 (raycasting in the world frame).
 
-Cambios frente a E0-D:
-  * Cámara idéntica a Gazebo (96×96, HFOV 60°, pitch 0.15 rad, offset del X3).
-  * Escena en coordenadas mundo (FLU: X adelante, Y izquierda, Z arriba) y pose
-    arbitraria de cámara → el mismo renderer sirve para el dataset y para la
-    simulación en lazo cerrado (e3_closed_loop.py).
-  * Profundidad z (eje óptico), igual que el depth_camera de Gazebo — antes se
-    devolvía la distancia a lo largo del rayo.
-  * Suelo con textura (checker tipo world SDF / ruido), cajas con yaw, cilindros,
-    esferas, paredes, sombras del sol, cielo con gradiente, blur, gamma y ruido.
-  * SDF por primitiva (distancia firmada) para detectar colisiones.
+Changes with respect to E0-D:
+  * Camera identical to Gazebo (96×96, HFOV 60°, pitch 0.15 rad, X3 offset).
+  * Scene in world coordinates (FLU: X forward, Y left, Z up) and arbitrary
+    camera pose → the same renderer serves both the dataset and the
+    closed-loop simulation (`nanouav run e3`).
+  * z depth (along the optical axis), same as the Gazebo depth_camera — previously
+    the distance along the ray was returned.
+  * Textured ground (world-SDF-style checker / noise), boxes with yaw, cylinders,
+    spheres, walls, sun shadows, gradient sky, blur, gamma and noise.
+  * Per-primitive SDF (signed distance) for collision detection.
 
 API:
   World, Plane, Box, Cylinder, Sphere, Texture
   render_view(world, pos, yaw, pitch, roll, rng)   → (gray uint8, depth_m float32)
   sample_world(rng) / gazebo_world()
-  render_scene(seed)  → (gray, depth_m)       (compatibilidad)
-  render_batch(n, seed) → (X [0,1], Y norm)    (compatibilidad)
+  render_scene(seed)  → (gray, depth_m)       (compatibility)
+  render_batch(n, seed) → (X [0,1], Y norm)    (compatibility)
 """
 import math
 from dataclasses import dataclass, field
@@ -31,7 +31,7 @@ _EPS = 1e-9
 _INF = np.inf
 
 
-# ── Rotaciones ─────────────────────────────────────────────────────────────
+# ── Rotations ──────────────────────────────────────────────────────────────
 def rot_x(a):
     c, s = math.cos(a), math.sin(a)
     return np.array([[1, 0, 0], [0, c, -s], [0, s, c]], np.float64)
@@ -48,7 +48,7 @@ def rot_z(a):
 
 
 def body_rot(yaw, pitch, roll):
-    """R cuerpo→mundo, ZYX. pitch>0 = nariz abajo (FLU)."""
+    """R body→world, ZYX. pitch>0 = nose down (FLU)."""
     return rot_z(yaw) @ rot_y(pitch) @ rot_x(roll)
 
 
@@ -56,14 +56,14 @@ _RAY_CACHE = {}
 
 
 def camera_rays(hfov=CAM_HFOV):
-    """Rayos unitarios en marco cuerpo (H,W,3) y cos(ángulo al eje óptico)."""
+    """Unit rays in the body frame (H,W,3) and cos(angle to the optical axis)."""
     if hfov in _RAY_CACHE:
         return _RAY_CACHE[hfov]
     f = focal_px(hfov, W)
     u = (np.arange(W) + 0.5 - W / 2) / f
     v = (np.arange(H) + 0.5 - H / 2) / f
     U, V = np.meshgrid(u, v)
-    d = np.stack([np.ones_like(U), -U, -V], axis=-1)      # cámara→cuerpo
+    d = np.stack([np.ones_like(U), -U, -V], axis=-1)      # camera→body
     n = np.linalg.norm(d, axis=-1, keepdims=True)
     d = d / n
     cos_ax = (1.0 / n[..., 0])
@@ -71,14 +71,14 @@ def camera_rays(hfov=CAM_HFOV):
     return d, cos_ax
 
 
-# ── Texturas ───────────────────────────────────────────────────────────────
+# ── Textures ───────────────────────────────────────────────────────────────
 @dataclass
 class Texture:
     kind: str = 'uniform'          # 'uniform' | 'checker' | 'noise' | 'stripes'
     albedo: float = 0.6
     albedo2: float = 0.3
-    scale: float = 1.0             # tamaño de celda (m)
-    extent: float = 1e9            # checker solo dentro de |x|,|y| < extent
+    scale: float = 1.0             # cell size (m)
+    extent: float = 1e9            # checker only inside |x|,|y| < extent
     seed: int = 0
     _grid: np.ndarray = field(default=None, repr=False)
 
@@ -94,7 +94,7 @@ class Texture:
         if self.kind == 'stripes':
             s = np.sin(2 * np.pi * (P[..., 0] + P[..., 1] + P[..., 2]) / self.scale)
             return np.where(s > 0, self.albedo, self.albedo2).astype(np.float32)
-        # 'noise': value noise bilineal sobre una grilla aleatoria periódica
+        # 'noise': bilinear value noise over a periodic random grid
         if self._grid is None:
             self._grid = np.random.default_rng(self.seed).random((32, 32)).astype(np.float32)
         g = self._grid
@@ -110,14 +110,14 @@ class Texture:
         return (self.albedo2 + (self.albedo - self.albedo2) * v).astype(np.float32)
 
 
-# ── Primitivas ─────────────────────────────────────────────────────────────
+# ── Primitives ─────────────────────────────────────────────────────────────
 def _safe(d):
     return np.where(np.abs(d) < _EPS, _EPS, d)
 
 
 @dataclass
 class Plane:
-    """Suelo z = 0."""
+    """Ground plane z = 0."""
     tex: Texture = field(default_factory=Texture)
     casts_shadow = False
 
@@ -162,7 +162,7 @@ class Box:
         nl = np.zeros(Pl.shape)
         for ax in range(3):
             nl[..., ax] = np.where(face == ax, np.sign(Pl[..., ax]), 0.0)
-        n = nl @ R          # (R^T)^T : local→mundo
+        n = nl @ R          # (R^T)^T : local→world
         return t, n
 
     def sdf(self, p):
@@ -173,7 +173,7 @@ class Box:
 
 @dataclass
 class Cylinder:
-    """Cilindro vertical: centro (cx, cy), radio r, de z0 a z1."""
+    """Vertical cylinder: center (cx, cy), radius r, from z0 to z1."""
     cx: float
     cy: float
     r: float
@@ -238,16 +238,16 @@ class Sphere:
 class World:
     objects: list
     ground: Plane = None
-    sun: tuple = (-0.5, 0.1, 0.9)       # vector HACIA el sol
+    sun: tuple = (-0.5, 0.1, 0.9)       # vector TOWARDS the sun
     ambient: float = 0.35
     diffuse: float = 0.75
-    sky: tuple = (0.72, 0.60)           # luminancia horizonte, cenit
+    sky: tuple = (0.72, 0.60)           # luminance at horizon, zenith
 
     def all_prims(self):
         return ([self.ground] if self.ground is not None else []) + list(self.objects)
 
     def clearance(self, p):
-        """Distancia mínima (m) de un punto a cualquier obstáculo (sin suelo)."""
+        """Minimum distance (m) from a point to any obstacle (ground excluded)."""
         if not self.objects:
             return _INF
         return min(o.sdf(p) for o in self.objects)
@@ -258,8 +258,8 @@ def render_view(world: World, pos, yaw=0.0, pitch=0.0, roll=0.0,
                 rng=None, cam_pitch=CAM_PITCH, cam_offset=CAM_OFFSET,
                 hfov=CAM_HFOV, post=True, shadows=True):
     """
-    Renderiza la vista de la cámara del dron en pose (pos, yaw, pitch, roll).
-    Retorna (gray uint8 96×96, depth_m float32 96×96 en [D_MIN, D_MAX]).
+    Render the drone camera view at pose (pos, yaw, pitch, roll).
+    Returns (gray uint8 96×96, depth_m float32 96×96 in [D_MIN, D_MAX]).
     """
     rays_b, cos_ax = camera_rays(hfov)
     Rb = body_rot(yaw, pitch, roll)
@@ -314,7 +314,7 @@ def render_view(world: World, pos, yaw=0.0, pitch=0.0, roll=0.0,
 
 
 def _camera_post(lum, rng):
-    """Exposición, gamma, viñeteo, desenfoque y ruido de sensor."""
+    """Exposure, gamma, vignetting, blur and sensor noise."""
     lum = lum * rng.uniform(0.75, 1.25)
     lum = np.clip(lum, 0, 1) ** rng.uniform(0.8, 1.25)
     if rng.random() < 0.5:
@@ -328,13 +328,13 @@ def _camera_post(lum, rng):
     return np.clip(lum, 0, 1).astype(np.float32)
 
 
-# ── Mundos ─────────────────────────────────────────────────────────────────
+# ── Worlds ─────────────────────────────────────────────────────────────────
 def _lum(r, g, b):
     return 0.299 * r + 0.587 * g + 0.114 * b
 
 
 def gazebo_world() -> World:
-    """Réplica del world SDF (obstáculos, colores→gris, checker 1 m)."""
+    """Replica of the SDF world (obstacles, colors→gray, 1 m checker)."""
     ground = Plane(Texture('checker', albedo=0.9, albedo2=0.3, scale=1.0, extent=3.5))
     objs = [
         Box((1.8, 0.0, 0.3), (0.2, 0.2, 0.3), 0.0, Texture(albedo=_lum(0.9, 0.4, 0.05))),
@@ -385,10 +385,10 @@ def random_lighting(rng):
 
 
 def sample_world(rng, n_min=1, n_max=6, near_prob=0.5):
-    """Mundo aleatorio con la cámara en el origen mirando hacia +X."""
+    """Random world with the camera at the origin looking towards +X."""
     objs = []
     n = int(rng.integers(n_min, n_max + 1))
-    if rng.random() < near_prob:          # obstáculo cercano y centrado (caso crítico)
+    if rng.random() < near_prob:          # nearby, centered obstacle (critical case)
         objs.append(random_obstacle(rng, rng.uniform(0.45, 1.5), rng.uniform(-0.4, 0.4)))
         n -= 1
     for _ in range(max(n, 0)):
@@ -407,7 +407,7 @@ def _safe_pose(world, rng, pos, tries=20):
 
 
 def render_scene(seed=None, gazebo_prob=0.15):
-    """Escena aleatoria. Retorna (gray uint8 96×96, depth_m float32 96×96)."""
+    """Random scene. Returns (gray uint8 96×96, depth_m float32 96×96)."""
     rng = np.random.default_rng(seed)
     if rng.random() < gazebo_prob:
         world = gazebo_world()
@@ -423,7 +423,7 @@ def render_scene(seed=None, gazebo_prob=0.15):
 
 
 def render_batch(n, seed=0):
-    """(X float32 N×96×96×1 en [0,1], Y float32 N×96×96×1 normalizada)."""
+    """(X float32 N×96×96×1 in [0,1], Y float32 N×96×96×1 normalized)."""
     X = np.zeros((n, H, W, 1), np.float32)
     Y = np.zeros((n, H, W, 1), np.float32)
     for i in range(n):

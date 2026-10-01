@@ -1,18 +1,18 @@
 """
-R14 · Métricas de profundidad por clase/región (inspirado en DDOS, Kolbeinsson & Mikolajczyk 2024,
-AbsRel_class) adaptadas a NUESTRO régimen: 96×96, 0.2–4 m, vuelo a 0.65 m.
+R14 · Per-class/per-region depth metrics (inspired by DDOS, Kolbeinsson & Mikolajczyk 2024,
+AbsRel_class) adapted to OUR regime: 96×96, 0.2–4 m, flight at 0.65 m.
 
-DDOS muestra que modelos con buen AbsRel global (DepthFormer 0.136) fallan por completo en estructuras
-ultra-finas (AbsRel ≈ 1.0). La pregunta aquí: ¿qué esconde nuestro AbsRel global (M ≈ 0.08–0.15)?
+DDOS shows that models with a good global AbsRel (DepthFormer 0.136) fail completely on ultra-thin
+structures (AbsRel ≈ 1.0). The question here: what does our global AbsRel (M ≈ 0.08–0.15) hide?
 
-Regiones (máscaras exactas por re-render con/sin cada elemento):
-  wire   barra horizontal Ø 2 cm (cable)          pole   poste vertical r 1.5–5 cm (más fino que el entrenamiento)
-  gap    píxeles vistos A TRAVÉS de una abertura   edge   banda de 2 px en discontinuidades de profundidad
-  obst   resto de obstáculos                        ground suelo
-Además de AbsRel y δ1, dos métricas de SEGURIDAD asimétricas (lo que importa al planificador):
-  over  = P(pred > 1.25·gt)  → el obstáculo parece más lejos de lo que está (peligroso: choque)
-  under = P(pred < 0.8·gt)   → aparece algo más cerca (fantasma; en 'gap' = el hueco se cierra)
-Uso: python r14_class_metrics.py --n 600 --variants M,S,XS
+Regions (exact masks by re-rendering with/without each element):
+  wire   horizontal bar Ø 2 cm (cable)    pole   vertical pole r 1.5–5 cm (thinner than in training)
+  gap    pixels seen THROUGH an opening   edge   2 px band at depth discontinuities
+  obst   remaining obstacles              ground ground
+Besides AbsRel and δ1, two asymmetric SAFETY metrics (what matters to the planner):
+  over  = P(pred > 1.25·gt)  → the obstacle looks farther than it is (dangerous: collision)
+  under = P(pred < 0.8·gt)   → something appears closer (phantom; in 'gap' = the gap closes)
+Usage: nanouav run r14 --n 600 --variants M,S,XS
 """
 import os, sys, json, time, argparse
 import numpy as np
@@ -28,10 +28,10 @@ from nanouav.config import ZONE_BOXES, TOF_GRID
 
 
 def fuse_tof2(depth_m, tof, pct=25.0, lo=0.5, hi=1.0):
-    """Consistencia ToF↔CNN en AMBOS sentidos (R14). El ToF reporta el percentil bajo de su zona: si el
-    mismo percentil de la CNN en esa zona queda MÁS LEJOS que la lectura, la CNN 'no ve' el objeto que el
-    ToF sí ve (sobre-estimación = peligrosa) → la zona se reescala hacia la lectura (factor ≥ lo).
-    El sentido opuesto (fantasmas cercanos) lo cubre fuse_tof (cota inferior 0.8·tof)."""
+    """ToF↔CNN consistency in BOTH directions (R14). The ToF reports the low percentile of its zone: if the
+    same CNN percentile in that zone lies FARTHER than the reading, the CNN 'does not see' the object that the
+    ToF does see (over-estimation = dangerous) → the zone is rescaled towards the reading (factor ≥ lo).
+    The opposite direction (nearby phantoms) is handled by fuse_tof (lower bound 0.8·tof)."""
     out = fuse_tof(depth_m, tof)
     for gy in range(TOF_GRID):
         for gx in range(TOF_GRID):
@@ -73,7 +73,7 @@ def make_sample(rng):
         extra['gapwall'] = [Box((x, (lo - 4) / 2, 1.0), (0.08, (lo + 4) / 2, 1.0), 0.0, t),
                             Box((x, (hi + 4) / 2, 1.0), (0.08, (4 - hi) / 2, 1.0), 0.0, t)]
         extra['gapfill'] = [Box((x, yc, 1.0), (0.08, g / 2, 1.0), 0.0, t)]
-        # quitar obstáculos base que queden dentro de la pared
+        # remove base obstacles that fall inside the wall
         base = [o for o in base if not (abs(getattr(o, 'center', (getattr(o, 'cx', 0),))[0] - x) < 0.4)]
     return w, base, extra
 
@@ -95,7 +95,7 @@ def masks_for(w, base, extra, seed):
     m['wire'] = d < d_nowire - eps
     if extra['gapwall']:
         _, d_fill = render_depth(w, full + extra['gapfill'], seed)
-        m['gap'] = d > d_fill + eps                    # se ve a través de la abertura
+        m['gap'] = d > d_fill + eps                    # seen through the opening
     else:
         m['gap'] = np.zeros_like(d, bool)
     _, d_empty = render_depth(w, [], seed)
@@ -171,8 +171,8 @@ def main():
     json.dump(out, open(os.path.join(str(paths.results_dir()), 'r14_class_metrics.json'), 'w'), indent=1)
     for v in variants:
         for mode in ('raw', 'flight', 'flight2'):
-            print(f'\n== {v} · {mode} · AbsRel global {out[v][mode]["global_absrel"]:.3f}')
-            print(f'{"clase":7s} {"rango":7s} {"px":>7s} {"AbsRel":>7s} {"δ1":>6s} {"over":>6s} {"under":>6s}')
+            print(f'\n== {v} · {mode} · global AbsRel {out[v][mode]["global_absrel"]:.3f}')
+            print(f'{"class":7s} {"range":7s} {"px":>7s} {"AbsRel":>7s} {"δ1":>6s} {"over":>6s} {"under":>6s}')
             for c in CLASSES:
                 for k, s in out[v][mode][c].items():
                     print(f'{c:7s} {k:7s} {s["n_px"]:7d} {s["absrel"]:7.3f} {s["d1"]:6.2f} {s["over"]:6.2f} {s["under"]:6.2f}')

@@ -1,27 +1,27 @@
 """
-E2-D · Early-exit condicional: la CNN para en la capa más temprana
-que da suficiente confianza, reduciendo latencia cuando el obstáculo
-es obvio.
+E2-D · Conditional early exit: the CNN stops at the earliest layer
+that gives enough confidence, reducing latency when the obstacle
+is obvious.
 
-Concepto:
-  En lugar de siempre ejecutar el decoder completo, extraemos
-  una "señal de alarma" de la representación interna del encoder:
-  si la activación media de la última capa del encoder supera un
-  umbral, el obstáculo es lo suficientemente prominente como para
-  tomar una decisión de evasión SIN completar el decoder.
+Concept:
+  Instead of always running the full decoder, we extract an
+  "alarm signal" from the encoder's internal representation:
+  if the mean activation of the last encoder layer exceeds a
+  threshold, the obstacle is prominent enough to make an
+  avoidance decision WITHOUT completing the decoder.
 
-  Esto no requiere modificar el modelo TFLite — se implementa como
-  una política de dos pasos sobre la CNN existente:
-    1. Correr solo el encoder (rápido) → estimar "peligro"
-    2. Si peligro > umbral: retornar mapa grueso 12×12 escalado
-       Si peligro ≤ umbral: correr decoder completo → mapa 96×96
+  This does not require modifying the TFLite model — it is implemented
+  as a two-step policy on top of the existing CNN:
+    1. Run only the encoder (fast) → estimate "danger"
+    2. If danger > threshold: return the upscaled 12×12 coarse map
+       If danger ≤ threshold: run the full decoder → 96×96 map
 
-Dos modos de implementación:
-  A) Con modelo Keras (tu CPU): extracción real de activaciones
-  B) Sin Keras (solo TFLite): proxy basado en flujo óptico + ToF
-     como señal de early-exit (funciona en ESP32-S3)
+Two implementation modes:
+  A) With the Keras model (your CPU): real activation extraction
+  B) Without Keras (TFLite only): proxy based on optical flow + ToF
+     as the early-exit signal (works on the ESP32-S3)
 
-Este módulo implementa ambos y los compara.
+This module implements both and compares them.
 """
 import numpy as np
 import os, sys, time
@@ -29,14 +29,14 @@ import os, sys, time
 from nanouav.config import norm_to_m
 from nanouav.sensors.optical_flow import DIV_THRESHOLD
 
-DANGER_THRESHOLD = 0.65    # activación media encoder → "peligro detectado"
+DANGER_THRESHOLD = 0.65    # mean encoder activation → "danger detected"
 DEPTH_MIN, DEPTH_MAX = 0.2, 4.0
 
 
 class EarlyExitCNN:
     """
-    CNN con early-exit basado en activaciones del encoder.
-    Requiere model.keras para extraer activaciones intermedias.
+    CNN with early exit based on encoder activations.
+    Requires model.keras to extract intermediate activations.
     """
 
     def __init__(self, keras_path: str):
@@ -57,14 +57,14 @@ class EarlyExitCNN:
                 self._keras_path,
                 custom_objects={'depth_loss': self._dummy_loss})
 
-            # Modelo encoder: input → activación de la última capa encoder
-            # En nuestra arquitectura: la capa re_lu_5 (12x12xF)
+            # Encoder model: input → activation of the last encoder layer
+            # In our architecture: the re_lu_5 layer (12x12xF)
             enc_output = None
             for layer in full.layers:
                 if 're_lu' in layer.name and enc_output is None:
-                    pass  # primera relu
+                    pass  # first relu
                 if 're_lu' in layer.name:
-                    enc_output = layer.output  # última relu del encoder
+                    enc_output = layer.output  # last relu of the encoder
 
             if enc_output is None:
                 enc_output = full.layers[len(full.layers)//2].output
@@ -72,9 +72,9 @@ class EarlyExitCNN:
             self._encoder_model = keras.Model(full.input, enc_output)
             self._full_model    = full
             self._loaded        = True
-            print(f'[E2-D] Modelos cargados: encoder output {enc_output.shape}')
+            print(f'[E2-D] Models loaded: encoder output {enc_output.shape}')
         except Exception as e:
-            print(f'[E2-D] No se pudo cargar Keras: {e}')
+            print(f'[E2-D] Could not load Keras: {e}')
             self._loaded = False
 
     @staticmethod
@@ -84,37 +84,37 @@ class EarlyExitCNN:
 
     def danger_score(self, gray: np.ndarray) -> float:
         """
-        Retorna score de peligro [0,1] basado en activaciones del encoder.
-        Rápido: solo ejecuta la mitad del modelo.
+        Return a danger score [0,1] based on encoder activations.
+        Fast: only runs half of the model.
         """
         self._load()
         if not self._loaded or self._encoder_model is None:
-            return 0.5  # fallback neutro
+            return 0.5  # neutral fallback
 
         x = gray.astype(np.float32)[np.newaxis, :, :, np.newaxis] / 255.0
         enc = self._encoder_model(x, training=False).numpy()
-        return float(np.mean(enc > 0.3))  # fracción de neuronas activas
+        return float(np.mean(enc > 0.3))  # fraction of active neurons
 
     def predict(self, gray: np.ndarray, depth_gt: np.ndarray,
                 variant: str = 'M') -> tuple:
         """
-        Retorna (depth float32 96×96, exited_early bool, danger float).
-        Si danger > DANGER_THRESHOLD: usa mapa grueso escalado (rápido).
-        Si no: usa decoder completo (preciso).
+        Return (depth float32 96×96, exited_early bool, danger float).
+        If danger > DANGER_THRESHOLD: use the upscaled coarse map (fast).
+        Otherwise: use the full decoder (accurate).
         """
         danger = self.danger_score(gray)
 
         if danger > DANGER_THRESHOLD and self._loaded:
-            # Early exit: upscale del mapa del encoder a 96×96
+            # Early exit: upscale the encoder map to 96×96
             x   = gray.astype(np.float32)[np.newaxis, :, :, np.newaxis] / 255.0
             enc = self._encoder_model(x, training=False).numpy()[0, :, :, 0]
-            # Escalar 12×12 → 96×96 con interpolación bilineal simple
+            # Scale 12×12 → 96×96 with simple bilinear interpolation
             import cv2
             coarse = cv2.resize(enc, (96, 96), interpolation=cv2.INTER_LINEAR)
             depth  = np.clip(norm_to_m(np.clip(coarse, 0, 1)), DEPTH_MIN, DEPTH_MAX).astype(np.float32)
             return depth, True, danger
         else:
-            # Decoder completo
+            # Full decoder
             from nanouav.perception.cnn import predict_depth
             depth = predict_depth(gray, depth_gt, variant)
             return depth, False, danger
@@ -122,16 +122,16 @@ class EarlyExitCNN:
 
 class EarlyExitProxy:
     """
-    Early-exit sin Keras: usa flujo óptico + ToF como proxy del encoder.
-    Esta versión funciona en el ESP32-S3 con TFLite.
+    Early exit without Keras: uses optical flow + ToF as a proxy for the encoder.
+    This version works on the ESP32-S3 with TFLite.
 
-    Lógica:
-      - Si div_óptico > div_threshold Y tof_min < tof_threshold:
-          → Peligro obvio: usar ToF directamente, no ejecutar CNN
-      - Si div_óptico > div_threshold Y tof_min >= tof_threshold:
-          → Ejecutar CNN completa (peligro detectado por movimiento)
-      - Si div_óptico <= div_threshold:
-          → Sin peligro: no ejecutar CNN (idle)
+    Logic:
+      - If optical_div > div_threshold AND tof_min < tof_threshold:
+          → Obvious danger: use ToF directly, do not run the CNN
+      - If optical_div > div_threshold AND tof_min >= tof_threshold:
+          → Run the full CNN (danger detected from motion)
+      - If optical_div <= div_threshold:
+          → No danger: do not run the CNN (idle)
     """
 
     def __init__(self, div_threshold=DIV_THRESHOLD, tof_threshold=0.8):
@@ -140,7 +140,7 @@ class EarlyExitProxy:
 
     def decide(self, divergence: float, tof_min: float) -> str:
         """
-        Retorna: 'idle' | 'tof_only' | 'full_cnn'
+        Returns: 'idle' | 'tof_only' | 'full_cnn'
         """
         if divergence <= self.div_threshold:
             return 'idle'
@@ -150,5 +150,5 @@ class EarlyExitProxy:
 
     def estimated_latency_ms(self, decision: str,
                              cnn_lat_ms: float = 0.638) -> float:
-        """Latencia estimada por tipo de decisión."""
+        """Estimated latency per decision type."""
         return {'idle': 0.0, 'tof_only': 0.05, 'full_cnn': cnn_lat_ms}[decision]

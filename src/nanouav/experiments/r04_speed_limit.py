@@ -1,27 +1,27 @@
 """
-R4 · Velocidad máxima teórica (Loquercio et al. 2021, Sci. Robot., ec. 9–11, extendiendo a
-Falanga et al. 2019) aplicada a nuestros perfiles, y comparación ESQUIVAR vs FRENAR.
+R4 · Theoretical maximum speed (Loquercio et al. 2021, Sci. Robot., eqs. 9–11, extending
+Falanga et al. 2019) applied to our profiles, and a DODGE vs BRAKE comparison.
 
-  v_max = s / (t_s + t_p + t_rot + sqrt(2 r_obs / a_lat))       (esquivar, ec. 11)
-  t_rot = sqrt(2 φ J / T_max)                                   (ec. 9)
-  frenar: v·τ + v²/(2a) ≤ s − r_obs                             (ley 'brake' de evasion.py)
+  v_max = s / (t_s + t_p + t_rot + sqrt(2 r_obs / a_lat))       (dodge, eq. 11)
+  t_rot = sqrt(2 φ J / T_max)                                   (eq. 9)
+  brake: v·τ + v²/(2a) ≤ s − r_obs                              ('brake' law in evasion.py)
 
-Añadidos propios: t_mot (constante de tiempo de motores), a_lat con altura mantenida
-(g·tanφ, empuje ≤ c_max), y la versión con los LÍMITES AUTOIMPUESTOS del stack
-(referencias 'fast' a = 2.2 m/s², A_BRAKE = 1.0 m/s², T_REACT = 0.6 s).
+Our own additions: t_mot (motor time constant), a_lat with altitude hold
+(g·tanφ, thrust ≤ c_max), and the version with the stack's SELF-IMPOSED LIMITS
+('fast' references a = 2.2 m/s², A_BRAKE = 1.0 m/s², T_REACT = 0.6 s).
 """
 import math, json, os, sys
 import numpy as np
 from nanouav.control.vehicle import PROFILES, G
 from nanouav import paths
 
-T_S, T_P = 0.10, 0.06          # 10 fps; captura→comando en E3 (LATENCY)
+T_S, T_P = 0.10, 0.06          # 10 fps; capture→command in E3 (LATENCY)
 R_POLE = 0.15
 
 
 def roll_torque(P):
     ys = np.array([abs(y) for _, y in P.rotor_xy])
-    return 2 * P.f_max * ys.mean()          # un lado a f_max, el otro a 0
+    return 2 * P.f_max * ys.mean()          # one side at f_max, the other at 0
 
 
 def dodge_vmax(P, s, t_p=T_P, t_s=T_S, a_cap=None, alt_hold=True, t_extra=0.0):
@@ -63,13 +63,13 @@ for name, P in PROFILES.items():
             'stop_stack(a=1.0,tau=0.6)': round(stop_vmax(P, s, 1.0, 0.6), 2),
             'stop_physical(a=a_lat_max,tau=0.16)': round(stop_vmax(P, s, r['a_lat_max_althold'], T_S + T_P), 2),
         }
-        # sensibilidad: ¿qué término de latencia pesa más? (derivada numérica de v_max)
+        # sensitivity: which latency term weighs the most? (numerical derivative of v_max)
     for s in (3.0,):
         base = dodge_vmax(P, s, a_cap=2.2)[0]
         r['sens_s=3_a2.2'] = {
             'fps 10→20': round(dodge_vmax(P, s, t_s=0.05, a_cap=2.2)[0] - base, 2),
-            'latencia 60→20 ms': round(dodge_vmax(P, s, t_p=0.02, a_cap=2.2)[0] - base, 2),
-            'alcance 3→4 m': round(dodge_vmax(P, 4.0, a_cap=2.2)[0] - base, 2),
+            'latency 60→20 ms': round(dodge_vmax(P, s, t_p=0.02, a_cap=2.2)[0] - base, 2),
+            'range 3→4 m': round(dodge_vmax(P, 4.0, a_cap=2.2)[0] - base, 2),
             'a_lat 2.2→4.0': round(dodge_vmax(P, s, a_cap=4.0)[0] - base, 2),
         }
     out[name] = r

@@ -1,6 +1,6 @@
 """
-Resume todos los JSON de experimentos en assets/ con tasas de éxito e IC95 de Wilson.
-Uso: python summarize_results.py [filtro]      p. ej. python summarize_results.py r6_
+Summarizes all experiment JSON files in results/ with success rates and Wilson 95% CIs.
+Usage: nanouav summarize [filter]      e.g. nanouav summarize r6_
 """
 import glob, json, math, os, sys
 from nanouav import paths
@@ -45,9 +45,9 @@ for f in sorted(glob.glob(os.path.join(str(paths.results_dir()), '*.json'))):
             col = sum(bool(r.get('collided')) for r in L)
             tk, tn = tk + k, tn + n
             lo, hi = wilson(k, n)
-            print(f'   {cond:>18s}: {k:3d}/{n:<3d} ({100 * k / n:5.1f} %, IC95 {lo:5.1f}–{hi:5.1f})  colisiones {col}')
+            print(f'   {cond:>18s}: {k:3d}/{n:<3d} ({100 * k / n:5.1f} %, CI95 {lo:5.1f}–{hi:5.1f})  collisions {col}')
         lo, hi = wilson(tk, tn)
-        print(f'   {"TOTAL":>18s}: {tk:3d}/{tn:<3d} ({100 * tk / max(tn, 1):5.1f} %, IC95 {lo:5.1f}–{hi:5.1f})')
+        print(f'   {"TOTAL":>18s}: {tk:3d}/{tn:<3d} ({100 * tk / max(tn, 1):5.1f} %, CI95 {lo:5.1f}–{hi:5.1f})')
     elif name.startswith('r3_') and isinstance(obj, dict):
         print(f'\n{name}')
         for m, v in obj.items():

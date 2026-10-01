@@ -1,19 +1,19 @@
 """
-_02_optical_flow/optical_flow.py — Lucas-Kanade + divergencia REAL.
+nanouav/sensors/optical_flow.py — Lucas-Kanade + TRUE divergence.
 
-Corrige: antes 'divergencia' = mean(|vx + vy|), que responde a cualquier
-traslación/rotación de cámara. Ahora se ajusta por mínimos cuadrados un modelo
-de flujo afín  v = A·(p − c) + t  y la divergencia es tr(A) = ∂vx/∂x + ∂vy/∂y.
-La traslación (t) y la rotación (parte antisimétrica de A) no la afectan.
+Fix: previously 'divergence' = mean(|vx + vy|), which responds to any camera
+translation/rotation. Now an affine flow model  v = A·(p − c) + t  is fitted by
+least squares and the divergence is tr(A) = ∂vx/∂x + ∂vy/∂y.
+Translation (t) and rotation (antisymmetric part of A) do not affect it.
 
-Para un plano frontal acercándose: tr(A) ≈ 2 / TTC  [1/frame]
-  → TTC_s = 2 / (div · fps).   div > 0 = expansión (acercamiento).
+For an approaching frontal plane: tr(A) ≈ 2 / TTC  [1/frame]
+  → TTC_s = 2 / (div · fps).   div > 0 = expansion (approaching).
 """
 import cv2
 import numpy as np
 
-FPS_DEFAULT = 10.0            # cámara de Gazebo
-TTC_TRIGGER_S = 3.0           # disparar CNN si el tiempo a colisión < 3 s
+FPS_DEFAULT = 10.0            # Gazebo camera
+TTC_TRIGGER_S = 3.0           # trigger the CNN if time-to-collision < 3 s
 DIV_THRESHOLD = 2.0 / (TTC_TRIGGER_S * FPS_DEFAULT)     # ≈ 0.067 /frame
 
 _FP_PARAMS = dict(maxCorners=40, qualityLevel=0.05, minDistance=6, blockSize=5)
@@ -22,7 +22,7 @@ _LK_PARAMS = dict(winSize=(9, 9), maxLevel=2,
 
 
 def affine_flow_fit(p0, p1, center=(48.0, 48.0)):
-    """Ajuste afín robusto (1 iteración de rechazo). Retorna (A 2×2, t 2, residuo)."""
+    """Robust affine fit (1 rejection iteration). Returns (A 2×2, t 2, residual)."""
     c = np.asarray(center, np.float32)
     X = p0 - c
     V = p1 - p0
@@ -38,8 +38,8 @@ def affine_flow_fit(p0, p1, center=(48.0, 48.0)):
 
 def optical_flow(prev: np.ndarray, curr: np.ndarray):
     """
-    prev, curr: uint8 (96,96). Retorna (flow_pts, divergence).
-    divergence = tr(A) [1/frame]; 0.0 si hay < 6 puntos rastreados.
+    prev, curr: uint8 (96,96). Returns (flow_pts, divergence).
+    divergence = tr(A) [1/frame]; 0.0 if fewer than 6 points are tracked.
     """
     pts0 = cv2.goodFeaturesToTrack(prev, mask=None, **_FP_PARAMS)
     if pts0 is None:

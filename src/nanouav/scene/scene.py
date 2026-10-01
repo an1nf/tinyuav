@@ -6,8 +6,8 @@ W, H = 96, 96
 
 def synthetic_scene(t: float, noise_std: float = 0.03):
     """
-    Genera (gray uint8 96x96, depth float32 96x96).
-    t: parámetro de animación (segundos simulados).
+    Generate (gray uint8 96x96, depth float32 96x96).
+    t: animation parameter (simulated seconds).
     """
     cx = W / 2 + math.sin(t * 0.3) * 18
     cy = H / 2 + math.cos(t * 0.2) * 10
@@ -34,7 +34,7 @@ def synthetic_scene(t: float, noise_std: float = 0.03):
 
 
 def multi_obstacle_scene(t: float):
-    """Dos obstáculos: uno cercano, uno al fondo."""
+    """Two obstacles: one near, one in the background."""
     gray1, depth1 = synthetic_scene(t, noise_std=0.02)
     gray2, depth2 = synthetic_scene(t * 0.7 + 2.1, noise_std=0.02)
 

@@ -1,11 +1,11 @@
 """
-_06_control/quad_sim.py — Dinámica 6-DOF de un cuadricóptero con motores.
+nanouav/control/quad_sim.py — 6-DOF quadrotor dynamics with motors.
 
-  * Motores de primer orden asimétricos (τ subida/bajada, como MulticopterMotorModel)
-  * Empuje kf·ω², torque de reacción km·f, asignación X
-  * Arrastre lineal (rotor drag), perturbaciones externas de fuerza/torque
-  * Contacto simple con el suelo
-  * Integración semi-implícita a 1 kHz, cuaternión renormalizado
+  * Asymmetric first-order motors (τ spin-up/spin-down, like MulticopterMotorModel)
+  * Thrust kf·ω², reaction torque km·f, X allocation
+  * Linear drag (rotor drag), external force/torque disturbances
+  * Simple ground contact
+  * Semi-implicit integration at 1 kHz, renormalized quaternion
 """
 import numpy as np
 from .vehicle import G
@@ -28,7 +28,7 @@ def quat_to_rot(q):
 
 
 def euler_from_rot(R):
-    """(roll, pitch, yaw) ZYX; pitch>0 = nariz abajo (FLU)."""
+    """(roll, pitch, yaw) ZYX; pitch>0 = nose down (FLU)."""
     pitch = -np.arcsin(np.clip(R[2, 0], -1, 1))
     roll = np.arctan2(R[2, 1], R[2, 2])
     yaw = np.arctan2(R[1, 0], R[0, 0])
@@ -79,7 +79,7 @@ class QuadSim:
             self.v += acc * self.dt
             self.p += self.v * self.dt
             self.w += wdot * self.dt
-            if self.p[2] <= 0.0:              # suelo
+            if self.p[2] <= 0.0:              # ground
                 self.p[2] = 0.0
                 if self.v[2] < 0:
                     self.v[:] = 0.0
@@ -93,7 +93,7 @@ class QuadSim:
             self.acc = acc
 
     def state(self):
-        """Estado 'medido' (verdad + ruido de giróscopo opcional)."""
+        """'Measured' state (ground truth + optional gyro noise)."""
         w = self.w + (self.rng.normal(0, self.gyro_noise, 3) if self.gyro_noise else 0)
         return {'p': self.p.copy(), 'v': self.v.copy(), 'R': self.R, 'w': w,
                 'acc': self.acc.copy(), 'motors': self.wm.copy()}

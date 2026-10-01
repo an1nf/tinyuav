@@ -1,17 +1,17 @@
 """
-_03_cnn/cnn.py — Interfaz de inferencia de profundidad.
+nanouav/perception/cnn.py — Depth inference interface.
 
-  predict_depth_norm(gray, variant, depth_gt=None) → float32 (96,96) NORMALIZADA [0,1]
-  predict_depth(gray, depth_gt, variant)           → float32 (96,96) en METROS (sin calibrar)
+  predict_depth_norm(gray, variant, depth_gt=None) → float32 (96,96) NORMALIZED [0,1]
+  predict_depth(gray, depth_gt, variant)           → float32 (96,96) in METERS (uncalibrated)
 
-Modo real : _03_cnn/model_{variant}.tflite (fallback model.tflite) con ai-edge-litert.
-Modo fake : ground truth + ruido gaussiano (solo para probar el pipeline).
+Real mode : models/model_{variant}.tflite (fallback model.tflite) with ai-edge-litert.
+Fake mode : ground truth + Gaussian noise (only for testing the pipeline).
 
-Corrige:
-  * Doble escalado: antes se devolvían metros y el calibrador volvía a multiplicar
-    por D_MAX. Ahora la conversión vive solo en uav_config.norm_to_m/m_to_norm.
-  * Offset de desnormalización: entrenamiento usa (d-0.2)/3.8; antes se invertía con ×4.0.
-  * Se ignoraba 'variant' en modo real: cada variante carga su propio .tflite.
+Fixes:
+  * Double scaling: previously meters were returned and the calibrator multiplied
+    by D_MAX again. Now the conversion lives only in nanouav.config.norm_to_m/m_to_norm.
+  * Denormalization offset: training uses (d-0.2)/3.8; previously it was inverted with ×4.0.
+  * 'variant' was ignored in real mode: each variant now loads its own .tflite.
 """
 import os
 import numpy as np
@@ -20,8 +20,8 @@ from nanouav import paths, settings
 
 from nanouav.config import norm_to_m, m_to_norm
 
-# Estimaciones de literatura para el ESP32-S3 (se usan en benchmarks/energía).
-# Los parámetros y la arena REALES de los modelos entrenados están en metrics.json.
+# Literature estimates for the ESP32-S3 (used in benchmarks/energy).
+# The REAL parameter counts and arena sizes of the trained models are in models/metrics.json.
 VARIANTS = {
     'XS': {'ms': 55,  'fps': 18, 'jitter_us': 28,  'params_k': 15,  'arena_kb': 40},
     'S':  {'ms': 77,  'fps': 13, 'jitter_us': 42,  'params_k': 50,  'arena_kb': 80},
@@ -39,8 +39,8 @@ def _model_path(variant):
     d = str(paths.models_dir())
     p = os.path.join(d, f'model_{variant}.tflite')
     if not os.path.exists(p) and variant == 'M_ToF':
-        raise FileNotFoundError('Falta _03_cnn/model_M_ToF.tflite: ejecutar r3_lnca_train.py --models M_ToF '
-                                '--init-from _03_cnn/model_M.keras --install (ver RUN_LOCAL.md)')
+        raise FileNotFoundError('Missing models/model_M_ToF.tflite: run `nanouav run r03 --models M_ToF '
+                                '--init-from models/model_M.keras --install` (see RUN_LOCAL.md)')
     return p if os.path.exists(p) else os.path.join(d, 'model.tflite')
 
 
@@ -61,19 +61,19 @@ def _get_interp(variant='M'):
         if Interpreter is not None:
             it = Interpreter(model_path=path, num_threads=1)
             it.allocate_tensors()
-            print(f'[cnn] Modo REAL · {os.path.basename(path)} ({os.path.getsize(path)//1024} KB)')
+            print(f'[cnn] REAL mode · {os.path.basename(path)} ({os.path.getsize(path)//1024} KB)')
     _interps[variant] = it
     _real_mode = it is not None
     return it
 
 
 def _load_interpreter(variant='M'):
-    """Compatibilidad con scripts anteriores."""
+    """Backward compatibility with older scripts."""
     _get_interp(variant)
 
 
 def _tof12(tof):
-    """ToF 8×8 medido (m) → rejilla latente 12×12 [log d, válido] (misma tabla que R3)."""
+    """Measured 8×8 ToF (m) → 12×12 latent grid [log d, valid] (same table as R3)."""
     from nanouav.config import ZONE_BOXES, TOF_GRID, D_MIN, D_MAX
     edges = [ZONE_BOXES[0][k][2] for k in range(TOF_GRID)] + [ZONE_BOXES[0][TOF_GRID - 1][3]]
     idx = np.full(12, -1, int)
@@ -100,7 +100,7 @@ def _infer_real(it, gray, tof=None):
     so, zo = out['quantization']
     for inp in ins:
         si, zi = inp['quantization']
-        if len(inp['shape']) == 4 and inp['shape'][-1] == 2:          # entrada 'tof12' (M_ToF)
+        if len(inp['shape']) == 4 and inp['shape'][-1] == 2:          # 'tof12' input (M_ToF)
             x = _tof12(tof)[None]
         else:
             x = (gray.astype(np.float32) / 255.0)[None, :, :, None]
@@ -111,18 +111,18 @@ def _infer_real(it, gray, tof=None):
 
 
 def predict_depth_norm(gray, variant='M', depth_gt=None, tof=None):
-    """tof: medida 8×8 (m); solo la usan variantes con fusión temprana (p. ej. 'M_ToF')."""
+    """tof: 8×8 measurement (m); only used by early-fusion variants (e.g. 'M_ToF')."""
     it = _get_interp(variant)
     if it is not None:
         return _infer_real(it, gray, tof)
     if depth_gt is None:
-        raise RuntimeError('Modo fake requiere depth_gt (no hay modelo .tflite)')
+        raise RuntimeError('Fake mode requires depth_gt (no .tflite model available)')
     noisy = depth_gt + np.random.randn(*depth_gt.shape).astype(np.float32) * _SIGMA_M[variant]
     return m_to_norm(noisy)
 
 
 def predict_depth(gray, depth_gt, variant='M'):
-    """Metros sin calibrar (escala aprendida por la CNN)."""
+    """Uncalibrated meters (scale learned by the CNN)."""
     return norm_to_m(predict_depth_norm(gray, variant, depth_gt))
 
 

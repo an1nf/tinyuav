@@ -1,10 +1,10 @@
 """
-_01_tof/tof.py — Simulación del ToF 8×8 (VL53L5CX).
+nanouav/sensors/tof.py — Simulation of the 8×8 ToF (VL53L5CX).
 
-Corrige: antes se promediaba toda la imagen 96×96 en 8×8, pero el ToF tiene
-HFOV 40° y la cámara 60° → el ToF solo cubre el centro de la imagen. Ahora cada
-zona se proyecta a su caja de píxeles (uav_config.ZONE_BOXES) y se toma un
-percentil bajo (modo "closest target").
+Fix: previously the whole 96×96 image was averaged into 8×8, but the ToF has
+HFOV 40° and the camera 60° → the ToF only covers the center of the image. Now each
+zone is projected onto its pixel box (nanouav.config.ZONE_BOXES) and a low
+percentile is taken ("closest target" mode).
 """
 import numpy as np
 from nanouav.config import pool_to_tof, TOF_GRID

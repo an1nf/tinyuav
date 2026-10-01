@@ -1,11 +1,11 @@
 """
-R11b · "Flow deck frontal" geométrico: la mitad inferior de la cámara ve el suelo (R7).
-Flujo óptico denso (Farnebäck) sobre píxeles de suelo → cada píxel se proyecta al plano z = 0
-con altura (baro/ToF) y actitud (IMU) conocidas → se busca la velocidad (vx, vy) del cuerpo que
-mejor explica el flujo, compensando el giro con el giróscopo. Coste robusto recortado (70 %)
-para rechazar píxeles que caen sobre obstáculos. Sin aprendizaje.
+R11b · Geometric "forward flow deck": the lower half of the camera sees the ground (R7).
+Dense optical flow (Farnebäck) over ground pixels → each pixel is projected onto the z = 0 plane
+using known height (baro/ToF) and attitude (IMU) → search for the body velocity (vx, vy) that
+best explains the flow, compensating rotation with the gyroscope. Robust trimmed cost (70 %)
+to reject pixels that fall on obstacles. No learning.
 
-Uso: python r11b_flow_deck.py data/r11_full_a.npz,data/r11_full_b.npz
+Usage: nanouav run r11b data/r11_full_a.npz,data/r11_full_b.npz
 """
 import os, sys, json, math
 import numpy as np
@@ -28,7 +28,7 @@ def cam_pose(t_xy, yaw, z, pitch, roll):
 
 
 def project(X, O, Rc):
-    d = (X - O) @ Rc                                  # = Rc^T (X − O) por filas → marco cuerpo-cámara
+    d = (X - O) @ Rc                                  # = Rc^T (X − O) row-wise → body-camera frame
     ok = d[:, 0] > 1e-3
     u = IMG_W / 2 + F * (-d[:, 1] / np.maximum(d[:, 0], 1e-3)) - 0.5
     v = IMG_H / 2 + F * (-d[:, 2] / np.maximum(d[:, 0], 1e-3)) - 0.5
@@ -36,7 +36,7 @@ def project(X, O, Rc):
 
 
 def estimate(frames, r, z, pitch, roll, trim=0.7):
-    """frames: (96,96,K) uint8. Devuelve (vx, vy) y el nº de píxeles útiles."""
+    """frames: (96,96,K) uint8. Returns (vx, vy) and the number of usable pixels."""
     O0, Rc0 = cam_pose((0, 0), 0.0, z, pitch, roll)
     D = RAYS.reshape(-1, 3) @ Rc0.T
     tg = np.where(D[:, 2] < -0.05, -O0[2] / np.minimum(D[:, 2], -1e-6), np.inf)
@@ -109,7 +109,7 @@ def main(files):
            'frac_ambos_ejes_<=0.05': float(np.mean((ae < 0.05).all(1))),
            'frac_ambos_ejes_<=0.10': float(np.mean((ae < 0.10).all(1))),
            'baseline_std': np.std(Y, 0).round(3).tolist()}
-    # por textura del suelo observada (nº de píxeles útiles)
+    # by observed ground texture (number of usable pixels)
     for lo, hi in ((0, 300), (300, 1500), (1500, 10 ** 6)):
         m = (npx[ok] >= lo) & (npx[ok] < hi)
         if m.any():

@@ -1,27 +1,27 @@
 """
-MHPlanner · planificador local con conjunto de trayectorias (Loquercio et al., Science Robotics 2021,
-"Learning High-Speed Flight in the Wild"), adaptado a nuestro mapa de profundidad monocular + ToF.
+MHPlanner · local planner with a trajectory set (Loquercio et al., Science Robotics 2021,
+"Learning High-Speed Flight in the Wild"), adapted to our monocular depth map + ToF.
 
-Qué se toma del paper y por qué:
-  1. Referencia global + planificador local receding-horizon. El paper condiciona la política a una
-     trayectoria de referencia; aquí la referencia es un campo de costo-a-meta (Dijkstra sobre la grilla
-     local, desconocido = transitable con penalización, "optimista"), que existe aunque la recta A→B
-     esté bloqueada. El planificador de carril (EvasionPlanner) solo mira ±2.3 m de la recta y se
-     bloquea cuando los huecos son más angostos que el dron (X3: r = 0.36 m) → deadlock observado en
-     Gazebo en x ≈ 0.4.
-  2. Hipótesis múltiples: el experto privilegiado del paper muestrea (Metropolis-Hastings) muchas
-     trayectorias libres de colisión y la red predice varias (multimodal) con un costo por cada una.
-     Aquí se evalúa un abanico de K arcos (rumbo × curvatura) y se elige el de menor costo; histéresis
-     sobre la hipótesis previa para no alternar izquierda/derecha.
-  3. Consistencia percepción-acción: el paper vuela con el rumbo alineado a la velocidad (la cámara
-     mira hacia donde se va). Aquí yaw = rumbo de la trayectoria elegida y la velocidad se limita
-     mientras el desalineo supera FOV_OK: primero girar para ver, luego avanzar. Antes, el limitador
-     de FOV anulaba cualquier desplazamiento lateral (k_fov = 0 a 90°) → el dron no podía rodear.
-  4. Velocidad limitada por el alcance percibido (v·τ + v²/2a ≤ distancia libre y OBSERVADA a lo
-     largo de la trayectoria), como en su análisis de velocidad máxima vs. alcance del sensor.
+What is taken from the paper and why:
+  1. Global reference + receding-horizon local planner. The paper conditions the policy on a
+     reference trajectory; here the reference is a cost-to-go field (Dijkstra over the local grid,
+     unknown = traversable with a penalty, "optimistic"), which exists even when the straight line A→B
+     is blocked. The lane planner (EvasionPlanner) only looks ±2.3 m around the line and gets
+     stuck when the gaps are narrower than the drone (X3: r = 0.36 m) → deadlock observed in
+     Gazebo at x ≈ 0.4.
+  2. Multiple hypotheses: the paper's privileged expert samples (Metropolis-Hastings) many
+     collision-free trajectories and the network predicts several (multimodal) with a cost for each.
+     Here a fan of K arcs (heading × curvature) is evaluated and the lowest-cost one is chosen; hysteresis
+     on the previous hypothesis avoids alternating left/right.
+  3. Perception-action consistency: the paper flies with the heading aligned to the velocity (the camera
+     looks where the drone is going). Here yaw = heading of the chosen trajectory and the speed is limited
+     while the misalignment exceeds FOV_OK: first turn to see, then advance. Previously, the FOV
+     limiter cancelled any lateral motion (k_fov = 0 at 90°) → the drone could not detour.
+  4. Speed limited by the perceived range (v·τ + v²/2a ≤ free AND OBSERVED distance along
+     the trajectory), as in their analysis of maximum speed vs. sensor range.
 
-Interfaz idéntica a EvasionPlanner (update → v_mundo, yaw, info); reutiliza _perceive, la grilla,
-set_segment, el filtro de barrera y el freno de emergencia.
+Same interface as EvasionPlanner (update → v_world, yaw, info); reuses _perceive, the grid,
+set_segment, the barrier filter and the emergency brake.
 """
 import math
 import numpy as np
@@ -36,19 +36,19 @@ def _wrap(a):
 
 
 class MHGrid(LocalGrid):
-    """LocalGrid + distancia mínima desde la que cada celda se vio ocupada (confianza de la evidencia)."""
+    """LocalGrid + minimum distance from which each cell was seen occupied (evidence confidence)."""
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self.dmin = np.full((self.nx, self.ny), np.inf, np.float32)
         self.origin = None
         self.R1, self.R2 = 1.5, 2.5
-        self.RANGE_W = False            # R13: probado, empeora (paredes lejanas "abiertas" → recorre la pared)
+        self.RANGE_W = False            # R13: tested, makes things worse (distant walls "open" → drone follows the wall)
 
     def update(self, occ, free, decay=True):
-        """Como LocalGrid.update, pero la evidencia de la CÁMARA (primera fuente del frame, decay=True) pesa
-        según la distancia: la CNN es fiable de cerca y deja fantasmas a 2–4 m. El ToF (llamadas siguientes)
-        pesa 1 a cualquier distancia. Además guarda la distancia mínima de observación de cada celda."""
+        """Like LocalGrid.update, but CAMERA evidence (first source of the frame, decay=True) is weighted
+        by distance: the CNN is reliable up close and leaves phantoms at 2–4 m. The ToF (subsequent calls)
+        weighs 1 at any distance. It also stores the minimum observation distance of each cell."""
         if decay:
             self.g *= self.decay
         if len(free):
@@ -72,7 +72,7 @@ class MHGrid(LocalGrid):
                 dm = np.full(len(u), np.inf, np.float32)
                 np.minimum.at(dm, inv, d)
                 w = np.ones(len(u), np.float32)
-                if decay and self.RANGE_W:                        # cámara/CNN: peso por distancia (opcional)
+                if decay and self.RANGE_W:                        # camera/CNN: distance weighting (optional)
                     w = np.where(dm < self.R1, 1.0, np.where(dm < self.R2, 0.6, 0.35)).astype(np.float32)
                 self.g[u // self.ny, u % self.ny] += w
             np.minimum(self.g, 6.0, out=self.g)
@@ -83,79 +83,83 @@ class MHPlanner(EvasionPlanner):
         super().__init__(*a, **kw)
         self.CONSISTENT = True
         self.speed_law = 'brake'
-        self.N_HEAD, self.TURN = 36, (-0.6, -0.3, 0.0, 0.3, 0.6)   # 10° × 5 curvaturas = 180 hipótesis
-        self.T_H, self.DT_H = 2.5, 0.125                         # horizonte (s), paso de evaluación
-        self.W_CLR, self.C_PREF = 0.4, 0.35                      # penalización por holgura < r_safe + C_PREF
+        self.N_HEAD, self.TURN = 36, (-0.6, -0.3, 0.0, 0.3, 0.6)   # 10° × 5 curvatures = 180 hypotheses
+        self.T_H, self.DT_H = 2.5, 0.125                         # horizon (s), evaluation step
+        self.W_CLR, self.C_PREF = 0.4, 0.35                      # penalty for clearance < r_safe + C_PREF
         self.W_HYST, self.W_TURN, self.W_UNK = 1.5, 0.15, 0.6
-        self.TRUST_DIST = False         # R13: probado, crea 'huecos móviles' en paredes vistas de lejos
-        self.R_TRUST, self.OBS_FAR = 2.0, 4.0                       # m; costo de obstáculo lejano (poco fiable)
-        self.OBS_COST = 25.0                                     # por celda dentro de r_safe (soft)
-        self.UNK_COST = 0.5                                      # costo extra por celda desconocida (Dijkstra)
-        self.CTG_RES = 0.1                                       # m, resolución del campo de costo-a-meta
-        self.CTG_PERIOD = 0.3                                    # s entre recálculos del campo de costo
+        self.TRUST_DIST = False         # R13: tested, creates 'moving gaps' in walls seen from afar
+        self.R_TRUST, self.OBS_FAR = 2.0, 4.0                       # m; cost of a distant (unreliable) obstacle
+        self.OBS_COST = 25.0                                     # per cell inside r_safe (soft)
+        self.UNK_COST = 0.5                                      # extra cost per unknown cell (Dijkstra)
+        self.CTG_RES = 0.1                                       # m, resolution of the cost-to-go field
+        self.CTG_PERIOD = 0.3                                    # s between cost-field recomputations
         self.NEAR_GOAL = 1.2
-        self.SCAN_RATE = 0.6                                     # rad/s de giro de exploración sin salida
+        self.SCAN_RATE = 0.6                                     # rad/s exploration turn when there is no way out
         self._ctg, self._ctg_t, self._ctg_box = None, -1e9, None
         self._head_prev = None
         self._stuck = 0.0
         self.mh_log = []
-        # ── pasos estrechos (R13) ──
-        # grilla fina 5 cm (con 10 cm la holgura se cuantiza ±5 cm: una puerta de 1.0 m para el X3, Ø 0.72,
-        # deja 0.14 m por lado y el error de celda la hacía infactible); el campo de costo-a-meta sigue a 10 cm
+        # ── narrow passages (R13) ──
+        # Map cell size from NANOUAV_MH_GRID_RES (default 0.1 m). With 10 cm cells the clearance is quantized
+        # to ±5 cm, so a 1.0 m door for the X3 (Ø 0.72 m, 0.14 m per side) can look infeasible; 0.05 m fixes
+        # that with good depth but lets grazing rays erase walls with the CNN (R13). The cost-to-go field
+        # always uses 10 cm.
         G = self.grid
         res = settings.number('MH_GRID_RES', 0.1)
         self.grid = MHGrid(res=res, xr=(G.x0, G.x0 + G.nx * G.res), yr=(G.y0, G.y0 + G.ny * G.res))
-        # con celdas de 5 cm, los rayos rasantes y los errores de profundidad borraban paredes (×0.5 por
-        # frame): una pared vista de canto desaparecía del mapa → choque. Borrado más lento y muestras de
-        # espacio libre solo hasta el 70 % del rango (lejos de la superficie medida).
-        # (R13, probado y descartado: borrado lento free_k 0.8 / memoria 0.999 → los fantasmas de la CNN
-        #  persisten y el dron rodea de más; se mantiene el mapeo de R12 y se prohíbe moverse a ciegas)
+        # R13, tested and discarded: slower erasing (free_k 0.8) and longer memory (0.999) — CNN phantoms
+        # persist and the drone detours too much. The R12 mapping is kept and blind motion is forbidden.
         self.BLIND_OK = False
-        # margen de seguridad dependiente de la velocidad: m(v) = M_MIN + M_V·v (a 0.5 m/s = 0.15 = GAP_BIAS
-        # anterior; al pasar despacio por un hueco se admite M_MIN). Velocidad ≤ (holgura − r − M_MIN)/M_V.
+        # speed-dependent safety margin: m(v) = M_MIN + M_V·v (at 0.5 m/s = 0.15 = the previous GAP_BIAS;
+        # passing slowly through a gap allows M_MIN). Speed ≤ (clearance − r − M_MIN)/M_V.
         self.M_MIN, self.M_V, self.V_SQUEEZE = 0.05, 0.4, 0.12
         self._ctg_m = None
         self._route, self.ROUTE_K = None, 0.6
         self._insp, self._reject, self.reject_log = None, None, []
-        self.INSPECT_D, self.INSPECT_T = 1.1, 1.0             # m antes del cruce dudoso; s mirándolo de frente
+        self.INSPECT_D, self.INSPECT_T = 1.1, 1.0             # m before the doubtful crossing; s looking at it head-on
         self.D_EMERG = self.radius + 0.02
-        self.STUCK_SCAN, self.STUCK_BACK = 4.0, 9.0          # s sin progreso → girar / retroceder por la estela
+        self.STUCK_SCAN, self.STUCK_BACK = 4.0, 9.0          # s without progress → turn / back up along the trail
         self._trail, self._back = [], None
-        # anti-estancamiento: si en STAG_T s no mejora ni la distancia a B ni el costo-a-meta, se relaja el
-        # margen duro por escalones (M_RELAX) — el ruido de mapa de ±2–3 cm no puede cerrar un paso real —,
-        # y si sigue estancado, SCAN (girar para observar) y luego retroceso por la estela.
+        # anti-stagnation: if within STAG_T s neither the distance to B nor the cost-to-go improves, the
+        # hard margin is relaxed in steps (M_RELAX) — map noise of ±2–3 cm must not close a real passage —,
+        # and if still stagnated, SCAN (turn to observe) and then back up along the trail.
         self.M_RELAX = (0.05, 0.03)
-        self.M_ABS = 0.015                                  # margen mínimo absoluto (paso por la línea de referencia)
+        self.M_ABS = 0.015                                  # absolute minimum margin (passage along the reference line)
         self.STAG_T = 3.0
         self._m_eff, self._relax = self.M_MIN, 0
         self._best_d, self._best_ctg, self._prog_t = np.inf, np.inf, None
 
     def set_segment(self, A, B, arrive=True, v_cruise=None):
         super().set_segment(A, B, arrive, v_cruise)
-        self._ctg, self._head_prev, self._route = None, None, None   # nueva meta → recalcular referencia
+        self._ctg, self._head_prev, self._route = None, None, None   # new goal → recompute reference
+        # new goal → stagnation bookkeeping starts over (otherwise the best distance/cost of the previous
+        # segment makes the new one look stagnated after STAG_T and margins get relaxed in normal flight)
+        self._m_eff, self._relax = self.M_MIN, 0
+        self._best_d, self._best_ctg, self._prog_t = np.inf, np.inf, None
+        self._insp = None
 
-    # ── mapa: holgura y costo-a-meta ────────────────────────────────────
+    # ── map: clearance and cost-to-go ───────────────────────────────────
     def _goal_xy(self, p):
         if self.goal is not None:
             return np.asarray(self.goal, float)
-        xd, _ = self._to_path(p[:2])                              # sin meta: 6 m por delante sobre el carril
+        xd, _ = self._to_path(p[:2])                              # no goal: 6 m ahead along the lane
         return self._from_path(np.array([[xd + 6.0, self.lane]]))[0]
 
     def _fields(self, p, goal, t):
         G = self.grid
         occ = G.g > 1.5
         free = (~occ).astype(np.uint8)
-        clr = cv2.distanceTransform(free, cv2.DIST_L2, 5) * G.res - 0.5 * G.res   # m a la celda ocupada
+        clr = cv2.distanceTransform(free, cv2.DIST_L2, 5) * G.res - 0.5 * G.res   # m to the nearest occupied cell
         if not occ.any():
             clr[:] = 1e3
         self._clr = clr
         if self._ctg is not None and t - self._ctg_t < self.CTG_PERIOD and self._ctg_m == self._m_eff:
             return
         self._ctg_m = self._m_eff
-        # caja de cálculo: dron y meta ± 4 m
+        # computation box: drone and goal ± 4 m
         lo = np.minimum(p[:2], goal) - 4.0
         hi = np.maximum(p[:2], goal) + 4.0
-        # campo a 10 cm: holgura máxima de cada bloque 2×2 (optimista: no cierra huecos por cuantización)
+        # field at 10 cm: maximum clearance of each 2×2 block (optimistic: does not close gaps through quantization)
         f = int(round(self.CTG_RES / G.res))
         nxc, nyc = G.nx // f, G.ny // f
         clr_c = clr[:nxc * f, :nyc * f].reshape(nxc, f, nyc, f).max(axis=(1, 3))
@@ -166,20 +170,21 @@ class MHPlanner(EvasionPlanner):
         r_safe = self.radius + self._m_eff
         cost = 1.0 + self.UNK_COST * (~seen_c[i0:i1, j0:j1]) \
             + 4.0 * np.clip((r_safe + self.C_PREF - c) / self.C_PREF, 0, 1)
-        # obstáculos del mapa como costo ALTO pero finito: la CNN deja fantasmas a 2–4 m (fuera del alcance
-        # del ToF) que, como restricción dura, encierran al dron (campo = inf). La restricción dura de colisión
-        # la aplican los arcos (≤ 1.25 m, donde el mapa es fiable); la referencia global es optimista.
-        # graduado: dentro de r (choque aun sin margen) = muy caro; entre r y r+m = caro pero atravesable
-        # (un paso estrecho sigue siendo preferible a un rodeo de 15 m; la factibilidad la deciden los arcos)
-        # confianza de la evidencia (hallazgo R13): celdas vistas ocupadas solo desde > R_TRUST m la CNN estrecha o cierra los pasos (bordes
-        # difusos, fondo lejano); tratar esas celdas como muro hace que un pasillo real a 3 m "no exista" y el
-        # dron busque un rodeo de 15 m. Lejos → costo moderado (optimista); cerca → el costo alto normal.
+        # map obstacles as a HIGH but finite cost: the CNN leaves phantoms at 2–4 m (beyond the ToF
+        # range) that, as a hard constraint, enclose the drone (field = inf). The hard collision constraint
+        # is enforced by the arcs (≤ 1.25 m, where the map is reliable); the global reference is optimistic.
+        # graded: inside r (collision even without margin) = very expensive; between r and r+m = expensive but
+        # traversable (a narrow passage is still preferable to a 15 m detour; the arcs decide feasibility)
+        # evidence confidence (R13 finding): for cells seen occupied only from > R_TRUST m, the CNN narrows or
+        # closes passages (blurry edges, distant background); treating those cells as walls makes a real corridor
+        # at 3 m "not exist" and the drone looks for a 15 m detour. Far → moderate cost (optimistic); near → the
+        # normal high cost.
         dmin_c = G.dmin[:nxc * f, :nyc * f].reshape(nxc, f, nyc, f).min(axis=(1, 3))[i0:i1, j0:j1]
         w_obs = np.where(dmin_c < self.R_TRUST, self.OBS_COST, self.OBS_FAR) if self.TRUST_DIST else self.OBS_COST
         cost[c < r_safe] += 3.0
         cost = np.where(c < self.radius, cost + w_obs, cost)
-        # histéresis de ruta: las celdas de la ruta anterior cuestan menos → el dron no alterna entre
-        # rodeos cuando el mapa de la CNN fluctúa (compromiso con el paso elegido mientras no se cierre de cerca)
+        # route hysteresis: cells of the previous route cost less → the drone does not alternate between
+        # detours when the CNN map fluctuates (commitment to the chosen passage unless it closes up close)
         if self._route is not None and len(self._route):
             ri = ((self._route[:, 0] - G.x0) / self.CTG_RES).astype(int) - i0
             rj = ((self._route[:, 1] - G.y0) / self.CTG_RES).astype(int) - j0
@@ -196,7 +201,7 @@ class MHPlanner(EvasionPlanner):
         cost[gi, gj] = min(cost[gi, gj], 1.0)
         D[gi, gj] = 0.0
         if self._reject is not None:
-            self._reject *= 0.99                                   # el rechazo se olvida (~20 s): el mapa cambia
+            self._reject *= 0.99                                   # rejection is forgotten (~20 s): the map changes
             cost = cost + self._reject[i0:i1, j0:j1]
         cost = cost.astype(np.float32) * self.CTG_RES
         steps = [(1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0),
@@ -211,15 +216,15 @@ class MHPlanner(EvasionPlanner):
             if np.array_equal(D, D0):
                 break
         self._ctg, self._ctg_t, self._ctg_box = D, t, (i0, j0)
-        r = self._streamline(p, 12.0, self.CTG_RES)             # ruta completa (para la histéresis)
+        r = self._streamline(p, 12.0, self.CTG_RES)             # full route (for the hysteresis)
         self._route = r
 
     def _inspect(self, t, p, yaw, v_nom):
-        """Percepción activa ante un paso dudoso (R13). La ruta de referencia cruza celdas que el mapa da
-        por ocupadas (típico de la CNN: los bordes difusos de una puerta la 'rellenan' vistos de lado o de
-        lejos, y de frente a ~1 m se ve abierta). Entonces: ir por la ruta hasta ~1 m antes del cruce,
-        mirarlo de frente INSPECT_T s y decidir: si se abrió, seguir; si no, se rechaza ese cruce
-        (penalización permanente en el campo) y la referencia busca otra ruta. Nunca queda detenido."""
+        """Active perception at a doubtful passage (R13). The reference route crosses cells that the map
+        marks as occupied (typical of the CNN: the blurry edges of a door 'fill it in' when seen from the side
+        or from afar, while head-on at ~1 m it looks open). So: follow the route up to ~1 m before the crossing,
+        look at it head-on for INSPECT_T s and decide: if it opened, continue; if not, that crossing is rejected
+        (permanent penalty in the field) and the reference looks for another route. It never stays stopped."""
         R = self._route
         if R is None or len(R) < 3:
             self._insp = None
@@ -234,14 +239,14 @@ class MHPlanner(EvasionPlanner):
         look = R[min(ib + 3, len(R) - 1)]
         iv = max(0, ib - int(self.INSPECT_D / self.CTG_RES))
         view = R[iv]
-        # ¿mismo cruce que antes? (si el sitio cambia más de 0.5 m, es otro cruce)
+        # same crossing as before? (if the location moves more than 0.5 m, it is a different crossing)
         if self._insp is None or np.hypot(*(self._insp['look'] - look)) > 0.5:
             self._insp = {'look': look, 't0': None}
         d_view = float(np.hypot(*(view - p[:2])))
         dl = look - p[:2]
         h_look = math.atan2(dl[1], dl[0])
         if d_view > 0.25 and iv > 0:
-            # seguir la ruta (centrada, ya libre hasta iv) hacia el punto de observación
+            # follow the route (centered, already free up to iv) toward the observation point
             tgt = R[min(3, iv)]
             u = (tgt - p[:2]) / max(np.hypot(*(tgt - p[:2])), 1e-6)
             c_path = float(rc[:iv + 1].min())
@@ -250,10 +255,10 @@ class MHPlanner(EvasionPlanner):
             head = math.atan2(u[1], u[0]) if d_view > 1.0 else h_look
             th = abs(_wrap(math.atan2(u[1], u[0]) - yaw))
             if th > self.FOV_LIM and d_view > 1.0:
-                sp = 0.0                                          # girar primero
+                sp = 0.0                                          # turn first
             self._insp['t0'] = None
             return u * sp, head, 'GO_VIEW'
-        # en el punto de observación: mirar el cruce de frente y esperar
+        # at the observation point: face the crossing and wait
         if abs(_wrap(h_look - yaw)) > 0.25:
             self._insp['t0'] = None
             return np.zeros(2), h_look, 'INSPECT'
@@ -261,7 +266,7 @@ class MHPlanner(EvasionPlanner):
             self._insp['t0'] = t
         if t - self._insp['t0'] < self.INSPECT_T:
             return np.zeros(2), h_look, 'INSPECT'
-        # sigue cerrado tras mirarlo de frente → rechazar este cruce y replanificar
+        # still closed after looking at it head-on → reject this crossing and replan
         G = self.grid
         ci = int((look[0] - G.x0) / self.CTG_RES); cj = int((look[1] - G.y0) / self.CTG_RES)
         rr = int(0.4 / self.CTG_RES)
@@ -287,7 +292,7 @@ class MHPlanner(EvasionPlanner):
                 self._relax_d = d
             self._relax = lvl
         elif self._relax and d < self._relax_d - 1.0 and c_here > self.radius + 0.3:
-            self._relax = 0                                        # cruzó y avanzó ≥ 1 m: margen normal
+            self._relax = 0                                        # crossed and advanced ≥ 1 m: normal margin
         self._m_eff = self.M_RELAX[self._relax]
         self._stag = stag
 
@@ -301,10 +306,10 @@ class MHPlanner(EvasionPlanner):
         out[ok] = F[ix[ok], iy[ok]]
         return out
 
-    # ── hipótesis ───────────────────────────────────────────────────────
+    # ── hypotheses ──────────────────────────────────────────────────────
     def _streamline(self, p, L, ds):
-        """Hipótesis extra: descenso por el campo de costo-a-meta (la referencia misma, centrada en los
-        huecos por la penalización de proximidad). Remuestreada a paso ds, longitud L."""
+        """Extra hypothesis: descent along the cost-to-go field (the reference itself, centered in the
+        gaps by the proximity penalty). Resampled at step ds, length L."""
         if self._ctg is None:
             return None
         D, (i0, j0), r = self._ctg, self._ctg_box, self.CTG_RES
@@ -331,7 +336,7 @@ class MHPlanner(EvasionPlanner):
         sq = np.arange(1, int(L / ds) + 1) * ds
         sq = np.minimum(sq, seg[-1])
         xs, ys = np.interp(sq, seg, pts[:, 0]), np.interp(sq, seg, pts[:, 1])
-        # suavizado leve (quita el zigzag de 8-vecinos)
+        # light smoothing (removes the 8-neighbor zigzag)
         k = np.ones(5) / 5
         xs = np.convolve(np.r_[[xs[0]] * 2, xs, [xs[-1]] * 2], k, 'valid')
         ys = np.convolve(np.r_[[ys[0]] * 2, ys, [ys[-1]] * 2], k, 'valid')
@@ -374,33 +379,33 @@ class MHPlanner(EvasionPlanner):
             H = np.r_[H, math.atan2(d0[1], d0[0])]
             Wt = np.r_[Wt, 0.0]
         K, N = P.shape[:2]
-        clr = self._lookup(self._clr, P, fill=1e3)             # holgura en cada punto
+        clr = self._lookup(self._clr, P, fill=1e3)             # clearance at each point
         seen = self._lookup(G.seen.astype(np.float32), P, fill=0.0) > 0.5
         s = np.arange(1, N + 1) * ds
         r_hard = self.radius + self._m_eff
         bad = clr < r_hard
-        # paso estrecho: la línea de referencia (centrada en el hueco) puede pasar con margen M_ABS, despacio
+        # narrow passage: the reference line (centered in the gap) may pass with margin M_ABS, slowly
         if has_sl:
             bad[-1] = clr[-1] < self.radius + self.M_ABS
         first_bad = np.where(bad.any(1), s[bad.argmax(1)], np.inf)
         first_unk = np.where((~seen).any(1), s[(~seen).argmax(1)], np.inf)
-        s_free = np.minimum(first_bad, first_unk)              # libre Y observado
+        s_free = np.minimum(first_bad, first_unk)              # free AND observed
         v_ok = -a * tau + np.sqrt((a * tau) ** 2 + 2 * a * np.maximum(s_free - 0.3, 0.0))
         creeping = self._stuck > 1.5
         v_ok = np.where((first_unk <= first_bad) & creeping, np.maximum(v_ok, self.V_CREEP), v_ok)
-        # velocidad según holgura en el primer metro: m(v) = M_MIN + M_V·v ≤ holgura − r
+        # speed from the clearance over the first meter: m(v) = M_MIN + M_V·v ≤ clearance − r
         n1 = max(int(1.0 / ds), 1)
         c1 = clr[:, :n1].min(1)
         v_clr = np.clip((c1 - r_hard) / self.M_V, self.V_SQUEEZE, v_nom)
         v_ex = np.minimum(np.minimum(v_ok, v_nom), v_clr)
-        # extremo efectivo: lo que se avanza a la velocidad ejecutable en el horizonte
+        # effective endpoint: how far the drone gets at the executable speed within the horizon
         n_eff = np.clip(np.round(v_ex / v_nom * N).astype(int) - 1, -1, N - 1)
-        n_bad = np.where(bad.any(1), bad.argmax(1) - 2, N - 1)     # solo cuenta el tramo libre del arco
+        n_bad = np.where(bad.any(1), bad.argmax(1) - 2, N - 1)     # only the free segment of the arc counts
         n_eff = np.minimum(n_eff, n_bad)
         end = np.where(n_eff[:, None] >= 0, P[np.arange(K), np.maximum(n_eff, 0)], p[:2][None, :])
         ctg_end = self._lookup(self._ctg, end, self._ctg_box, res=self.CTG_RES)
         ctg_here = float(self._lookup(self._ctg, p[None, :2], self._ctg_box, res=self.CTG_RES)[0])
-        feasible = first_bad > 0.6                             # al menos 0.6 m del arco sin colisión
+        feasible = first_bad > 0.6                             # at least 0.6 m of the arc collision-free
         pen_clr = self.W_CLR * np.clip((r_hard + self.C_PREF - clr[:, :max(int(1.2 / ds), 1)]) / self.C_PREF,
                                        0, 1).mean(1)
         dpsi = np.abs(_wrap(H - yaw))
@@ -411,7 +416,7 @@ class MHPlanner(EvasionPlanner):
         k = int(np.argmin(J))
         ok = np.isfinite(J[k])
         squeeze = ok and has_sl and k == K - 1 and c1[k] < r_hard
-        # ¿progresa? (si ninguna hipótesis reduce el costo-a-meta, contar atasco → creep en desconocido)
+        # making progress? (if no hypothesis reduces the cost-to-go, count as stuck → creep into unknown)
         progress = ok and (not np.isfinite(ctg_here) or ctg_here - ctg_end[k] > 0.02)
         self._stuck = 0.0 if progress or arrived else self._stuck + 0.1
 
@@ -422,24 +427,24 @@ class MHPlanner(EvasionPlanner):
             head = self._head_prev if self._head_prev is not None else yaw
         elif d_goal < self.NEAR_GOAL and self.goal is not None and self.arrive and \
                 (self._lookup(self._clr, p[:2] + np.linspace(0, 1, 12)[:, None] * (goal - p[:2]), fill=1e3) > r_hard).all():
-            # tramo final: aproximación directa (holonómica) con frenado de llegada, yaw fijo
+            # final segment: direct (holonomic) approach with arrival braking, fixed yaw
             u = (goal - p[:2]) / max(d_goal, 1e-6)
             sp = min(v_nom, math.sqrt(2 * self.A_ARRIVE * max(d_goal - 0.05, 0.0)), 1.2 * d_goal)
             v_xy, mode = u * sp, 'APPROACH'
             head = self._head_prev if self._head_prev is not None else yaw
         elif ok:
-            i_l = min(max(int(0.5 / ds), 1), N) - 1                # dirección hacia el punto a 0.5 m
+            i_l = min(max(int(0.5 / ds), 1), N) - 1                # direction toward the point at 0.5 m
             dvec = P[k, i_l] - p[:2]
             u = dvec / max(np.linalg.norm(dvec), 1e-6)
-            head = math.atan2(u[1], u[0])                          # la cámara mira hacia donde se va
+            head = math.atan2(u[1], u[0])                          # the camera looks where the drone is going
             sp = float(v_ex[k])
             if self.goal is not None and self.arrive:
                 sp = min(sp, math.sqrt(2 * self.A_ARRIVE * max(d_goal - 0.05, 0.0)))
-            # consistencia percepción-acción: avanzar solo lo que la cámara ya ve (girar primero)
+            # perception-action consistency: only advance into what the camera already sees (turn first)
             th = abs(_wrap(math.atan2(u[1], u[0]) - yaw))
             k_fov = float(np.clip(1.0 - (th - self.FOV_OK) / (self.FOV_LIM - self.FOV_OK), 0.0, 1.0))
-            # hacia espacio YA observado (p.ej. retroceder o desplazarse dentro de un pasillo visto) no hace
-            # falta girar la cámara: la consistencia percepción-acción solo exige ver lo desconocido
+            # toward ALREADY observed space (e.g. backing up or moving inside a corridor already seen) there is
+            # no need to turn the camera: perception-action consistency only requires seeing the unknown
             known = (self.BLIND_OK and first_unk[k] > sp * tau + sp * sp / (2 * a) + 0.6
                      and c1[k] > self.radius + 0.2 and th < math.radians(100))
             if known and th > self.FOV_OK:
@@ -456,17 +461,17 @@ class MHPlanner(EvasionPlanner):
             if sp < 0.05:
                 mode = 'TURN'
         else:
-            # sin hipótesis factible: detenerse y girar para observar (exploración de rumbo)
+            # no feasible hypothesis: stop and turn to observe (heading exploration)
             v_xy, mode = np.zeros(2), 'SCAN'
             head = yaw + self.SCAN_RATE
         if not arrived and mode != 'APPROACH' and (self._stag > self.STAG_T or self._insp is not None):
-            ins = self._inspect(t, p, yaw, v_nom)          # solo tras estancarse: el vuelo normal no cambia
+            ins = self._inspect(t, p, yaw, v_nom)          # only after stagnating: normal flight is unchanged
             if ins is not None:
                 v_xy, head, mode = ins
                 squeeze = False
         self._head_prev = head
 
-        # filtro de barrera (igual que EvasionPlanner) + freno de emergencia
+        # barrier filter (same as EvasionPlanner) + emergency brake
         if len(occ_xy):
             dv = p[:2] - occ_xy
             dist = np.hypot(dv[:, 0], dv[:, 1])
@@ -486,11 +491,11 @@ class MHPlanner(EvasionPlanner):
                 v_xy, mode = 0.3 * away, 'BRAKE'
         else:
             c_near = np.inf
-        if z < self.z_cruise - 0.15:                           # despegue: primero altura
+        if z < self.z_cruise - 0.15:                           # takeoff: altitude first
             v_xy = np.zeros(2)
         v_z = float(np.clip(self.K_Z * (self.z_cruise - z), -self.V_Z, self.V_Z))
         v_world = np.array([v_xy[0], v_xy[1], v_z])
-        # suavizado de objetivos (sin filtrar si se frena)
+        # target smoothing (unfiltered when braking)
         slowing = self.v_prev is not None and np.hypot(*v_world[:2]) < np.hypot(*self.v_prev[:2]) - 0.05
         if self.v_prev is not None and mode != 'BRAKE' and not slowing:
             v_world = self.v_prev + self.TARGET_ALPHA * (v_world - self.v_prev)

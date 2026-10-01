@@ -1,13 +1,13 @@
 """
-R1 · Huella de despliegue de LNCA vs. CNN M (sin entrenar: solo arquitectura).
+R1 · Deployment footprint of LNCA vs. CNN M (untrained: architecture only).
 
-Mide por variante: parámetros, MACs, tamaño .tflite int8, arena de activaciones
-(cota por vida de tensores, misma función que train_cnn), latencia CPU p50 un hilo sin
-XNNPACK ('opt') y con kernels de referencia ('ref', proporcional a MACs, más cercano a un MCU) y las ops
-TFLite usadas (compatibilidad TFLM). Los pesos son aleatorios: la PRECISIÓN no se
-evalúa aquí (requiere entrenamiento, ver LOCAL_GPU.md §8).
+Measures per variant: parameters, MACs, int8 .tflite size, activation arena
+(tensor-lifetime bound, same function as train_cnn), single-thread CPU p50 latency without
+XNNPACK ('opt') and with reference kernels ('ref', proportional to MACs, closer to an MCU), and the
+TFLite ops used (TFLM compatibility). Weights are random: ACCURACY is not
+evaluated here (requires training, see LOCAL_GPU.md §8).
 
-Uso: python r1_lnca_footprint.py   → assets/r1_lnca_footprint.json
+Usage: nanouav run r01   → results/r1_lnca_footprint.json
 """
 import os, sys, json, time
 from nanouav import paths

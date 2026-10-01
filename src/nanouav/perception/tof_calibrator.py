@@ -1,15 +1,15 @@
 """
-E2-B · Calibración de escala CNN ← ToF en tiempo de ejecución (v2).
+E2-B · Run-time CNN ← ToF scale calibration (v2).
 
-Cambios:
-  * Entrada normalizada [0,1] → metros vía norm_to_m (antes: doble ×D_MAX).
-  * Las 64 zonas ToF se comparan con su caja real de píxeles (FOV 40° dentro de 60°),
-    no con el 50 % central de la imagen.
-  * Estimador robusto: mediana de las razones tof/cnn por zona válida; se rechaza
-    la actualización si hay pocas zonas o la dispersión (MAD relativa) es alta.
-  * EMA sobre log(escala) (la escala es multiplicativa).
+Changes:
+  * Normalized input [0,1] → meters via norm_to_m (previously: double ×D_MAX).
+  * The 64 ToF zones are compared against their actual pixel box (40° FOV inside 60°),
+    not against the central 50 % of the image.
+  * Robust estimator: median of the tof/cnn ratios over valid zones; the update is
+    rejected if there are too few zones or the spread (relative MAD) is high.
+  * EMA over log(scale) (the scale is multiplicative).
 
-Referencia: Nadalini et al. IoT-J 2025 (GAP9, mismo concepto, distinta HW).
+Reference: Nadalini et al. IoT-J 2025 (GAP9, same concept, different HW).
 """
 import numpy as np
 from nanouav.config import norm_to_m, pool_to_tof, ZONE_BOXES, TOF_GRID, D_MIN, D_MAX
@@ -47,7 +47,7 @@ class ToFCalibrator:
         return float(np.clip(med, MIN_SCALE, MAX_SCALE))
 
     def update_and_scale(self, depth_norm, tof):
-        """depth_norm: (96,96) [0,1] salida CNN · tof: (8,8) m → (96,96) m calibrada."""
+        """depth_norm: (96,96) [0,1] CNN output · tof: (8,8) m → (96,96) m calibrated."""
         raw = norm_to_m(depth_norm)
         s = self._estimate_scale(raw, tof)
         if s is not None:
@@ -74,12 +74,12 @@ class ToFCalibrator:
 
 def fuse_tof(depth_m, tof, near_ratio=0.8, far_floor=3.0):
     """
-    Consistencia CNN↔ToF dentro del FOV del ToF (40° centrales).
-    El VL53L5CX en modo "closest target" reporta el objeto MÁS cercano de cada
-    zona → ningún píxel de la zona puede estar mucho más cerca que esa lectura.
-    Los píxeles de la CNN más cercanos que near_ratio·tof son fantasmas y se
-    elevan a esa cota; si la zona ve "lejos" (≥ D_MAX−0.1) se elevan a far_floor.
-    Fuera del FOV del ToF la profundidad de la CNN queda intacta.
+    CNN↔ToF consistency inside the ToF FOV (central 40°).
+    The VL53L5CX in "closest target" mode reports the NEAREST object in each
+    zone → no pixel in the zone can be much closer than that reading.
+    CNN pixels closer than near_ratio·tof are phantoms and are raised to that
+    bound; if the zone sees "far" (≥ D_MAX−0.1) they are raised to far_floor.
+    Outside the ToF FOV the CNN depth is left untouched.
     """
     out = depth_m.copy()
     for gy in range(TOF_GRID):
@@ -93,11 +93,11 @@ def fuse_tof(depth_m, tof, near_ratio=0.8, far_floor=3.0):
 
 def fuse_tof2(depth_m, tof, pct=25.0, lo=0.5):
     """
-    R14: consistencia ToF↔CNN en AMBOS sentidos. Además de la cota inferior de fuse_tof (fantasmas),
-    si el percentil bajo de la CNN en una zona queda > 1.1× la lectura del ToF, la CNN no está viendo el
-    objeto que el ToF sí ve (sobre-estimación = peligrosa) → esa zona se reescala hacia la lectura
-    (factor ≥ lo). Offline (600 escenas): AbsRel 0.301 → 0.252; obstáculos < 1 m con pred > 1.25·gt
-    35 % → 25 %; postes finos < 1 m 87 % → 61 %. Robusto a la semántica del ToF (percentil 10–40).
+    R14: ToF↔CNN consistency in BOTH directions. In addition to the lower bound of fuse_tof (phantoms),
+    if the CNN's low percentile in a zone is > 1.1× the ToF reading, the CNN is not seeing the
+    object that the ToF does see (overestimation = dangerous) → that zone is rescaled towards the reading
+    (factor ≥ lo). Offline (600 scenes): AbsRel 0.301 → 0.252; obstacles < 1 m with pred > 1.25·gt
+    35 % → 25 %; thin poles < 1 m 87 % → 61 %. Robust to the ToF semantics (percentile 10–40).
     """
     out = fuse_tof(depth_m, tof)
     for gy in range(TOF_GRID):
@@ -114,6 +114,6 @@ def fuse_tof2(depth_m, tof, pct=25.0, lo=0.5):
 
 
 def fuse(depth_m, tof):
-    """Fusión usada en vuelo: fuse_tof2 si UAV_FUSE2=1 (R14), si no fuse_tof (resultados publicados)."""
+    """In-flight fusion: fuse_tof2 if NANOUAV_FUSE2=1 (R14), otherwise fuse_tof (published results)."""
     from nanouav import settings
     return fuse_tof2(depth_m, tof) if settings.flag('FUSE2') else fuse_tof(depth_m, tof)

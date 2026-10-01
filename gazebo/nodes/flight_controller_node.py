@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-flight_controller_node.py — Control propio hasta velocidad de motores (modo 'motors').
+flight_controller_node.py — Our own control down to motor speeds ('motors' mode).
 
-Corre el mismo FlightStack validado en e3_closed_loop.py (perfil X3 con los
-parámetros exactos del SDF) a 250 Hz:
-  /nano_uav/setpoint (Twist: linear = v mundo objetivo, angular.z = yaw objetivo)
-  + odometría (+ IMU si está puenteada)
-  → referencia suave → cascada vel/actitud/tasa → mezclador → ω motores
+Runs the same FlightStack validated in E3 (`nanouav run e3`; X3 profile with the
+exact SDF parameters) at 250 Hz:
+  /nano_uav/setpoint (Twist: linear = target world velocity, angular.z = target yaw)
+  + odometry (+ IMU if bridged)
+  → smooth reference → vel/attitude/rate cascade → mixer → motor ω
   → /nano_uav/gazebo/command/motor_speed (actuator_msgs/Actuators)
 
-El MulticopterVelocityControl del X3 debe estar DESHABILITADO (el perception_node
-publica enable=False en este modo).
+The X3's MulticopterVelocityControl must be DISABLED (perception_node
+publishes enable=False in this mode).
 
-⚠ No probado en Gazebo desde este entorno. Verificar primero con el dron en el
-  suelo y luego despegue. Si el yaw diverge (gira cada vez más rápido), el
-  convenio de signo del torque de reacción de gz es el opuesto: yaw_sign:=-1.
+⚠ Not tested in Gazebo from this environment. Check first with the drone on the
+  ground, then take off. If yaw diverges (spins faster and faster), gz's
+  reaction-torque sign convention is the opposite one: yaw_sign:=-1.
 """
 import os, sys, time
 ROOT = os.environ.get('NANOUAV_HOME', os.environ.get('NANO_UAV_ROOT',
                       os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))))
-sys.path.insert(0, os.path.join(ROOT, 'src'))         # paquete nanouav sin instalar (contenedor)
+sys.path.insert(0, os.path.join(ROOT, 'src'))         # nanouav package not installed (container)
 os.environ.setdefault('NANOUAV_HOME', ROOT)
 
 import dataclasses

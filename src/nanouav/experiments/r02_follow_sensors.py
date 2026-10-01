@@ -1,15 +1,15 @@
 """
-R2 · Seguimiento (E4 follow) con medida visual realista del objetivo.
+R2 · Target following (E4 follow) with a realistic visual measurement of the target.
 
-Compara, con los mismos mundos/semillas:
-  oracle/base    : E4 original (posición + 5 cm de ruido, 10 % pérdidas, sin FOV)
-  bbox/base      : detector a bordo (FOV, oclusión, rango por tamaño aparente)
-  bbox/ibvs      : + capa de guiado de Su et al. 2026 (histéresis, LP, retroceso acotado)
-  bbox_tof/ibvs  : + rango desde ToF/CNN dentro de los 40° centrales (propuesta propia)
+Compares, with the same worlds/seeds:
+  oracle/base    : original E4 (position + 5 cm noise, 10 % dropouts, no FOV)
+  bbox/base      : onboard detector (FOV, occlusion, range from apparent size)
+  bbox/ibvs      : + guidance layer from Su et al. 2026 (hysteresis, LP, bounded backoff)
+  bbox_tof/ibvs  : + range from ToF/CNN within the central 40° (our own proposal)
 
-Uso: python r2_follow_sensors.py --profile nano --n 4 --vt 0.4,0.8
-     UAV_FAKE_CNN=1 python r2_follow_sensors.py --n 2        # depuración rápida
-Salida: assets/r2_follow_{perfil}.json
+Usage: nanouav run r02 --profile nano --n 4 --vt 0.4,0.8
+       NANOUAV_FAKE_CNN=1 nanouav run r02 --n 2        # quick debugging
+Output: results/r2_follow_{profile}.json
 """
 import os, sys, json, time, argparse
 import numpy as np

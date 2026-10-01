@@ -1,5 +1,5 @@
 # Línea base del paper C2 (antes jobs_A.txt + jobs_B.txt): cada trabajo se repite con M y M_ToF.
-# M_ToF necesita models/model_M_ToF.tflite (nanouav run r03 ... --install, ver docs/experiments.md).
+# M_ToF necesita models/model_M_ToF.tflite (nanouav run r03 ... --install, ver docs/experimentos.md).
 name: baseline
 description: Paper C2 baseline — E3, pole, corridors, dynamic, state noise; CNN M vs M_ToF
 matrix: {variant: [M, M_ToF]}

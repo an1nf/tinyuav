@@ -1,8 +1,8 @@
 """
-G1 · Réplica del mundo de Gazebo (gazebo/worlds/nano_uav_world.sdf) en el simulador propio.
-Reproduce el bloqueo observado en Gazebo (X3 detenido en x≈0.4 frente a la 'pared' de 3 cajas)
-y compara planificadores: 'lane' (EvasionPlanner consistente) vs 'mh' (MHPlanner, Loquercio 2021).
-Uso: python g1_gazebo_world.py --planner lane,mh --goals 4.5:0,4:1.5 --n 5 [--profile x3]
+G1 · Replica of the Gazebo world (gazebo/worlds/nano_uav_world.sdf) in our own simulator.
+Reproduces the deadlock observed in Gazebo (X3 stuck at x≈0.4 in front of the 3-box 'wall')
+and compares planners: 'lane' (consistent EvasionPlanner) vs 'mh' (MHPlanner, Loquercio 2021).
+Usage: nanouav run r12 --planner lane,mh --goals 4.5:0,4:1.5 --n 5 [--profile x3]
 """
 import os, sys, json, time, math, argparse
 import numpy as np
@@ -17,17 +17,17 @@ from nanouav.sim.closed_loop import random_corridor_world
 
 def gazebo_world(rng=None, jitter=0.0):
     j = (lambda: rng.uniform(-jitter, jitter)) if (rng is not None and jitter) else (lambda: 0.0)
-    obs = [Box((1.8 + j(), 0.0 + j(), 0.3), (0.2, 0.2, 0.3), tex=Texture('uniform', albedo=0.55)),   # naranja
-           Box((1.2 + j(), -1.0 + j(), 0.25), (0.175, 0.175, 0.25), tex=Texture('uniform', albedo=0.45)),  # verde
-           Box((1.0 + j(), 1.1 + j(), 0.4), (0.15, 0.15, 0.4), tex=Texture('uniform', albedo=0.35)),    # azul
-           Cylinder(3.0 + j(), 0.4 + j(), 0.18, 0.0, 0.7, Texture('uniform', albedo=0.7))]              # amarillo
+    obs = [Box((1.8 + j(), 0.0 + j(), 0.3), (0.2, 0.2, 0.3), tex=Texture('uniform', albedo=0.55)),   # orange
+           Box((1.2 + j(), -1.0 + j(), 0.25), (0.175, 0.175, 0.25), tex=Texture('uniform', albedo=0.45)),  # green
+           Box((1.0 + j(), 1.1 + j(), 0.4), (0.15, 0.15, 0.4), tex=Texture('uniform', albedo=0.35)),    # blue
+           Cylinder(3.0 + j(), 0.4 + j(), 0.18, 0.0, 0.7, Texture('uniform', albedo=0.7))]              # yellow
     ground = Plane(Texture('checker', albedo=0.75, albedo2=0.3, scale=1.0, extent=3.5))
     lk = random_lighting(rng) if rng is not None else {}
     return World(obs, ground, **lk)
 
 
 def scenario_world(spec, seed):
-    """'scn:bosque' (semilla = seed) o 'json:gazebo/worlds/gen/bosque_s3.json' → (World, escenario, balones)."""
+    """'scn:bosque' (seeded with seed) or 'json:gazebo/worlds/gen/bosque_s3.json' → (World, scenario, balls)."""
     from nanouav.sim import scenarios as SC
     from nanouav.scene.renderer import Sphere
     if spec.startswith('json:'):
@@ -60,7 +60,7 @@ def run(P, planner, goal, seed, variant='M', v=0.5, jitter=0.0, world='gz'):
     if planner == 'mh':
         from nanouav.planning.mh_planner import MHPlanner
         cls = MHPlanner
-    elif planner == 'mh1':                     # versión R12 (antes de pasos estrechos), para comparar
+    elif planner == 'mh1':                     # R12 version (before narrow passages), for comparison
         from nanouav.planning.legacy.mh_planner_r12 import MHPlannerV1
         cls = MHPlannerV1
     first = {'done': False}
@@ -78,7 +78,7 @@ def run(P, planner, goal, seed, variant='M', v=0.5, jitter=0.0, world='gz'):
             return p[0] > goal[0] - 0.5
         return np.hypot(p[0] - goal[0], p[1] - goal[1]) < 0.3 and abs(math.hypot(*[0, 0])) < 1
 
-    def on_step(t, sim):                       # balones: vaivén (onda triangular) sobre su eje
+    def on_step(t, sim):                       # balls: back-and-forth (triangle wave) along their axis
         for b, d in balls:
             per = 2 * d['amp'] / d['v']
             ph = (t % per) / per
@@ -105,7 +105,7 @@ def main():
     ap.add_argument('--jitter', type=float, default=0.0)
     ap.add_argument('--variant', default='M')
     ap.add_argument('--v', type=float, default=0.5)
-    ap.add_argument('--world', default='gz', help='gz | corridor | scn:bosque[;gap=1.0] | json:ruta.json (meta = B del escenario)')
+    ap.add_argument('--world', default='gz', help='gz | corridor | scn:bosque[;gap=1.0] | json:path.json (goal = scenario B)')
     a = ap.parse_args()
     P = PROFILES[a.profile]
     goals = [np.array([float(u) for u in g.split(':')]) for g in a.goals.split(',')]

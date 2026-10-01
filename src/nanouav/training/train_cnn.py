@@ -1,21 +1,21 @@
 """
-train_cnn.py — Entrenamiento v2 de la CNN de profundidad (reemplaza train.py,
-train_e0d.py, e2a_train_variants.py y generate_model.py como punto de entrada).
+train_cnn.py — Depth CNN training v2 (replaces train.py, train_e0d.py,
+e2a_train_variants.py and generate_model.py as the entry point).
 
-Mejoras:
-  * Dataset sintético v2 alineado con Gazebo (misma cámara, profundidad z, sombras,
-    texturas, poses perturbadas) + opcional TartanAir (--tartanair).
-  * Aumentación on-the-fly (flip, brillo, contraste, gamma, ruido).
-  * Pérdida L1 ponderada hacia lo cercano + gradiente + SSIM.
-  * Cuantización int8 correcta y evaluación del modelo int8 (no solo float).
-  * Métricas de evasión: error de distancia mínima en la región ToF, recall/precisión
-    de "obstáculo < 1 m".
-  * Arena de activaciones medida sobre el grafo TFLite (límite SRAM 180 KB).
+Improvements:
+  * Synthetic dataset v2 aligned with Gazebo (same camera, z-depth, shadows,
+    textures, perturbed poses) + optional TartanAir (--tartanair).
+  * On-the-fly augmentation (flip, brightness, contrast, gamma, noise).
+  * L1 loss weighted toward near range + gradient + SSIM.
+  * Correct int8 quantization and evaluation of the int8 model (not just float).
+  * Avoidance metrics: minimum-distance error in the ToF region, recall/precision
+    of "obstacle < 1 m".
+  * Activation arena measured on the TFLite graph (SRAM limit 180 KB).
 
-Uso:
-    python train_cnn.py                         # 4 variantes
-    python train_cnn.py --variants M --epochs 40
-    python train_cnn.py --tartanair             # mezcla con data/tartanair
+Usage:
+    nanouav run train                         # 4 variants
+    nanouav run train --variants M --epochs 40
+    nanouav run train --tartanair             # mix with data/tartanair
 """
 import os, sys, json, time, argparse
 import numpy as np
@@ -50,7 +50,7 @@ def _gen(n, seed0, fn=render_scene):
 
 
 def _gazebo_view(seed):
-    """Vistas del world SDF desde poses de vuelo plausibles (test en dominio)."""
+    """Views of the SDF world from plausible flight poses (in-domain test)."""
     rng = np.random.default_rng(seed)
     w = gazebo_world()
     for _ in range(50):
@@ -68,7 +68,7 @@ def load_or_build(n_train, n_val, n_test, n_gz):
             print(f'[data] cache {CACHE}')
             return {k: z[k] for k in z.files}
     os.makedirs(DATA_DIR, exist_ok=True)
-    print(f'[data] generando {n_train}+{n_val}+{n_test} escenas + {n_gz} Gazebo...')
+    print(f'[data] generating {n_train}+{n_val}+{n_test} scenes + {n_gz} Gazebo...')
     d = {}
     d['Xtr'], d['Ytr'] = _gen(n_train, 0)
     d['Xva'], d['Yva'] = _gen(n_val, 10_000_000)
@@ -79,9 +79,9 @@ def load_or_build(n_train, n_val, n_test, n_gz):
 
 
 def load_tartanair(max_samples=6000):
-    from train import build_dataset, DATA_DIR as TA_DIR
+    from nanouav.training.tartanair import build_dataset, DATA_DIR as TA_DIR
     if not os.path.isdir(TA_DIR):
-        print('[data] TartanAir no encontrado, se omite')
+        print('[data] TartanAir not found, skipping')
         return None, None
     X, Y = build_dataset(max_samples)            # float [0,1], norm [0,1]
     return (np.round(X[..., 0] * 255).astype(np.uint8),
@@ -121,14 +121,14 @@ def make_ds(X, Y, batch, train):
     return ds.batch(batch).prefetch(tf.data.AUTOTUNE)
 
 
-# ── Entrenamiento de una variante ──────────────────────────────────────────
+# ── Training a single variant ──────────────────────────────────────────────
 def train_variant(v, data, epochs, batch, lr):
     import tensorflow as tf
     import keras
 
     loss = get_depth_loss()
     model = build_variant(v)
-    print(f'\n[{v}] parámetros: {model.count_params():,}', flush=True)
+    print(f'\n[{v}] parameters: {model.count_params():,}', flush=True)
     steps = int(np.ceil(len(data['Xtr']) / batch)) * epochs
     sched = keras.optimizers.schedules.CosineDecay(lr, steps, alpha=0.02,
                                                    warmup_target=None)
@@ -141,7 +141,7 @@ def train_variant(v, data, epochs, batch, lr):
                          monitor='val_loss', patience=10, restore_best_weights=True)])
     t_train = time.time() - t0
 
-    # Modelo de exportación con batch fijo = 1 (mismo grafo, mismos pesos)
+    # Export model with fixed batch = 1 (same graph, same weights)
     m1 = build_variant(v, batch_size=1)
     m1.set_weights(model.get_weights())
     m1.save(os.path.join(CNN_DIR, f'model_{v}.keras'))
@@ -176,7 +176,7 @@ def evaluate(v, model, data):
     }, (Xgz, Ygz, pq_gz)
 
 
-# ── Gráficas ───────────────────────────────────────────────────────────────
+# ── Plots ──────────────────────────────────────────────────────────────────
 def plots(results, histories, preview):
     import matplotlib
     matplotlib.use('Agg')
@@ -191,9 +191,9 @@ def plots(results, histories, preview):
 
     vs = list(results)
     fig, axs = plt.subplots(2, 3, figsize=(15, 8), facecolor=BG)
-    fig.suptitle('CNN v2 · métricas int8 (test sintético) y recursos', color='white')
-    items = [('abs_rel', 'AbsRel ↓'), ('rmse', 'RMSE (m) ↓'), ('min_dist_mae', 'Error dist. mínima ToF (m) ↓'),
-             ('obs1m_recall', 'Recall obstáculo <1 m ↑')]
+    fig.suptitle('CNN v2 · int8 metrics (synthetic test) and resources', color='white')
+    items = [('abs_rel', 'AbsRel ↓'), ('rmse', 'RMSE (m) ↓'), ('min_dist_mae', 'Min-distance error ToF (m) ↓'),
+             ('obs1m_recall', 'Obstacle recall <1 m ↑')]
     for ax, (k, t) in zip(axs.flat[:4], items):
         sty(ax, t)
         fl = [results[v]['float_test'][k] for v in vs]
@@ -202,13 +202,13 @@ def plots(results, histories, preview):
         x = np.arange(len(vs))
         ax.bar(x - 0.27, fl, 0.27, color='#666', label='float')
         ax.bar(x, q8, 0.27, color=[C[v] for v in vs], label='int8')
-        ax.bar(x + 0.27, gz, 0.27, color=[C[v] for v in vs], alpha=0.45, label='int8 world Gazebo')
+        ax.bar(x + 0.27, gz, 0.27, color=[C[v] for v in vs], alpha=0.45, label='int8 Gazebo world')
         ax.set_xticks(x); ax.set_xticklabels(vs, color='#aaa')
         ax.legend(fontsize=7, facecolor='#222', labelcolor='white')
-    ax = axs.flat[4]; sty(ax, 'Arena activaciones (KB) vs límite SRAM')
+    ax = axs.flat[4]; sty(ax, 'Activation arena (KB) vs SRAM limit')
     ax.bar(vs, [results[v]['arena_kb'] for v in vs], color=[C[v] for v in vs])
     ax.axhline(SRAM_ARENA_LIMIT_KB, color='white', ls='--', lw=0.8)
-    ax = axs.flat[5]; sty(ax, 'Pérdida de validación')
+    ax = axs.flat[5]; sty(ax, 'Validation loss')
     for v in vs:
         ax.plot(results[v].get('val_loss_hist', []), color=C[v], label=v)
     ax.legend(fontsize=7, facecolor='#222', labelcolor='white')
@@ -222,12 +222,12 @@ def plots(results, histories, preview):
     v, (X, Y, P) = preview
     idx = np.linspace(0, len(X) - 1, 5).astype(int)
     fig, axs = plt.subplots(len(idx), 3, figsize=(7, 2.3 * len(idx)), facecolor=BG)
-    fig.suptitle(f'Variante {v} int8 · world Gazebo (render)', color='white')
+    fig.suptitle(f'Variant {v} int8 · Gazebo world (render)', color='white')
     for r, i in enumerate(idx):
         for c, (img, cm) in enumerate([(X[i, ..., 0], 'gray'), (Y[i, ..., 0], cmap), (P[i, ..., 0], cmap)]):
             axs[r, c].imshow(img, cmap=cm, vmin=0, vmax=1); axs[r, c].axis('off')
             if r == 0:
-                axs[r, c].set_title(['cámara', 'GT', 'CNN int8'][c], color='white', fontsize=8)
+                axs[r, c].set_title(['camera', 'GT', 'CNN int8'][c], color='white', fontsize=8)
     fig.tight_layout()
     fig.savefig(os.path.join(ASSETS, 'cnn_v2_preview.png'), dpi=110, facecolor=BG)
     plt.close(fig)
@@ -277,12 +277,12 @@ def main():
               f'recall<1m={q["obs1m_recall"]:.2f} | arena={res["arena_kb"]:.0f}KB '
               f'tflite={res["tflite_kb"]:.0f}KB', flush=True)
 
-    # model.tflite por defecto = M (lo usa cnn.py si no se pide variante)
+    # default model.tflite = M (used by cnn.py when no variant is requested)
     import shutil
     if os.path.exists(os.path.join(CNN_DIR, 'model_M.tflite')):
         shutil.copy(os.path.join(CNN_DIR, 'model_M.tflite'), os.path.join(CNN_DIR, 'model.tflite'))
     plots({k: results[k] for k in ['XS', 'S', 'M', 'L'] if k in results}, histories, preview)
-    print('\n[done] métricas en _03_cnn/metrics.json · gráficas en assets/cnn_v2_*.png')
+    print('\n[done] metrics in models/metrics.json · plots in results/cnn_v2_*.png')
 
 
 if __name__ == '__main__':

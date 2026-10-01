@@ -1,18 +1,18 @@
 """
-R15 · Falsas detecciones dinámicas según el tipo de movimiento propio (inspirado en DroneMOT,
-Wang, Wang & Li 2024: el movimiento del dron se descompone en hover / traslación / rotación y cada uno
-se compensa distinto; la rotación es la que produce los mayores saltos de píxel).
+R15 · False dynamic detections as a function of ego-motion type (inspired by DroneMOT,
+Wang, Wang & Li 2024: the drone's motion is decomposed into hover / translation / rotation and each is
+compensated differently; rotation is what produces the largest pixel jumps).
 
-Pregunta: la capa RF_DYN (R10, excitación = celda vista libre que ahora aparece ocupada) ¿cuántas pistas
-dinámicas FALSAS confirma en un mundo ESTÁTICO, y depende del tipo de ego-movimiento?
-Y con un balón real cruzando: ¿lo detecta igual en cada régimen?
+Question: how many FALSE dynamic tracks does the RF_DYN layer (R10, excitation = cell previously seen free
+that now appears occupied) confirm in a STATIC world, and does it depend on the ego-motion type?
+And with a real ball crossing: is it detected equally well in each regime?
 
-Lazo abierto: la cámara sigue una trayectoria prescrita (sin colisiones posibles: el carril y = 0 está
-libre), se renderiza, CNN M + ToF + calibración como en vuelo, y se llama al planificador solo para
-percibir/mapear/seguir. Métricas por minuto: pistas falsas confirmadas (n ≥ 3, |v| > 0.3 m/s, a > 0.6 m
-de cualquier objeto dinámico), activaciones de EVADE, y para el balón: recall (fracción de su paso por el
-campo visual con pista confirmada a < 0.4 m) y latencia de la primera confirmación.
-Uso: python r15_dyn_egomotion.py --n 6 [--gate yaw]
+Open loop: the camera follows a prescribed trajectory (no collisions possible: the lane y = 0 is
+free), the scene is rendered, CNN M + ToF + calibration as in flight, and the planner is called only to
+perceive/map/track. Per-minute metrics: confirmed false tracks (n ≥ 3, |v| > 0.3 m/s, > 0.6 m away
+from any dynamic object), EVADE activations, and for the ball: recall (fraction of its pass through the
+field of view with a confirmed track within < 0.4 m) and latency of the first confirmation.
+Usage: nanouav run r15 --n 6 [--gate yaw]
 """
 import os, sys, json, math, time, argparse
 import numpy as np
@@ -72,7 +72,7 @@ def episode(kind, seed, ball, gate=None, cfg=None):
         t = k * DT
         p, yaw, rate, vel = trajectory(kind, t)
         bpos = None
-        if b is not None and t >= t_launch:                     # cruza y = −2.5 → 2.5 a 1 m/s en x = p + 2.2
+        if b is not None and t >= t_launch:                     # crosses y = −2.5 → 2.5 at 1 m/s at x = p + 2.2
             x_b = p[0] + 2.2 if kind in ('H', 'R') else -1.5 + 0.5 * t_launch + 2.2 + 0.5 * 2.5
             bpos = np.array([x_b, -2.5 + 1.0 * (t - t_launch), 0.65])
             if bpos[1] > 2.5:
@@ -84,16 +84,16 @@ def episode(kind, seed, ball, gate=None, cfg=None):
         dn = predict_depth_norm(gray, 'M', tof=tof)
         depth = fuse(cal.update_and_scale(dn, tof), tof)
         if gate == 'yaw' and abs(rate) > 0.35:
-            pl.RF_DYN_SUPPRESS = True                         # (se usa abajo: se descartan detecciones nuevas)
+            pl.RF_DYN_SUPPRESS = True                         # (used below: new detections are discarded)
         else:
             pl.RF_DYN_SUPPRESS = False
         n_before = {id(tr) for tr in pl._tracks}
         _, _, info = pl.update({'p': p, 'v': vel, 'yaw': yaw, 't': t}, depth, tof, (p, yaw, 0.0, 0.0))
-        if pl.RF_DYN_SUPPRESS:                                 # DMP-like: en rotación rápida no se crean pistas
+        if pl.RF_DYN_SUPPRESS:                                 # DMP-like: no tracks are created during fast rotation
             pl._tracks = [tr for tr in pl._tracks if id(tr) in n_before]
         if info.get('mode') == 'EVADE':
             n_evade += 1
-        # ¿balón en el campo visual (±30°) y a < 4 m?
+        # ball in the field of view (±30°) and closer than 4 m?
         in_view = False
         if bpos is not None:
             d = bpos[:2] - p[:2]
@@ -121,7 +121,7 @@ def main():
     ap.add_argument('--n', type=int, default=6)
     ap.add_argument('--kinds', default='H,T,R,TR')
     ap.add_argument('--gate', default='')
-    ap.add_argument('--cfg', default='', help='p.ej. "RF_NET_DISP=0.4,RF_MIN_PTS=5"')
+    ap.add_argument('--cfg', default='', help='e.g. "RF_NET_DISP=0.4,RF_MIN_PTS=5"')
     a = ap.parse_args()
     cfg = {k: float(v) for k, v in (x.split('=') for x in a.cfg.split(',') if x)}
     out, t0 = {}, time.time()
@@ -134,8 +134,8 @@ def main():
             ev = np.mean([r['evade_s'] for r in L])
             rec = [r['ball_recall'] for r in L if r['ball_recall'] is not None]
             lat = [r['ball_first_s'] for r in L if r['ball_first_s'] is not None]
-            print(f'{key:10s} FP/min {fp:5.2f}  EVADE {ev:4.1f} s/20 s  recall_balón '
-                  f'{(np.mean(rec) if rec else float("nan")):.2f}  detectado {len(lat)}/{len(L)} '
+            print(f'{key:10s} FP/min {fp:5.2f}  EVADE {ev:4.1f} s/20 s  ball_recall '
+                  f'{(np.mean(rec) if rec else float("nan")):.2f}  detected {len(lat)}/{len(L)} '
                   f'lat_med {(np.median(lat) if lat else float("nan")):.2f} s  ({time.time() - t0:.0f}s)', flush=True)
     json.dump(out, open(os.path.join(str(paths.results_dir()), f'r15_dyn_egomotion{"_" + a.gate if a.gate else ""}{"_" + a.cfg.replace("=", "").replace(",", "_") if a.cfg else ""}.json'), 'w'), indent=1)
 

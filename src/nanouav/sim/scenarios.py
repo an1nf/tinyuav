@@ -1,16 +1,16 @@
 """
-Escenarios compartidos Gazebo ↔ simulador propio (una sola fuente de verdad).
+Scenarios shared between Gazebo ↔ our own simulator (single source of truth).
 
-Cada escenario es un dict JSON-serializable:
+Each scenario is a JSON-serializable dict:
   {name, seed, A:[x,y], B:[x,y], yaw0, z_cruise, ground:{kind, albedo, albedo2, scale},
    objects:[{type:'box', center:[x,y,z], half:[hx,hy,hz], yaw, tex:{...}} |
             {type:'cyl', c:[x,y], r, z0, z1, tex:{...}}],
    dynamic:[{name, r, p0:[x,y,z], axis:[ux,uy], amp, v}], t_max}
-tex = {kind: uniform|checker|noise|stripes, albedo, albedo2, scale, seed} (misma semántica que
-_00_scene.renderer.Texture → las imágenes de Gazebo se generan con el MISMO muestreador).
+tex = {kind: uniform|checker|noise|stripes, albedo, albedo2, scale, seed} (same semantics as
+nanouav.scene.renderer.Texture → the Gazebo images are generated with the SAME sampler).
 
-gen_world.py lo convierte a SDF (+ texturas PNG); to_world() lo convierte a World del renderer
-propio para correr exactamente el mismo mundo offline (g1_gazebo_world.py --world json:…).
+`nanouav gazebo gen-world` converts it to SDF (+ PNG textures); to_world() converts it to a World of
+our own renderer to run exactly the same world offline (`nanouav run r12 --world json:…`).
 """
 import math
 import numpy as np
@@ -50,9 +50,9 @@ def _base(name, seed, B, rng, t_max=90.0, ground=None):
             'ground': ground or _ground(rng), 'objects': [], 'dynamic': [], 't_max': t_max}
 
 
-# ── escenarios ────────────────────────────────────────────────────────────
+# ── scenarios ─────────────────────────────────────────────────────────────
 def obstaculos(seed=0, **kw):
-    """El mundo original de Gazebo (pared de 3 cajas + cilindro), con texturas."""
+    """The original Gazebo world (wall of 3 boxes + cylinder), with textures."""
     rng = np.random.default_rng(seed)
     s = _base('obstaculos', seed, (4.5, 0.0), rng, t_max=90)
     s['objects'] = [_box((1.8, 0.0, 0.3), (0.2, 0.2, 0.3), 0, _tex(rng)),
@@ -63,8 +63,8 @@ def obstaculos(seed=0, **kw):
 
 
 def bosque(seed=0, density=0.35, gap=1.6, length=9.0, width=4.0, **kw):
-    """Troncos (r 0.06–0.25 m, 2–3 m) por muestreo de disco de Poisson: separación mínima entre
-    centros `gap` (1.6 m deja paso al X3; 1.0 al nano). density = troncos/m² objetivo."""
+    """Tree trunks (r 0.06–0.25 m, 2–3 m) via Poisson-disk sampling: minimum spacing between
+    centers `gap` (1.6 m lets the X3 through; 1.0 the nano). density = target trunks/m²."""
     rng = np.random.default_rng(seed)
     s = _base('bosque', seed, (length + 1.0, 0.0), rng, t_max=120)
     target = int(density * length * 2 * width)
@@ -83,7 +83,7 @@ def bosque(seed=0, density=0.35, gap=1.6, length=9.0, width=4.0, **kw):
 
 
 def rendijas(seed=0, width=1.5, n_walls=2, **kw):
-    """Slalom de paredes con una abertura cada una, alternando lado (el carril recto está cerrado)."""
+    """Slalom of walls with one opening each, alternating sides (the straight lane is blocked)."""
     rng = np.random.default_rng(seed)
     s = _base('rendijas', seed, (2.5 * n_walls + 2.5, 0.0), rng, t_max=120)
     for i in range(n_walls):
@@ -98,7 +98,7 @@ def rendijas(seed=0, width=1.5, n_walls=2, **kw):
 
 
 def interior(seed=0, door=1.2, **kw):
-    """Dos habitaciones (8 × 6 m) unidas por una puerta; muebles bajos y altos. Meta en la otra sala."""
+    """Two rooms (8 × 6 m) joined by a door; low and tall furniture. Goal in the other room."""
     rng = np.random.default_rng(seed)
     s = _base('interior', seed, (7.5, rng.uniform(-1.5, 1.5)), rng, t_max=150,
               ground=_ground(rng, 'checker'))
@@ -108,12 +108,12 @@ def interior(seed=0, door=1.2, **kw):
                      _box(((X0 + X1) / 2, -Y - 0.1, 1.2), ((X1 - X0) / 2, 0.1, 1.2), 0, wall),
                      _box((X0 - 0.1, 0, 1.2), (0.1, Y, 1.2), 0, wall),
                      _box((X1 + 0.1, 0, 1.2), (0.1, Y, 1.2), 0, wall)]
-    xw, yd = 3.2, rng.uniform(-1.6, 1.6)                 # tabique con puerta
+    xw, yd = 3.2, rng.uniform(-1.6, 1.6)                 # partition wall with door
     lo, hi = yd - door / 2, yd + door / 2
     s['objects'] += [_box((xw, (-Y + lo) / 2, 1.2), (0.08, (lo + Y) / 2, 1.2), 0, wall),
                      _box((xw, (hi + Y) / 2, 1.2), (0.08, (Y - hi) / 2, 1.2), 0, wall)]
     furn = []
-    for _ in range(int(rng.integers(3, 6))):              # mesas/estantes/cajas
+    for _ in range(int(rng.integers(3, 6))):              # tables/shelves/boxes
         for _t in range(50):
             x = rng.uniform(X0 + 0.8, X1 - 0.8)
             y = rng.uniform(-Y + 0.6, Y - 0.6)
@@ -122,14 +122,14 @@ def interior(seed=0, door=1.2, **kw):
             if all(math.hypot(x - a, y - b) > 1.6 for a, b in furn):
                 break
         furn.append((x, y))
-        hz = float(rng.choice([0.38, 0.9, 1.0]))          # mesa (se sobrevuela? no: 0.76 m) / estante
+        hz = float(rng.choice([0.38, 0.9, 1.0]))          # table (fly over it? no: 0.76 m) / shelf
         s['objects'].append(_box((x, y, hz), (rng.uniform(0.2, 0.5), rng.uniform(0.2, 0.5), hz),
                                  rng.uniform(-0.5, 0.5), _tex(rng)))
     return s
 
 
 def corredor(seed=0, **kw):
-    """El mundo aleatorio de E3 (random_corridor_world) con la misma semilla → comparable con E3."""
+    """The E3 random world (random_corridor_world) with the same seed → comparable with E3."""
     rng = np.random.default_rng(seed)
     s = _base('corredor', seed, (7.0, 0.0), rng, t_max=90)
     objs, placed = [], []
@@ -154,7 +154,7 @@ def corredor(seed=0, **kw):
 
 
 def dinamico(seed=0, v_ball=1.0, **kw):
-    """Obstáculos estáticos ligeros + balón (r 0.15) que cruza el carril de lado a lado en x ≈ 3."""
+    """A few static obstacles + a ball (r 0.15) crossing the lane from side to side at x ≈ 3."""
     rng = np.random.default_rng(seed)
     s = _base('dinamico', seed, (6.5, 0.0), rng, t_max=90)
     s['objects'] = [_cyl(1.5, rng.uniform(-1.5, -0.8), 0.15, 2.0, _tex(rng)),
@@ -165,28 +165,28 @@ def dinamico(seed=0, v_ball=1.0, **kw):
 
 
 def estrechos(seed=0, w=1.0, **kw):
-    """Pasos estrechos SIN rodeo posible: puerta en una pared continua (±9 m), pasillo de 2.5 m de largo
-    y segunda puerta desplazada. w = ancho libre (m). X3 (Ø 0.72 m): w = 1.0 deja 0.14 m por lado;
-    nano (Ø 0.22 m): usar w = 0.45."""
+    """Narrow passages with NO possible detour: a door in a continuous wall (±9 m), a 2.5 m long corridor
+    and a second, offset door. w = free width (m). X3 (Ø 0.72 m): w = 1.0 leaves 0.14 m per side;
+    nano (Ø 0.22 m): use w = 0.45."""
     rng = np.random.default_rng(seed)
     s = _base('estrechos', seed, (9.0, 0.0), rng, t_max=150)
     t1 = _tex(rng, ('noise', 'stripes', 'checker'), (0.5, 0.3, 0.2))
     t2 = _tex(rng, ('noise', 'stripes', 'checker'), (0.5, 0.3, 0.2))
-    H, Y = 1.1, 16.0                                                  # más allá de la grilla: sin rodeo
+    H, Y = 1.1, 16.0                                                  # beyond the grid: no detour
 
     def wall_with_gap(x, yc, width, t, thick=0.1):
         lo, hi = yc - width / 2, yc + width / 2
         for a, b in ((-Y, lo), (hi, Y)):
             s['objects'].append(_box((x, (a + b) / 2, H), (thick, (b - a) / 2, H), 0, t))
     y1 = float(rng.uniform(-0.3, 0.3))
-    wall_with_gap(1.2, y1, w, t1)                                     # 1) puerta
-    yc = float(rng.uniform(-0.4, 0.4))                                # 2) pasillo x ∈ [3.2, 5.7]
+    wall_with_gap(1.2, y1, w, t1)                                     # 1) door
+    yc = float(rng.uniform(-0.4, 0.4))                                # 2) corridor x ∈ [3.2, 5.7]
     x0, x1 = 3.2, 5.7
     wall_with_gap(x0, yc, w, t2)
     for sgn in (-1, 1):
         s['objects'].append(_box(((x0 + x1) / 2, yc + sgn * (w / 2 + 0.05), H), ((x1 - x0) / 2, 0.05, H), 0, t2))
     wall_with_gap(x1, yc, w, t2)
-    wall_with_gap(7.5, -yc + float(rng.uniform(-0.3, 0.3)), w, t1)   # 3) puerta desplazada
+    wall_with_gap(7.5, -yc + float(rng.uniform(-0.3, 0.3)), w, t1)   # 3) offset door
     return s
 
 
@@ -199,9 +199,9 @@ def make(name, seed=0, **kw):
     return SCENARIOS[name](seed=seed, **kw)
 
 
-# ── al renderer propio ─────────────────────────────────────────────────────
+# ── to our own renderer ────────────────────────────────────────────────────
 def to_world(s, lighting=None):
-    """Convierte el escenario en World del simulador propio (sin los dinámicos, que se animan aparte)."""
+    """Convert the scenario into a World of our own simulator (without the dynamic objects, which are animated separately)."""
     from nanouav.scene.renderer import World, Box, Cylinder, Plane, Texture
     T = lambda d: Texture(d.get('kind', 'uniform'), albedo=d.get('albedo', 0.5), albedo2=d.get('albedo2', 0.3),
                           scale=d.get('scale', 1.0), seed=d.get('seed', 0))
@@ -215,7 +215,7 @@ def to_world(s, lighting=None):
 
 
 def clearance(s, p, dyn_pos=None):
-    """Distancia (m) del punto p (3,) al obstáculo más cercano (estáticos + dinámicos)."""
+    """Distance (m) from point p (3,) to the nearest obstacle (static + dynamic)."""
     p = np.asarray(p, float)
     best = np.inf
     for o in s['objects']:

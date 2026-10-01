@@ -1,12 +1,12 @@
 """
-R10 · Obstáculos dinámicos (Shang et al., NeurIPS 2025: evasión de objetos rápidos con ERF/IRF).
+R10 · Dynamic obstacles (Shang et al., NeurIPS 2025: avoiding fast objects with ERF/IRF).
 
-Nuestro planificador supone mundo estático (grilla con memoria). Escenarios, dron a v = 1 m/s
-por la recta y = 0, esfera r = 0.12 m (balón) a la altura de vuelo:
-  cross : cruza de lado a lado; se lanza para pasar por (x = 4, y = 0) cuando llegaría el dron
-  head  : viene de frente (−x) con desfase lateral 0.1 m; velocidad de cierre = v + v_obs
-Métricas: colisión con la esfera, éxito (llegar a x = 8), holgura mínima a la esfera.
-Uso: python r10_dynamic.py --scen cross --vobs 0.5,1,2,3 --n 5 [--rf]
+Our planner assumes a static world (grid with memory). Scenarios, drone at v = 1 m/s
+along the line y = 0, sphere r = 0.12 m (ball) at flight altitude:
+  cross : crosses from side to side; launched so it passes (x = 4, y = 0) when the drone would get there
+  head  : comes head-on (−x) with a 0.1 m lateral offset; closing speed = v + v_obs
+Metrics: collision with the sphere, success (reaching x = 8), minimum clearance to the sphere.
+Usage: nanouav run r10 --scen cross --vobs 0.5,1,2,3 --n 5 [--rf]
 """
 import os, sys, json, time, math, argparse
 import numpy as np
@@ -67,8 +67,8 @@ def main():
     ap.add_argument('--scen', default='cross')
     ap.add_argument('--vobs', default='0.5,1,2,3')
     ap.add_argument('--n', type=int, default=5)
-    ap.add_argument('--rf', action='store_true', help='capa dinámica inspirada en ERF/IRF (R10b)')
-    ap.add_argument('--aggr', action='store_true', help='perfil de referencia agresivo durante EVADE (R10c)')
+    ap.add_argument('--rf', action='store_true', help='dynamic layer inspired by ERF/IRF (R10b)')
+    ap.add_argument('--aggr', action='store_true', help='aggressive reference profile during EVADE (R10c)')
     ap.add_argument('--variant', default='M')
     a = ap.parse_args()
     global AGGR, VARIANT
@@ -85,7 +85,7 @@ def main():
         out[str(v)] = L
     json.dump(out, open(os.path.join(str(paths.results_dir()), f'r10_dyn_{P.name}_{a.scen}{"_rf" if a.rf else ""}{"_aggr" if a.aggr else ""}_{a.variant}.json'), 'w'), indent=1)
     for v, L in out.items():
-        print(f"v_obs={v}: ok {sum(r['success'] for r in L)}/{len(L)} golpes {sum(r['hit_ball'] for r in L)} "
+        print(f"v_obs={v}: ok {sum(r['success'] for r in L)}/{len(L)} hits {sum(r['hit_ball'] for r in L)} "
               f"timeouts {sum(r['timeout'] for r in L)} d_min_med {np.median([r['d_ball_min'] for r in L]):.2f}")
 
 

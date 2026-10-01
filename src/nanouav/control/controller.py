@@ -1,19 +1,19 @@
 """
-_06_control/controller.py — Control en cascada hasta velocidad de motores.
+nanouav/control/controller.py — Cascaded control down to motor speeds.
 
-  velocidad (PI + feed-forward de aceleración, límite de inclinación)
-    → vector de empuje deseado + yaw → R_des  (Lee et al., SO(3))
-    → tasa angular deseada (P sobre error de actitud, prioridad a inclinación)
-    → torque (PI de tasa escalado por inercia + compensación giroscópica)
-    → mezclador con manejo de saturación (yaw cede primero, luego desplazamiento
-      de colectivo tipo airmode, luego escalado de roll/pitch)
+  velocity (PI + acceleration feed-forward, tilt limit)
+    → desired thrust vector + yaw → R_des  (Lee et al., SO(3))
+    → desired angular rate (P on attitude error, tilt has priority)
+    → torque (rate PI scaled by inertia + gyroscopic compensation)
+    → mixer with saturation handling (yaw yields first, then airmode-style
+      collective shift, then roll/pitch scaling)
     → ω_motor = sqrt(f / kf)
 
-Ganancias derivadas de la constante de tiempo del motor τm (planta dominante):
-  rate  K_r ≈ 0.45/τm  (margen de fase ≈ 65°)   att K_a ≈ K_r/4   vel K_v ≈ K_a/3
-Así el mismo código sirve para el X3 de Gazebo y para el nano-UAV.
-Anti-windup: los integradores se congelan con saturación del mezclador o del
-límite de inclinación.
+Gains derived from the motor time constant τm (dominant plant):
+  rate  K_r ≈ 0.45/τm  (phase margin ≈ 65°)   att K_a ≈ K_r/4   vel K_v ≈ K_a/3
+So the same code works for the Gazebo X3 and for the nano-UAV.
+Anti-windup: the integrators freeze on mixer saturation or when the tilt
+limit is active.
 """
 import numpy as np
 from .vehicle import G
@@ -41,16 +41,16 @@ class CascadedController:
         self.tilt_max = np.radians(tilt_max_deg)
         self.vi = np.zeros(3)
         self.ri = np.zeros(3)
-        self.saturated = False        # cualquier saturación (congela integradores)
-        self.saturated_rp = False     # roll/pitch comprometidos (lo usa el supervisor)
-        self.freeze_vi = False        # lo activa el supervisor en RECOVER
+        self.saturated = False        # any saturation (freezes the integrators)
+        self.saturated_rp = False     # roll/pitch compromised (used by the supervisor)
+        self.freeze_vi = False        # set by the supervisor in RECOVER
         self.tilt_limited = False
 
     def reset_integrators(self):
         self.vi[:] = 0
         self.ri[:] = 0
 
-    # ── lazo de velocidad → empuje y actitud deseada ──────────────────────
+    # ── velocity loop → thrust and desired attitude ───────────────────────
     def velocity_to_attitude(self, v, v_ref, a_ff, psi_ref, dt):
         K = self.K
         e = v_ref - v
@@ -73,7 +73,7 @@ class CascadedController:
         R_des = np.column_stack([b1, b2, b3])
         return F, R_des
 
-    # ── lazo de actitud y tasa → torques ──────────────────────────────────
+    # ── attitude and rate loop → torques ──────────────────────────────────
     def attitude_rate(self, R, w, R_des, r_ff, dt):
         K = self.K
         eR = 0.5 * vee(R_des.T @ R - R.T @ R_des)
@@ -88,14 +88,14 @@ class CascadedController:
         Jv = self.P.Jv
         return Jv * alpha + np.cross(w, Jv * w), w_des
 
-    # ── mezclador con prioridades ─────────────────────────────────────────
+    # ── mixer with priorities ─────────────────────────────────────────────
     def mix(self, T, tau):
         P = self.P
         fmax = P.f_max
         base = P.A_inv @ np.array([T, tau[0], tau[1], 0.0])
         fy = P.A_inv @ np.array([0.0, 0.0, 0.0, tau[2]])
         sat = sat_rp = False
-        # 1) yaw cede primero
+        # 1) yaw yields first
         s = 1.0
         for i in range(4):
             if fy[i] > 1e-12:
@@ -105,13 +105,13 @@ class CascadedController:
         if s < 1.0:
             sat = True
         f = base + s * fy
-        # 2) desplazar colectivo (airmode) para preservar roll/pitch
+        # 2) shift the collective (airmode) to preserve roll/pitch
         lo, hi = f.min(), f.max()
         if lo < 0 or hi > fmax:
             sat = sat_rp = True
             if hi - lo <= fmax:
                 f += -lo if lo < 0 else fmax - hi
-            else:                                  # 3) escalar roll/pitch
+            else:                                  # 3) scale roll/pitch
                 m = f.mean()
                 k = fmax / (hi - lo)
                 f = m + k * (f - m)

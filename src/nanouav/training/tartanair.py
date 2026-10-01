@@ -1,15 +1,15 @@
 """
-Entrenamiento de CNN de profundidad con dataset TartanAir.
+Depth CNN training with the TartanAir dataset.
 
-Ejecutar:
+Run:
     conda activate nano_uav
-    pip install tensorflow-cpu -q   # si no está ya
-    python train.py
+    pip install tensorflow-cpu -q   # if not already installed
+    nanouav run train-tartanair
 
-Produce:
-    _03_cnn/model.tflite    — reemplaza el modelo de pesos aleatorios
-    assets/train_loss.png   — curva de pérdida
-    assets/train_preview.png — muestra visual de predicciones
+Produces:
+    models/model.tflite       — replaces the random-weights model
+    results/train_loss.png    — loss curve
+    results/train_preview.png — visual sample of predictions
 """
 import os, sys, json, zipfile, time
 import numpy as np
@@ -25,34 +25,34 @@ OUT_TFL   = os.path.join(str(paths.models_dir()), 'model.tflite')
 ASSETS = str(paths.results_dir())
 os.makedirs(ASSETS, exist_ok=True)
 
-# ── Hiperparámetros ───────────────────────────────────────────────────────
+# ── Hyperparameters ───────────────────────────────────────────────────────
 IMG_H, IMG_W = 96, 96
-DEPTH_MIN    = 0.2    # metros
-DEPTH_MAX    = 4.0    # metros (clipeamos lo que esté fuera)
-DEPTH_MM_MAX = 20000  # milímetros — valores uint16 por encima = descartados
+DEPTH_MIN    = 0.2    # meters
+DEPTH_MAX    = 4.0    # meters (anything outside is clipped)
+DEPTH_MM_MAX = 20000  # millimeters — uint16 values above this are discarded
 BATCH_SIZE   = 16
 EPOCHS       = 60
 LR           = 3e-3
 VAL_SPLIT    = 0.15
-MAX_SAMPLES  = 6000   # usar todos; bajar si quieres una prueba rápida
+MAX_SAMPLES  = 6000   # use all; lower it for a quick test
 
 
-# ── 1. Descomprimir si hace falta ─────────────────────────────────────────
+# ── 1. Extract if needed ──────────────────────────────────────────────────
 def maybe_extract():
     if os.path.isdir(DATA_DIR) and len(os.listdir(DATA_DIR)) > 10:
-        print(f'[data] Directorio ya existe ({len(os.listdir(DATA_DIR))} entradas)')
+        print(f'[data] Directory already exists ({len(os.listdir(DATA_DIR))} entries)')
         return
     if not os.path.exists(ZIP_PATH):
         sys.exit(f'No se encuentra {ZIP_PATH}\nDescarga primero:\n'
                  f'  kaggle datasets download -d peters777/moge-dataset-tartanair '
                  f'--path data/tartanair')
-    print(f'[data] Extrayendo {ZIP_PATH} ...')
+    print(f'[data] Extracting {ZIP_PATH} ...')
     with zipfile.ZipFile(ZIP_PATH) as zf:
         zf.extractall(os.path.dirname(DATA_DIR))
-    print(f'[data] Extraído en {DATA_DIR}')
+    print(f'[data] Extracted to {DATA_DIR}')
 
 
-# ── 2. Cargar muestras ────────────────────────────────────────────────────
+# ── 2. Load samples ───────────────────────────────────────────────────────
 def _fov_crop_box(size, src_hfov=np.pi / 2, dst_hfov=1.047):
     w, h = size
     f = np.tan(dst_hfov / 2) / np.tan(src_hfov / 2)
@@ -62,32 +62,32 @@ def _fov_crop_box(size, src_hfov=np.pi / 2, dst_hfov=1.047):
 
 def load_sample(sample_dir: str):
     """
-    Retorna (gray float32 96x96, depth float32 96x96) o None si falla.
+    Returns (gray float32 96x96, depth float32 96x96), or None on failure.
     gray:  [0, 1]
-    depth: [0, 1]  donde 1 = DEPTH_MAX metros
+    depth: [0, 1]  where 1 = DEPTH_MAX meters
     """
     from PIL import Image
     try:
         img_path = os.path.join(sample_dir, 'image.jpg')
         dep_path = os.path.join(sample_dir, 'depth.png')
 
-        # Imagen: RGB → gris → 96x96 → [0,1]
-        # TartanAir: HFOV 90° → recorte central a 60° (cámara del dron, uav_config.CAM_HFOV)
+        # Image: RGB → gray → 96x96 → [0,1]
+        # TartanAir: HFOV 90° → central crop to 60° (drone camera, nanouav.config.CAM_HFOV)
         img = Image.open(img_path).convert('L')
         box = _fov_crop_box(img.size)
         img = img.crop(box).resize((IMG_W, IMG_H), Image.BILINEAR)
         gray = np.array(img, dtype=np.float32) / 255.0
 
-        # Profundidad: uint16 mm → metros → clip → normalizar [0,1]
+        # Depth: uint16 mm → meters → clip → normalize to [0,1]
         dep_raw = np.array(Image.open(dep_path), dtype=np.float32)
         dep_m   = dep_raw / 1000.0                          # mm → m
         dep_m   = np.clip(dep_m, DEPTH_MIN, DEPTH_MAX)
 
-        # Redimensionar a 96x96
+        # Resize to 96x96
         dep_img = Image.fromarray(dep_m).crop(_fov_crop_box(dep_m.shape[::-1])).resize((IMG_W, IMG_H), Image.BILINEAR)
         dep_96  = np.array(dep_img, dtype=np.float32)
 
-        # Normalizar a [0, 1]
+        # Normalize to [0, 1]
         dep_norm = (dep_96 - DEPTH_MIN) / (DEPTH_MAX - DEPTH_MIN)
 
         return gray, dep_norm
@@ -103,7 +103,7 @@ def build_dataset(max_samples: int = MAX_SAMPLES):
         if os.path.isdir(os.path.join(DATA_DIR, d))
     ])[:max_samples]
 
-    print(f'[data] Cargando {len(samples)} muestras...')
+    print(f'[data] Loading {len(samples)} samples...')
     t0 = time.time()
 
     X, Y = [], []
@@ -121,12 +121,12 @@ def build_dataset(max_samples: int = MAX_SAMPLES):
 
     X = np.array(X, dtype=np.float32)[..., np.newaxis]  # (N, 96, 96, 1)
     Y = np.array(Y, dtype=np.float32)[..., np.newaxis]  # (N, 96, 96, 1)
-    print(f'[data] {len(X)} muestras cargadas, {fails} fallidas  ({time.time()-t0:.1f}s)')
+    print(f'[data] {len(X)} samples loaded, {fails} failed  ({time.time()-t0:.1f}s)')
     print(f'       X: {X.shape}  Y: {Y.shape}')
     return X, Y
 
 
-# ── 3. Modelo ─────────────────────────────────────────────────────────────
+# ── 3. Model ──────────────────────────────────────────────────────────────
 def build_model():
     import keras
     from keras import layers
@@ -149,7 +149,7 @@ def build_model():
     # Bottleneck
     b  = dw_block(e3,  32, stride=1)   # 12x12x32
 
-    # Decoder con skip connections
+    # Decoder with skip connections
     d1 = layers.Conv2DTranspose(16, 3, strides=2, padding='same')(b)   # 24x24x16
     d1 = layers.Add()([d1, e2])
     d1 = dw_block(d1, 16)
@@ -165,16 +165,16 @@ def build_model():
     return model
 
 
-# ── 4. Pérdida: SSIM + L1 ────────────────────────────────────────────────
+# ── 4. Loss: SSIM + L1 ───────────────────────────────────────────────────
 def depth_loss(y_true, y_pred):
     """
-    Combina L1 (error absoluto) con gradiente de imagen.
-    Más robusto que MSE para profundidad: penaliza bordes borrosos.
+    Combines L1 (absolute error) with an image-gradient term.
+    More robust than MSE for depth: penalizes blurry edges.
     """
     import tensorflow as tf
     l1 = tf.reduce_mean(tf.abs(y_true - y_pred))
 
-    # Gradiente: fuerza nitidez en bordes de profundidad
+    # Gradient: enforces sharp depth edges
     dy_true, dx_true = tf.image.image_gradients(y_true)
     dy_pred, dx_pred = tf.image.image_gradients(y_pred)
     grad = tf.reduce_mean(tf.abs(dy_true - dy_pred) + tf.abs(dx_true - dx_pred))
@@ -182,10 +182,10 @@ def depth_loss(y_true, y_pred):
     return l1 + 0.5 * grad
 
 
-# ── 5. Métricas de evaluación ─────────────────────────────────────────────
+# ── 5. Evaluation metrics ─────────────────────────────────────────────────
 def eval_metrics(y_true, y_pred):
     """
-    y_true, y_pred: normalizados [0,1] → convertimos a metros para interpretar.
+    y_true, y_pred: normalized [0,1] → converted to meters for interpretation.
     """
     yt = y_true * (DEPTH_MAX - DEPTH_MIN) + DEPTH_MIN
     yp = y_pred * (DEPTH_MAX - DEPTH_MIN) + DEPTH_MIN
@@ -194,12 +194,12 @@ def eval_metrics(y_true, y_pred):
     return abs_rel, rmse
 
 
-# ── 6. Cuantizar y exportar TFLite ───────────────────────────────────────
+# ── 6. Quantize and export TFLite ────────────────────────────────────────
 def export_tflite(model, X_sample):
     import tensorflow as tf
 
     def rep_data():
-        # Convertir de [0,1] float a [-128,127] int8 simulando la entrada real
+        # Convert from [0,1] float to [-128,127] int8, simulating the real input
         for i in range(min(200, len(X_sample))):
             img = X_sample[i:i+1]           # (1, 96, 96, 1) float32 [0,1]
             img_q = (img * 255.0 - 128.0).astype(np.float32)
@@ -218,7 +218,7 @@ def export_tflite(model, X_sample):
     print(f'[export] {OUT_TFL}  ({len(tflite_bytes)//1024} KB)')
 
 
-# ── 7. Visualización ──────────────────────────────────────────────────────
+# ── 7. Visualization ──────────────────────────────────────────────────────
 def plot_preview(model, X_val, Y_val, epoch_losses, val_losses):
     import matplotlib.pyplot as plt
     from matplotlib.colors import LinearSegmentedColormap
@@ -229,13 +229,13 @@ def plot_preview(model, X_val, Y_val, epoch_losses, val_losses):
 
     DARK, BG = '#111', '#1a1a1a'
 
-    # Curva de pérdida
+    # Loss curve
     fig, ax = plt.subplots(figsize=(8, 3), facecolor=BG)
     ax.set_facecolor(DARK)
     ax.plot(epoch_losses, color='#5DCAA5', lw=1.5, label='train')
     ax.plot(val_losses,   color='#EF9F27', lw=1.5, label='val')
-    ax.set_title('Pérdida de entrenamiento', color='white', fontsize=10)
-    ax.set_xlabel('época', color='#888'); ax.set_ylabel('loss', color='#888')
+    ax.set_title('Training loss', color='white', fontsize=10)
+    ax.set_xlabel('epoch', color='#888'); ax.set_ylabel('loss', color='#888')
     ax.tick_params(colors='#888')
     for sp in ax.spines.values(): sp.set_edgecolor('#333')
     ax.legend(fontsize=8, facecolor='#222', edgecolor='#333', labelcolor='white')
@@ -244,16 +244,16 @@ def plot_preview(model, X_val, Y_val, epoch_losses, val_losses):
                 bbox_inches='tight', facecolor=BG)
     plt.close(fig)
 
-    # Previews: imagen | depth GT | depth pred
+    # Previews: image | depth GT | depth pred
     N_PREVIEW = 4
     idxs = np.random.choice(len(X_val), N_PREVIEW, replace=False)
     preds = model.predict(X_val[idxs], verbose=0)
-    # Reindexar localmente: preds tiene shape (N_PREVIEW, 96, 96, 1)
+    # Re-index locally: preds has shape (N_PREVIEW, 96, 96, 1)
     idxs_local = np.arange(N_PREVIEW)
 
     fig, axes = plt.subplots(N_PREVIEW, 3, figsize=(9, N_PREVIEW*2.5), facecolor=BG)
-    fig.suptitle('Predicciones vs ground truth', color='white', fontsize=11)
-    cols = ['Cámara 96×96', 'Profundidad GT', 'Predicción CNN']
+    fig.suptitle('Predictions vs ground truth', color='white', fontsize=11)
+    cols = ['Camera 96×96', 'GT depth', 'CNN prediction']
 
     for row, (glob_idx, loc_idx) in enumerate(zip(idxs, idxs_local)):
         for col, ax in enumerate(axes[row]):
@@ -274,12 +274,12 @@ def plot_preview(model, X_val, Y_val, epoch_losses, val_losses):
     plt.savefig(os.path.join(ASSETS, 'train_preview.png'), dpi=120,
                 bbox_inches='tight', facecolor=BG)
     plt.close(fig)
-    print(f'[plot] assets/train_loss.png  assets/train_preview.png')
+    print(f'[plot] results/train_loss.png  results/train_preview.png')
 
 
 # ── Main ──────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
-    # v2: el entrenamiento/exportación viven en train_cnn.py (cuantización int8 corregida).
-    # Este archivo solo aporta el cargador de TartanAir.
+    # v2: training/export live in train_cnn.py (fixed int8 quantization).
+    # This file only provides the TartanAir loader.
     import subprocess
     subprocess.run([sys.executable, '-m', 'nanouav.training.train_cnn', '--tartanair'] + sys.argv[1:], check=True)

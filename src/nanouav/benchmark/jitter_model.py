@@ -1,72 +1,72 @@
 """
-_05_benchmark/jitter_model.py  —  E1-A
+nanouav/benchmark/jitter_model.py  —  E1-A
 
-Modelo de jitter del PID basado en física del ESP32-S3 dual-core.
+PID jitter model based on the physics of the dual-core ESP32-S3.
 
-Reemplaza jitter_sample() de cnn.py (modelo lineal empírico)
-con una simulación de Monte Carlo de los fenómenos reales:
+Replaces jitter_sample() in nanouav/perception/cnn.py (empirical linear model)
+with a Monte Carlo simulation of the real phenomena:
 
-  1. Cambio de contexto FreeRTOS (determinista + variación térmica)
-  2. Contención del bus AHB compartido entre núcleos
-  3. Cache thrashing: la CNN evicta líneas de caché del núcleo 0
-  4. Interrupción DMA de cámara DVP
-  5. Interrupción WiFi/BT del radio compartido (spike raro)
+  1. FreeRTOS context switch (deterministic + thermal variation)
+  2. Contention on the AHB bus shared between cores
+  3. Cache thrashing: the CNN evicts cache lines of core 0
+  4. DVP camera DMA interrupt
+  5. WiFi/BT interrupt from the shared radio (rare spike)
 
-Parámetros de literatura:
+Parameters from the literature:
   - T_CTX = 3.2 µs  (Fenwick et al., FreeRTOS ESP32 latency measurements)
-  - BUS_FREQ = 120 MHz AHB (ESP32-S3 TRM, sección 3.3)
-  - CACHE_LINE = 64 bytes, L1 = 32 KB por núcleo (ESP32-S3 TRM)
-  - MISS_CYCLES = 20 ciclos por cache miss (Espressif perf guide)
-  - WiFi IRQ: tasa ~0.8/s, duración ~120 µs (medido en esp-idf examples)
+  - BUS_FREQ = 120 MHz AHB (ESP32-S3 TRM, section 3.3)
+  - CACHE_LINE = 64 bytes, L1 = 32 KB per core (ESP32-S3 TRM)
+  - MISS_CYCLES = 20 cycles per cache miss (Espressif perf guide)
+  - WiFi IRQ: rate ~0.8/s, duration ~120 µs (measured in esp-idf examples)
 
-Todas las distribuciones son falsificables con E3-A (medición con GPIO + analizador lógico).
+All distributions are falsifiable with E3-A (measurement with GPIO + logic analyzer).
 """
 import numpy as np
 from dataclasses import dataclass
 
-# ── Constantes del sistema (ESP32-S3) ─────────────────────────────────────
+# ── System constants (ESP32-S3) ─────────────────────────────────────────
 F_CPU_MHZ     = 240.0
-F_AHB_MHZ     = 120.0            # bus compartido entre núcleos
-CACHE_SIZE_KB = 32.0             # L1 por núcleo
-CACHE_LINE_B  = 64               # bytes por línea de caché
-MISS_CYCLES   = 20               # ciclos penalización por cache miss
+F_AHB_MHZ     = 120.0            # bus shared between cores
+CACHE_SIZE_KB = 32.0             # L1 per core
+CACHE_LINE_B  = 64               # bytes per cache line
+MISS_CYCLES   = 20               # penalty cycles per cache miss
 MISS_US       = MISS_CYCLES / F_CPU_MHZ          # 0.0833 µs
-BURST_CYCLES  = 16               # ciclos AHB por línea transferida
+BURST_CYCLES  = 16               # AHB cycles per transferred line
 BURST_US      = BURST_CYCLES / F_AHB_MHZ         # 0.1333 µs
 
-# Cambio de contexto FreeRTOS
-T_CTX_US      = 3.2              # µs (determinista)
-T_CTX_SIGMA   = 0.8              # µs (variación térmica del oscilador)
+# FreeRTOS context switch
+T_CTX_US      = 3.2              # µs (deterministic)
+T_CTX_SIGMA   = 0.8              # µs (thermal variation of the oscillator)
 
-# DMA de cámara DVP
-DMA_FRAME_KB  = 96 * 96 / 1024  # 9 KB por frame
-DMA_BW_US_KB  = 0.8             # µs por KB transferido por DMA
-DMA_FRAME_US  = DMA_FRAME_KB * DMA_BW_US_KB  # ~7.2 µs por frame
+# DVP camera DMA
+DMA_FRAME_KB  = 96 * 96 / 1024  # 9 KB per frame
+DMA_BW_US_KB  = 0.8             # µs per KB transferred by DMA
+DMA_FRAME_US  = DMA_FRAME_KB * DMA_BW_US_KB  # ~7.2 µs per frame
 
-# Interrupciones WiFi/BT (radio compartido ESP32-S3)
-WIFI_IRQ_RATE  = 0.00005         # por µs (= ~50 Hz, modo telemetría activa)
-WIFI_IRQ_US    = 120.0           # duración media de la IRQ WiFi
+# WiFi/BT interrupts (shared ESP32-S3 radio)
+WIFI_IRQ_RATE  = 0.00005         # per µs (= ~50 Hz, active telemetry mode)
+WIFI_IRQ_US    = 120.0           # mean duration of the WiFi IRQ
 
-# Configuraciones de prioridad FreeRTOS
-# Con prioridad correcta (PID = max), el jitter es el modelo de abajo.
-# Sin prioridad correcta, añadir ~170 µs de penalización.
-PRIORITY_PENALTY_US = 170.0      # si PID no tiene prioridad máxima
+# FreeRTOS priority configurations
+# With the correct priority (PID = max), the jitter is the model below.
+# Without the correct priority, add a ~170 µs penalty.
+PRIORITY_PENALTY_US = 170.0      # if the PID does not have maximum priority
 
-# PID: número de instrucciones en la sección crítica
+# PID: number of instructions in the critical section
 PID_CRITICAL_INSTR = 200
 
 
 @dataclass
 class JitterParams:
-    """Parámetros de configuración del sistema para el modelo."""
-    arena_kb:      float   # tamaño de tensor arena CNN (KB)
-    inf_ms:        float   # latencia de inferencia (ms)
-    fps:           float   # FPS de la CNN
-    pid_priority:  str     # 'max' | 'normal' (afecta ~170 µs si no es max)
-    wifi_active:   bool    # si el radio WiFi está activo
+    """System configuration parameters for the model."""
+    arena_kb:      float   # CNN tensor arena size (KB)
+    inf_ms:        float   # inference latency (ms)
+    fps:           float   # CNN FPS
+    pid_priority:  str     # 'max' | 'normal' (adds ~170 µs if not max)
+    wifi_active:   bool    # whether the WiFi radio is active
 
 
-# Parámetros por variante (de literatura ESP-DL)
+# Per-variant parameters (from the ESP-DL literature)
 VARIANT_PARAMS = {
     'XS': JitterParams(arena_kb=40,  inf_ms=55,  fps=18, pid_priority='max', wifi_active=True),
     'S':  JitterParams(arena_kb=80,  inf_ms=77,  fps=13, pid_priority='max', wifi_active=True),
@@ -77,30 +77,30 @@ VARIANT_PARAMS = {
 
 def _ahb_jitter(params: JitterParams, rng: np.random.Generator) -> float:
     """
-    Contención del bus AHB.
-    La CNN genera ráfagas de BURST_US µs cada vez que transfiere una línea de caché.
-    Fracción del tiempo que el bus está ocupado por la CNN durante inferencia:
+    AHB bus contention.
+    The CNN generates bursts of BURST_US µs each time it transfers a cache line.
+    Fraction of the time the bus is occupied by the CNN during inference:
         busy_frac = (n_lines * BURST_US) / inf_µs
     """
     n_lines       = params.arena_kb * 1024 / CACHE_LINE_B
     inf_us        = params.inf_ms * 1000
     busy_frac     = min(0.95, (n_lines * BURST_US) / inf_us)
-    bursts_per_ms = n_lines / params.inf_ms   # ráfagas por ms de PID
+    bursts_per_ms = n_lines / params.inf_ms   # bursts per ms of PID
 
-    # Número de colisiones en un ciclo PID de 1 ms
+    # Number of collisions in a 1 ms PID cycle
     n_coll = rng.poisson(bursts_per_ms * busy_frac)
     return float(n_coll * BURST_US * rng.exponential(1.0))
 
 
 def _cache_jitter(params: JitterParams, rng: np.random.Generator) -> float:
     """
-    Cache thrashing: la CNN evicta líneas de caché del núcleo 0.
-    Fracción de caché eviccionada: min(1, arena / cache_size).
-    Prob de que el PID sufra miss en instrucción crítica: evict * 0.55.
+    Cache thrashing: the CNN evicts cache lines of core 0.
+    Fraction of the cache evicted: min(1, arena / cache_size).
+    Prob. that the PID suffers a miss on a critical instruction: evict * 0.55.
     """
     evict_frac = min(1.0, params.arena_kb / CACHE_SIZE_KB)
     p_miss     = evict_frac * 0.55
-    # Solo ocurre justo después de que termina la CNN
+    # Only happens right after the CNN finishes
     if rng.random() > (params.fps / 1000):
         return 0.0
     n_misses = rng.binomial(PID_CRITICAL_INSTR, p_miss * 0.15)
@@ -109,20 +109,20 @@ def _cache_jitter(params: JitterParams, rng: np.random.Generator) -> float:
 
 def _dma_jitter(params: JitterParams, rng: np.random.Generator) -> float:
     """
-    Interrupción DMA de cámara.
-    La IRQ llega con tasa fps (= params.fps por segundo = fps/1e6 por µs).
-    Duración de la IRQ: DMA_FRAME_US con variación exponencial.
+    Camera DMA interrupt.
+    The IRQ arrives at rate fps (= params.fps per second = fps/1e6 per µs).
+    IRQ duration: DMA_FRAME_US with exponential variation.
     """
-    if rng.random() < (params.fps * 1e-3):  # prob en ciclo de 1 ms
+    if rng.random() < (params.fps * 1e-3):  # prob. in a 1 ms cycle
         return float(rng.exponential(DMA_FRAME_US * 0.4))
     return 0.0
 
 
 def _wifi_jitter(params: JitterParams, rng: np.random.Generator) -> float:
-    """Spike por interrupción de radio WiFi/BT."""
+    """Spike caused by a WiFi/BT radio interrupt."""
     if not params.wifi_active:
         return 0.0
-    if rng.random() < WIFI_IRQ_RATE * 1000:  # prob en ciclo de 1ms = 50/1000 = 5%
+    if rng.random() < WIFI_IRQ_RATE * 1000:  # prob. in a 1ms cycle = 50/1000 = 5%
         return float(rng.exponential(WIFI_IRQ_US))
     return 0.0
 
@@ -130,8 +130,8 @@ def _wifi_jitter(params: JitterParams, rng: np.random.Generator) -> float:
 def sample_jitter(variant: str, n: int = 1,
                   seed: int | None = None) -> np.ndarray:
     """
-    Muestrea n valores de jitter del PID para la variante dada.
-    Retorna array float32 (n,) en µs.
+    Samples n PID jitter values for the given variant.
+    Returns a float32 array (n,) in µs.
     """
     params = VARIANT_PARAMS[variant]
     rng    = np.random.default_rng(seed)
@@ -150,7 +150,7 @@ def sample_jitter(variant: str, n: int = 1,
 
 
 def jitter_stats(variant: str, n: int = 10_000, seed: int = 0) -> dict:
-    """Estadísticas completas de la distribución de jitter."""
+    """Complete statistics of the jitter distribution."""
     s = sample_jitter(variant, n, seed)
     return {
         'variant':   variant,
@@ -169,8 +169,8 @@ def jitter_stats(variant: str, n: int = 10_000, seed: int = 0) -> dict:
 
 def component_breakdown(variant: str, n: int = 5000, seed: int = 0) -> dict:
     """
-    Descompone el jitter por fuente para entender qué domina.
-    Útil para decidir qué optimizar primero.
+    Breaks the jitter down by source to understand which one dominates.
+    Useful for deciding what to optimize first.
     """
     params = VARIANT_PARAMS[variant]
     rng    = np.random.default_rng(seed)

@@ -1,17 +1,17 @@
 """
-_03_cnn/model_zoo.py — Arquitecturas, pérdida, métricas y exportación int8.
+nanouav/perception/model_zoo.py — Architectures, loss, metrics and int8 export.
 
-Corrige:
-  * Cuantización de entrada: el representative_dataset usa EXACTAMENTE la misma
-    distribución que el entrenamiento ([0,1]). Antes se usaba img*255-128 y la
-    escala de entrada quedaba en ~0.99 → la imagen int8 tenía 1–2 niveles.
-  * Variantes realmente distintas (antes S y M compartían filtros).
+Fixes:
+  * Input quantization: the representative_dataset uses EXACTLY the same
+    distribution as training ([0,1]). Previously img*255-128 was used and the
+    input scale ended up at ~0.99 → the int8 image had only 1–2 levels.
+  * Truly distinct variants (previously S and M shared filter counts).
 
-Arquitectura (compatible TFLite Micro / ESP32-S3):
-  stem Conv3×3 s2 → 4 bloques depthwise-separables (48→24→12→6) → bottleneck
-  → decoder: 1×1 a baja resolución → upsample bilineal ×2 → Add(skip) → DW
-  → 48×48×4 → upsample → 96×96×4 → Conv3×3 → Conv1×1 sigmoide.
-  Se reduce canales ANTES de subir resolución para acotar la arena de activaciones.
+Architecture (TFLite Micro / ESP32-S3 compatible):
+  stem Conv3×3 s2 → 4 depthwise-separable blocks (48→24→12→6) → bottleneck
+  → decoder: 1×1 at low resolution → bilinear upsample ×2 → Add(skip) → DW
+  → 48×48×4 → upsample → 96×96×4 → Conv3×3 → Conv1×1 sigmoid.
+  Channels are reduced BEFORE upsampling to bound the activation arena.
 """
 import os
 import numpy as np
@@ -19,7 +19,7 @@ import numpy as np
 from nanouav.config import D_MIN, D_MAX, D_RANGE, pool_to_tof, norm_to_m
 
 VARIANT_CONFIGS = {
-    #        f0  f1  f2  f3   bloques bottleneck
+    #        f0  f1  f2  f3   bottleneck blocks
     'XS': {'f': (6, 12, 24, 32), 'nb': 1},
     'S':  {'f': (8, 16, 32, 48), 'nb': 1},
     'M':  {'f': (8, 24, 48, 64), 'nb': 2},
@@ -28,9 +28,9 @@ VARIANT_CONFIGS = {
 SRAM_ARENA_LIMIT_KB = 180
 
 
-# ── Modelo ─────────────────────────────────────────────────────────────────
+# ── Model ──────────────────────────────────────────────────────────────────
 def build_variant(variant: str, batch_size=None, tof=False):
-    """tof=True (R3): ToF 8×8 re-muestreado a 12×12 [log d, válido] sumado al nivel e3 (12×12)."""
+    """tof=True (R3): 8×8 ToF resampled to 12×12 [log d, valid] and added at level e3 (12×12)."""
     import keras
     from keras import layers
 
@@ -49,7 +49,7 @@ def build_variant(variant: str, batch_size=None, tof=False):
         return conv_bn(x, f, 1)
 
     def up_merge(x, skip, f):
-        x = conv_bn(x, f, 1)                                   # reducir canales primero
+        x = conv_bn(x, f, 1)                                   # reduce channels first
         x = layers.UpSampling2D(2, interpolation='bilinear')(x)
         x = layers.Add()([x, skip])
         return dw_block(x, f)
@@ -84,10 +84,10 @@ def get_depth_loss():
     @keras.saving.register_keras_serializable(package='nano_uav')
     def depth_loss(y_true, y_pred):
         """
-        L1 ponderada hacia lo cercano + gradiente multi-escala (1×, ½×, ¼×).
-        La ponderación (1 + 3·(1-y)) prioriza el rango <1.5 m, que es donde se
-        decide la evasión; el gradiente multi-escala mantiene bordes nítidos
-        (reemplaza a SSIM: mismo efecto práctico, la mitad de costo en CPU).
+        Near-weighted L1 + multi-scale gradient (1×, ½×, ¼×).
+        The weighting (1 + 3·(1-y)) prioritizes the <1.5 m range, which is where
+        avoidance is decided; the multi-scale gradient keeps edges sharp
+        (replaces SSIM: same practical effect, half the CPU cost).
         """
         w = 1.0 + 3.0 * (1.0 - y_true)
         loss = tf.reduce_sum(w * tf.abs(y_true - y_pred)) / tf.reduce_sum(w)
@@ -103,11 +103,11 @@ def get_depth_loss():
     return depth_loss
 
 
-# ── Métricas ───────────────────────────────────────────────────────────────
+# ── Metrics ────────────────────────────────────────────────────────────────
 def depth_metrics(y_true_norm, y_pred_norm):
     """
-    Métricas en metros. Entradas normalizadas (N,96,96[,1]).
-    Incluye métricas orientadas a evasión sobre la región del ToF.
+    Metrics in meters. Normalized inputs (N,96,96[,1]).
+    Includes avoidance-oriented metrics over the ToF region.
     """
     yt = norm_to_m(np.squeeze(y_true_norm, -1) if y_true_norm.ndim == 4 else y_true_norm)
     yp = norm_to_m(np.squeeze(y_pred_norm, -1) if y_pred_norm.ndim == 4 else y_pred_norm)
@@ -133,11 +133,11 @@ def depth_metrics(y_true_norm, y_pred_norm):
             'obs1m_recall': rec, 'obs1m_precision': prec}
 
 
-# ── Exportación int8 ───────────────────────────────────────────────────────
+# ── int8 export ────────────────────────────────────────────────────────────
 def export_tflite(model, X_rep, path, n_rep=300):
     """
-    Cuantización post-entrenamiento full-int8.
-    X_rep: float32 (N,96,96,1) en [0,1] — la MISMA escala que el entrenamiento.
+    Full-int8 post-training quantization.
+    X_rep: float32 (N,96,96,1) in [0,1] — the SAME scale as in training.
     """
     import tensorflow as tf
 
@@ -170,7 +170,7 @@ def make_interpreter(path, threads=1):
 
 
 def tflite_predict(it, X01):
-    """X01 float (N,96,96,1) en [0,1] → predicción normalizada float (N,96,96,1)."""
+    """X01 float (N,96,96,1) in [0,1] → normalized float prediction (N,96,96,1)."""
     inp, out = it.get_input_details()[0], it.get_output_details()[0]
     si, zi = inp['quantization']
     so, zo = out['quantization']
@@ -185,9 +185,9 @@ def tflite_predict(it, X01):
 
 def tflite_arena_kb(it):
     """
-    Cota inferior de la arena de activaciones (int8) por análisis de vida de
-    tensores sobre el grafo TFLite en orden de ejecución. No incluye scratch
-    buffers de kernels ni overhead de TFLM (sumar ~10–20 %).
+    Lower bound of the (int8) activation arena via tensor-lifetime analysis
+    over the TFLite graph in execution order. Does not include kernel scratch
+    buffers or TFLM overhead (add ~10–20 %).
     """
     ops = it._get_ops_details()
     tens = {t['index']: t for t in it.get_tensor_details()}

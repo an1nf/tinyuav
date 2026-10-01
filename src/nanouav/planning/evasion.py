@@ -1,25 +1,25 @@
 """
-_04_policy/evasion.py — Planificador reactivo de evasión (reemplaza la semielipse).
+nanouav/planning/evasion.py — Reactive evasion planner (replaces the half-ellipse).
 
-Problemas de la v11 que corrige:
-  * vy saltaba de 0 a B·W al iniciar la semielipse (escalón de velocidad) → ahora
-    el planificador solo entrega OBJETIVOS; la suavidad la garantiza el
-    ReferenceGenerator (aceleración y jerk acotados).
-  * Usaba la lista de obstáculos del SDF (ground truth) para la altura objetivo y
-    el obstáculo más cercano → ahora todo sale de la percepción.
-  * El suelo visto por la cámara/ToF (inclinados 8.6° abajo) se confundía con
-    obstáculos → se retro-proyecta cada píxel a 3D y se descarta suelo y lo que
-    está fuera de la banda de altura del dron.
+Problems of v11 that it fixes:
+  * vy jumped from 0 to B·W when the half-ellipse started (velocity step) → now
+    the planner only outputs TARGETS; smoothness is guaranteed by the
+    ReferenceGenerator (bounded acceleration and jerk).
+  * It used the SDF obstacle list (ground truth) for the target altitude and
+    the nearest obstacle → now everything comes from perception.
+  * The ground seen by the camera/ToF (tilted 8.6° down) was mistaken for
+    obstacles → each pixel is back-projected to 3D and the ground and anything
+    outside the drone's altitude band are discarded.
 
-Pipeline por frame:
-  profundidad calibrada (96×96) + ToF (8×8) + pose de captura
-    → nube de puntos mundo → filtro suelo / banda de altura
-    → grilla 2D local con memoria (decaimiento + limpieza por rayos libres)
-    → perfil lateral y(x) por programación dinámica (4 m adelante, pendiente
-      acotada, histéresis con el plan anterior) → permite slalom entre obstáculos
-    → objetivo (v_mundo, yaw); modo {CRUISE, AVOID, RETURN, BRAKE} informativo
+Per-frame pipeline:
+  calibrated depth (96×96) + ToF (8×8) + capture pose
+    → world point cloud → ground / altitude-band filter
+    → local 2D grid with memory (decay + clearing by free rays)
+    → lateral profile y(x) by dynamic programming (4 m ahead, bounded
+      slope, hysteresis with the previous plan) → allows slaloming between obstacles
+    → target (v_world, yaw); mode {CRUISE, AVOID, RETURN, BRAKE} informational
 
-Marco del camino: eje x a lo largo de path_heading, y lateral, carril y = lane_y.
+Path frame: x axis along path_heading, y lateral, lane y = lane_y.
 """
 import math
 import numpy as np
@@ -31,10 +31,10 @@ from nanouav.scene.renderer import camera_rays, body_rot, rot_y
 
 class LocalGrid:
     """
-    Grilla 2D mundo con conteo de impactos. El olvido lo hace sobre todo la
-    limpieza por espacio libre (rayos que atraviesan la celda, ×0.5): así un
-    obstáculo que sale del campo visual (al pasar a su lado) NO se olvida, y un
-    fantasma de la CNN se borra en cuanto se vuelve a observar esa zona.
+    2D world grid with hit counts. Forgetting is done mainly by free-space
+    clearing (rays that cross the cell, ×0.5): this way an obstacle that leaves
+    the field of view (when passing beside it) is NOT forgotten, and a CNN
+    phantom is erased as soon as that area is observed again.
     """
 
     def __init__(self, res=0.1, xr=(-4.0, 14.0), yr=(-6.0, 6.0), decay=0.995):
@@ -42,7 +42,7 @@ class LocalGrid:
         self.nx = int((xr[1] - xr[0]) / res)
         self.ny = int((yr[1] - yr[0]) / res)
         self.g = np.zeros((self.nx, self.ny), np.float32)
-        self.seen = np.zeros((self.nx, self.ny), bool)      # celda observada alguna vez
+        self.seen = np.zeros((self.nx, self.ny), bool)      # cell observed at least once
         self.decay = decay
 
     def _idx(self, pts):
@@ -60,8 +60,8 @@ class LocalGrid:
             self.seen[ix, iy] = True
         if len(occ):
             ix, iy = self._idx(occ)
-            # como máximo +1 por celda y por fuente en cada frame: un solo frame de la
-            # CNN no basta para marcar ocupado (umbral 1.5); el ToF (peso 2) sí
+            # at most +1 per cell and per source each frame: a single CNN frame is
+            # not enough to mark a cell occupied (threshold 1.5); the ToF (weight 2) is
             if len(ix):
                 self.seen[ix, iy] = True
                 cells = np.unique(np.stack([ix, iy], 1), axis=0)
@@ -74,7 +74,7 @@ class LocalGrid:
         self.seen[max(ix0, 0):ix1, max(iy0, 0):iy1] = True
 
     def unknown_along(self, p, u, half_w, L=1.2, step=0.1):
-        """Distancia a la primera celda NUNCA observada en el corredor p + s·u (s ≤ L)."""
+        """Distance to the first NEVER-observed cell in the corridor p + s·u (s ≤ L)."""
         perp = np.array([-u[1], u[0]])
         for s_ in np.arange(0.2, L + 1e-6, step):
             pts = p + s_ * u + np.outer(np.linspace(-half_w, half_w, 5), perp)
@@ -94,7 +94,7 @@ _TOF_RAYS = {}
 
 
 def _tof_rays():
-    """Rayos (cuerpo) por el centro de cada zona ToF y su cos respecto al eje."""
+    """Rays (body frame) through the center of each ToF zone and their cosine w.r.t. the axis."""
     if 'r' not in _TOF_RAYS:
         half = math.tan(TOF_HFOV / 2)
         c = (np.arange(TOF_GRID) + 0.5) / TOF_GRID * 2 * half - half
@@ -110,76 +110,76 @@ class EvasionPlanner:
                  lane_y=0.0, margin=0.25, inflate=0.0, v_max=None, a_brake=0.8,
                  grid_bounds=((-10.0, 30.0), (-15.0, 15.0))):
         self.radius = radius
-        self.half_w = radius + margin              # semiancho del corredor
+        self.half_w = radius + margin              # corridor half-width
         self.v_cruise, self.z_cruise = v_cruise, z_cruise
         self.psi_path, self.lane = path_heading, lane_y
-        self.D_SLOW = 1.8                          # empieza a frenar si el plan está bloqueado
-        self.D_STOP = radius + 0.35                # velocidad de avance → 0
-        self.D_EMERG = radius + 0.10               # holgura mínima → maniobra de escape
-        self.A_BRAKE = a_brake                     # desaceleración asumida por el filtro de seguridad
-        self.T_REACT = 0.4                         # latencia percepción + retardo referencia/control (s)
-        self.GAP_BIAS = 0.10                       # error de la grilla (celda 0.1 m)
-        self.Z_BAND = 0.30                         # ± altura relevante
-        self.SHADOW, self.res_shadow = 0.3, 0.1        # extensión asumida tras superficies vistas
-        self.INFLATE = inflate                     # inflado lateral opcional (m); 0 = resultados publicados
-        self.GROUND_Z = 0.15                       # por debajo = suelo (tolera error de profundidad)
-        self.Z_MAP_MIN = 0.40                      # no mapear durante el despegue
+        self.D_SLOW = 1.8                          # start braking if the plan is blocked
+        self.D_STOP = radius + 0.35                # forward speed → 0
+        self.D_EMERG = radius + 0.10               # minimum clearance → escape maneuver
+        self.A_BRAKE = a_brake                     # deceleration assumed by the safety filter
+        self.T_REACT = 0.4                         # perception latency + reference/control delay (s)
+        self.GAP_BIAS = 0.10                       # grid error (0.1 m cell)
+        self.Z_BAND = 0.30                         # ± relevant altitude
+        self.SHADOW, self.res_shadow = 0.3, 0.1        # assumed extent behind observed surfaces
+        self.INFLATE = inflate                     # optional lateral inflation (m); 0 = published results
+        self.GROUND_Z = 0.15                       # below = ground (tolerates depth error)
+        self.Z_MAP_MIN = 0.40                      # do not map during takeoff
         self.K_LAT, self.V_LAT = 1.0, 0.45
         self.K_Z, self.V_Z = 1.2, 0.35
         self.YAW_FOLLOW, self.YAW_MAX = 0.5, 0.35
-        # planificación lateral (DP)
-        self.DX, self.NX = 0.2, 20                 # 4 m hacia adelante
-        self.DY, self.NY = 0.1, 23                 # carril ± 2.3 m
-        self.SLOPE_MAX = 0.8                       # |dy/dx| máx (≈39°)
-        self.SIDESTEP = 1.0                        # desplazamiento lateral puro permitido (m)
+        # lateral planning (DP)
+        self.DX, self.NX = 0.2, 20                 # 4 m ahead
+        self.DY, self.NY = 0.1, 23                 # lane ± 2.3 m
+        self.SLOPE_MAX = 0.8                       # max |dy/dx| (≈39°)
+        self.SIDESTEP = 1.0                        # allowed pure lateral displacement (m)
         self.W_LANE, self.W_DY, self.W_PREV, self.W_BLOCK = 0.3, 1.0, 0.4, 100.0
         self.plan_x = self.plan_y = None
         self.v_prev = None
         self.bin0_blocked = False
-        self.TARGET_ALPHA = 0.5                    # EMA de objetivos a 10 Hz (τ ≈ 0.15 s)
+        self.TARGET_ALPHA = 0.5                    # EMA of targets at 10 Hz (τ ≈ 0.15 s)
         self.grid = LocalGrid(xr=grid_bounds[0], yr=grid_bounds[1])
-        # misión: segmento A→B (marco del camino con origen en A)
+        # mission: segment A→B (path frame with origin at A)
         self.v_max = v_max if v_max is not None else v_cruise
         self.origin = np.zeros(2)
-        self.goal = None                           # B (mundo, xy) o None = avanzar indefinidamente
-        self.arrive = False                        # frenar hasta 0 en B
-        self.A_ARRIVE = 0.6                        # desaceleración de llegada (m/s²)
-        self.ACCEPT = 0.25                         # radio de llegada (m)
-        self.D_SENSE = 3.0                         # alcance fiable de percepción (m) → tope de velocidad
+        self.goal = None                           # B (world, xy) or None = advance indefinitely
+        self.arrive = False                        # brake to 0 at B
+        self.A_ARRIVE = 0.6                        # arrival deceleration (m/s²)
+        self.ACCEPT = 0.25                         # arrival radius (m)
+        self.D_SENSE = 3.0                         # reliable perception range (m) → speed cap
         self.yaw_mode = 'path'                     # 'path' | 'velocity' | 'target'
-        self.look_point = None                     # para yaw_mode='target'
+        self.look_point = None                     # for yaw_mode='target'
         self.yaw_cmd = path_heading
-        self.exclude = None                        # (xy, radio): región del objetivo seguido
+        self.exclude = None                        # (xy, radius): region of the followed target
         self.FOV_OK, self.FOV_LIM, self.V_BLIND = math.radians(20), math.radians(45), 0.0
         self._seed_seen = False
-        self._stall, self.V_CREEP = 0.0, 0.15        # avance lento si el desconocido bloquea > 1.5 s
-        self.speed_law = 'ramp'                    # 'ramp' (E3) | 'brake' (misiones / alta velocidad)
-        self.plan_w = None                         # plan anterior en coordenadas mundo (histéresis)
-        # R5 (Loquercio 2021): modo 'consistente' — restricciones de módulos compatibles entre sí
-        #   * pendiente del plan ≤ tan(FOV_OK) (antes el DP permitía 45° = FOV_LIM → k_fov = 0)
-        #   * seguimiento con horizonte v·T_LOOK (antes solo el 1er bin: viraje tardío)
-        #   * el retroceso (backoff) no lo anula el limitador de FOV (se retrocede sobre lo ya visto)
+        self._stall, self.V_CREEP = 0.0, 0.15        # slow creep if unknown space blocks for > 1.5 s
+        self.speed_law = 'ramp'                    # 'ramp' (E3) | 'brake' (missions / high speed)
+        self.plan_w = None                         # previous plan in world coordinates (hysteresis)
+        # R5 (Loquercio 2021): 'consistent' mode — module constraints made mutually compatible
+        #   * plan slope ≤ tan(FOV_OK) (previously the DP allowed 45° = FOV_LIM → k_fov = 0)
+        #   * tracking with a v·T_LOOK horizon (previously only the 1st bin: late turning)
+        #   * backing up (backoff) is not cancelled by the FOV limiter (it backs up over already-seen space)
         self.CONSISTENT = False
         self.T_LOOK = 0.6
-        self.BACKOFF_MAX = 0.6                     # m de retroceso ciego por bloqueo (modo consistente)
-        # R9 (Shang et al., NeurIPS 2025 — auto-calibración contra 'snapshots'): corrección de deriva
-        # alineando cada observación con el mapa local ya construido (el mapa es la snapshot)
+        self.BACKOFF_MAX = 0.6                     # m of blind backing up per blockage (consistent mode)
+        # R9 (Shang et al., NeurIPS 2025 — self-calibration against 'snapshots'): drift correction
+        # by aligning each observation with the already-built local map (the map is the snapshot)
         self.DRIFT_CORR = False
         self.p_corr = np.zeros(2)
         self.DC_R, self.DC_STEP, self.DC_GAIN = 0.25, 0.05, 0.5
         self.dc_log = []
-        # R9b: estimación del sesgo de velocidad alineando el frame actual con un keyframe de hace
-        # ~VO_DT s (snapshot reciente). El lazo (e3) resta v_bias_hat a la velocidad estimada.
+        # R9b: velocity-bias estimation by aligning the current frame with a keyframe from
+        # ~VO_DT s ago (recent snapshot). The loop (e3) subtracts v_bias_hat from the estimated velocity.
         self.VO = False
         self.VO_DT, self.VO_R, self.VO_STEP, self.VO_K = 1.0, 0.4, 0.05, 0.5
         self.p_jump = np.zeros(2)
-        # R10b (Shang et al. 2025, campos receptivos ERF/IRF de anuros, adaptado a profundidad):
-        #   excitación = celda ocupada AHORA que antes se vio LIBRE; inhibición = lo ya mapeado o
-        #   nunca visto no dispara (suprime lo estático, incluido lo que entra al FOV al avanzar).
-        #   Los grupos dinámicos se siguen (velocidad α-β) y su trayectoria predicha entra al plan.
+        # R10b (Shang et al. 2025, anuran ERF/IRF receptive fields, adapted to depth):
+        #   excitation = cell occupied NOW that was previously seen FREE; inhibition = what is already mapped
+        #   or never seen does not fire (suppresses static content, incl. what enters the FOV while advancing).
+        #   Dynamic clusters are tracked (α-β velocity) and their predicted trajectory enters the plan.
         self.RF_DYN = False
         self.DYN_HORIZON, self.DYN_R = 1.5, 0.18
-        self.V_ESC = 1.2                           # m/s escape lateral ante objeto dinámico
+        self.V_ESC = 1.2                           # m/s lateral escape from a dynamic object
         self._tracks = []
         self.dyn_log = []
         self.v_bias_hat = np.zeros(2)
@@ -189,9 +189,9 @@ class EvasionPlanner:
         self.cp, self.sp = math.cos(path_heading), math.sin(path_heading)
         self.last = {}
 
-    # ── geometría ─────────────────────────────────────────────────────────
+    # ── geometry ──────────────────────────────────────────────────────────
     def set_segment(self, A, B, arrive=True, v_cruise=None):
-        """Define el tramo A→B: el carril es la recta A→B (marco del camino con origen A)."""
+        """Sets the segment A→B: the lane is the straight line A→B (path frame with origin A)."""
         A, B = np.asarray(A, float)[:2], np.asarray(B, float)[:2]
         d = B - A
         if np.linalg.norm(d) > 1e-3:
@@ -202,7 +202,7 @@ class EvasionPlanner:
             self.v_cruise = float(v_cruise)
 
     def v_sense_cap(self):
-        """Velocidad máx. tal que se pueda frenar dentro del alcance fiable de percepción."""
+        """Max speed that still allows braking within the reliable perception range."""
         a, tau = self.A_BRAKE, self.T_REACT
         gap = max(self.D_SENSE - self.radius - self.GAP_BIAS - 0.25, 0.0)
         return -a * tau + math.sqrt((a * tau) ** 2 + 2 * a * gap)
@@ -224,9 +224,9 @@ class EvasionPlanner:
     @staticmethod
     def flying_pixels(depth, rel=0.2):
         """
-        Píxeles en discontinuidades de profundidad: la CNN suaviza los bordes y
-        produce profundidades intermedias que, retro-proyectadas, crean 'estelas'
-        fantasma detrás de los obstáculos (zonas ocluidas que ya no se limpian).
+        Pixels at depth discontinuities: the CNN smooths edges and produces
+        intermediate depths that, once back-projected, create phantom 'trails'
+        behind obstacles (occluded areas that are never cleared again).
         """
         k = np.ones((5, 5), np.uint8)
         dmax = cv2.dilate(depth, k)
@@ -242,7 +242,7 @@ class EvasionPlanner:
         if valid is not None:
             ok = valid[::step, ::step]
             P, rng_, r, far = P[ok], rng_[ok], r[ok], far[ok]
-        # espacio libre: muestras a lo largo del rayo antes del impacto
+        # free space: samples along the ray before the hit
         F = np.concatenate([(O + r * (f * rng_)[..., None]).reshape(-1, 3)
                             for f in getattr(self, 'FREE_FRACS', (0.1, 0.2, 0.3, 0.5, 0.7, 0.85))])
         return P.reshape(-1, 3), far.reshape(-1), F
@@ -252,9 +252,9 @@ class EvasionPlanner:
         P = P[keep]
         if O is None or not len(P):
             return P
-        # sombra de oclusión: la cara trasera no se ve → se asume que el obstáculo
-        # se extiende SHADOW m detrás de la superficie observada (se limpia en cuanto
-        # rayos libres atraviesan esa zona desde otro ángulo)
+        # occlusion shadow: the back face is not visible → the obstacle is assumed to
+        # extend SHADOW m behind the observed surface (cleared as soon as free rays
+        # cross that area from another angle)
         d = P[:, :2] - np.asarray(O)[:2]
         d /= np.maximum(np.linalg.norm(d, axis=1, keepdims=True), 1e-6)
         ext = [P]
@@ -262,7 +262,7 @@ class EvasionPlanner:
             Q = P.copy()
             Q[:, :2] += d * k
             ext.append(Q)
-        if self.INFLATE > 0:          # inflado lateral (esquinas vistas de canto)
+        if self.INFLATE > 0:          # lateral inflation (corners seen edge-on)
             perp = np.stack([-d[:, 1], d[:, 0]], 1)
             for sgn in (-1, 1):
                 Q = P.copy()
@@ -273,14 +273,14 @@ class EvasionPlanner:
     def _free(self, F, z):
         return F[(F[:, 2] > self.GROUND_Z) & (np.abs(F[:, 2] - z) < self.Z_BAND)]
 
-    # ── planificación lateral por programación dinámica ───────────────────
+    # ── lateral planning by dynamic programming ───────────────────────────
     def _plan(self, occ_p, xd, yd):
         """
-        Perfil lateral y(x) libre de obstáculos en [xd, xd+LOOK] (DP sobre una
-        grilla x×y). Costos: desvío del carril, cambio lateral, diferencia con el
-        plan anterior (histéresis → sin oscilar entre izquierda/derecha).
-        Restricción de pendiente |Δy/Δx| ≤ SLOPE_MAX (maniobra suave y factible).
-        Retorna (xs, ys, x_bloqueo) — x_bloqueo = inf si el plan es libre.
+        Obstacle-free lateral profile y(x) over [xd, xd+LOOK] (DP over an
+        x×y grid). Costs: deviation from the lane, lateral change, difference from
+        the previous plan (hysteresis → no left/right oscillation).
+        Slope constraint |Δy/Δx| ≤ SLOPE_MAX (smooth, feasible maneuver).
+        Returns (xs, ys, x_block) — x_block = inf if the plan is free.
         """
         xs = xd + np.arange(1, self.NX + 1) * self.DX
         ys = self.lane + np.arange(-self.NY, self.NY + 1) * self.DY
@@ -302,14 +302,14 @@ class EvasionPlanner:
         node = (self.W_LANE * np.abs(ys[None, :] - self.lane) +
                 self.W_PREV * np.abs(ys[None, :] - prev[:, None]) + self.W_BLOCK * blocked)
         max_step = int(round(self.SLOPE_MAX * self.DX / self.DY))
-        if self.CONSISTENT:                              # pendiente ≤ tan(FOV_OK): el FOV no frena el plan
+        if self.CONSISTENT:                              # slope ≤ tan(FOV_OK): the FOV does not slow the plan
             max_step = max(1, int(math.floor(math.tan(self.FOV_OK) * self.DX / self.DY + 1e-6)))
         J = np.full((nx, ny), np.inf)
         arg = np.zeros((nx, ny), int)
         reach = np.abs(ys - yd) <= self.SLOPE_MAX * self.DX + 1e-6
         cost0 = self.W_DY * np.abs(ys - yd)
-        # paso lateral (sidestep): cualquier y alcanzable deslizando de costado por
-        # celdas libres contiguas del primer bin — evita bloqueos con v_avance = 0
+        # sidestep: any y reachable by sliding sideways through contiguous
+        # free cells of the first bin — avoids deadlocks with v_forward = 0
         j0 = int(np.argmin(np.abs(ys - yd)))
         side = np.zeros(ny, bool)
         for step in (1, -1):
@@ -318,7 +318,7 @@ class EvasionPlanner:
                 side[j] = True
                 j += step
         if self.CONSISTENT and (reach & ~blocked[0]).any():
-            side[:] = False          # paso lateral puro solo si no hay salida con pendiente factible
+            side[:] = False          # pure sidestep only if there is no exit with a feasible slope
         cost0 = np.where(reach, cost0, 3.0 * cost0)
         J[0] = np.where(reach | side, node[0] + cost0, np.inf)
         idx = np.arange(ny)
@@ -347,7 +347,7 @@ class EvasionPlanner:
         return xs, yp, x_block
 
     def _front(self, occ_p, xd, yc, look=4.0):
-        """Distancia al primer obstáculo en el corredor recto y = yc (freno de emergencia)."""
+        """Distance to the first obstacle in the straight corridor y = yc (emergency brake)."""
         if not len(occ_p):
             return np.inf
         dx = occ_p[:, 0] - xd
@@ -355,8 +355,8 @@ class EvasionPlanner:
         return float(dx[m].min()) if m.any() else np.inf
 
     def _perceive(self, state, depth_m=None, tof=None, pose=None):
-        """Percepción → grilla local (compartido por todos los planificadores).
-        Retorna (p corregida (3,), z, celdas ocupadas xy (+ predicción dinámica))."""
+        """Perception → local grid (shared by all planners).
+        Returns (corrected p (3,), z, occupied xy cells (+ dynamic prediction))."""
         p = np.asarray(state['p'], float).copy()
         if pose is None:
             pose = (p, state['yaw'], 0.0, 0.0)
@@ -379,7 +379,7 @@ class EvasionPlanner:
             rays, cos_ax = _tof_rays()
             P, far, F = self._backproject(tof, rays, cos_ax, O, Rc)
             Pt = self._filter(P, far, z, O)
-            occ += [Pt, Pt]                                  # ToF pesa doble (escala absoluta)
+            occ += [Pt, Pt]                                  # ToF counts double (absolute scale)
             surf += [P[(~far) & (P[:, 2] > self.GROUND_Z) & (np.abs(P[:, 2] - z) < self.Z_BAND)]] * 2
             free.append(self._free(F, z))
         free = np.concatenate(free) if free else np.zeros((0, 3))
@@ -389,7 +389,7 @@ class EvasionPlanner:
         if self.RF_DYN:
             dyn_c = self._rf_detect(state.get('t'), np.concatenate(surf) if surf else np.zeros((0, 3)), p)
             if dyn_c:
-                # no memorizar lo dinámico (sin estelas en la grilla)
+                # do not memorize dynamic content (no trails in the grid)
                 C_ = np.array(dyn_c)
                 occ = [o[np.min(np.hypot(o[:, 0, None] - C_[None, :, 0], o[:, 1, None] - C_[None, :, 1]), 1) > 0.35]
                        if len(o) else o for o in occ]
@@ -402,7 +402,7 @@ class EvasionPlanner:
                 free = free + np.r_[d, 0.0]
         if not occ:
             self.grid.update(np.zeros((0, 3)), free)
-        for k, o in enumerate(occ):                      # cada fuente suma por separado
+        for k, o in enumerate(occ):                      # each source adds separately
             self.grid.update(o, free if k == 0 else np.zeros((0, 3)), decay=(k == 0))
 
         occ_xy = self.grid.occupied()
@@ -412,9 +412,9 @@ class EvasionPlanner:
                 occ_xy = np.concatenate([occ_xy.reshape(-1, 2), pred]) if len(occ_xy) else pred
         return p, z, occ_xy
 
-    # ── actualización ─────────────────────────────────────────────────────
+    # ── update ────────────────────────────────────────────────────────────
     def _rf_detect(self, t, pts, p):
-        """Excitación − inhibición sobre la grilla → centroides dinámicos; actualiza pistas."""
+        """Excitation − inhibition over the grid → dynamic centroids; updates the tracks."""
         g = self.grid
         if t is None:
             return []
@@ -423,14 +423,14 @@ class EvasionPlanner:
             iy = ((pts[:, 1] - g.y0) / g.res).astype(int)
             ok = (ix >= 0) & (ix < g.nx) & (iy >= 0) & (iy < g.ny)
             pts, ix, iy = pts[ok], ix[ok], iy[ok]
-            exc = g.seen[ix, iy] & (g.g[ix, iy] < 0.3)          # visto libre antes → ahora ocupado
+            exc = g.seen[ix, iy] & (g.g[ix, iy] < 0.3)          # previously seen free → now occupied
             exc &= np.hypot(pts[:, 0] - p[0], pts[:, 1] - p[1]) < 4.0
             d_inh = getattr(self, 'RF_EDGE_INH', 0.0)
             if d_inh > 0:
-                # R15: inhibición lateral junto a contornos ESTÁTICOS (como el IRF): el sangrado de bordes de
-                # la CNN, que cambia con el punto de vista (sobre todo al rotar), dispara excitaciones pegadas
-                # a los obstáculos. 'Estático' = ocupado de forma continua hace > RF_STATIC_AGE s (la estela de
-                # un objeto que se mueve no cuenta: cada celda suya está ocupada una fracción de segundo).
+                # R15: lateral inhibition next to STATIC contours (like the IRF): CNN edge bleeding, which
+                # changes with the viewpoint (especially while rotating), fires excitations stuck to the
+                # obstacles. 'Static' = continuously occupied for > RF_STATIC_AGE s (the trail of a moving
+                # object does not count: each of its cells is occupied only for a fraction of a second).
                 occ_now = g.g > 1.5
                 if getattr(self, '_occ_t', None) is None or self._occ_t.shape != g.g.shape:
                     self._occ_t = np.full(g.g.shape, np.inf, np.float32)
@@ -446,14 +446,14 @@ class EvasionPlanner:
             D = np.zeros((0, 2))
         cents = []
         used = np.zeros(len(D), bool)
-        for k in range(len(D)):                                  # agrupamiento voraz r = 0.3 m
+        for k in range(len(D)):                                  # greedy clustering r = 0.3 m
             if used[k]:
                 continue
             m = (~used) & (np.hypot(D[:, 0] - D[k, 0], D[:, 1] - D[k, 1]) < 0.3)
             used |= m
             if m.sum() >= getattr(self, 'RF_MIN_PTS', 3):
                 cents.append(D[m].mean(0))
-        # asociación con pistas (vecino más cercano, compuerta 0.6 m) + α-β
+        # association with tracks (nearest neighbor, 0.6 m gate) + α-β
         new_tracks = []
         for c in cents:
             best, bd = None, 0.6
@@ -477,18 +477,18 @@ class EvasionPlanner:
         return cents
 
     def _rf_confirmed(self, tr, n_min=3):
-        """Pista dinámica confirmada. R15 (DroneMOT: el ruido del detector domina en hover): además de
-        n y |v|, opcionalmente exige desplazamiento NETO ≥ RF_NET_DISP desde que nació la pista — el
-        parpadeo de la CNN produce pistas con velocidad aparente pero sin desplazamiento coherente."""
+        """Confirmed dynamic track. R15 (DroneMOT: detector noise dominates in hover): besides
+        n and |v|, it can also require a NET displacement ≥ RF_NET_DISP since the track was born — CNN
+        flicker produces tracks with apparent velocity but no coherent displacement."""
         if tr['n'] < n_min or np.hypot(*tr['v']) < 0.3:
             return False
         nd = getattr(self, 'RF_NET_DISP', 0.0)
         if nd > 0 and float(np.hypot(*(tr['p'] - tr.get('p0', tr['p'])))) < nd:
             return False
         if getattr(self, 'RF_EGO_REJ', 0) and getattr(self, '_ego', None) is not None:
-            # R15 (DroneMOT, predicción con movimiento dual): una pista cuya velocidad la explica la
-            # ROTACIÓN propia (v ≈ ω × r, el 'objeto' gira con la cámara) es un artefacto de la CNN fijo en
-            # la imagen, no un objeto que se mueve en el mundo.
+            # R15 (DroneMOT, dual-motion prediction): a track whose velocity is explained by the drone's
+            # own ROTATION (v ≈ ω × r, the 'object' rotates with the camera) is a CNN artifact fixed in
+            # the image, not an object moving in the world.
             p_d, om = self._ego
             if abs(om) > 0.2:
                 r = tr['p'] - p_d[:2]
@@ -500,9 +500,9 @@ class EvasionPlanner:
 
     def _rf_escape(self, p, v):
         """
-        Respuesta tipo campo de potencial (gradiente lejos de la trayectoria del objeto): si el
-        punto de máxima aproximación (CPA) de una pista confirmada cae dentro de DYN_HORIZON con
-        distancia < holgura, velocidad de escape perpendicular a la velocidad del objeto.
+        Potential-field-style response (gradient away from the object's trajectory): if the
+        closest point of approach (CPA) of a confirmed track falls within DYN_HORIZON with a
+        distance < clearance, escape velocity perpendicular to the object's velocity.
         """
         best = None
         for tr in self._tracks:
@@ -524,13 +524,13 @@ class EvasionPlanner:
         u = tr['v'] / np.hypot(*tr['v'])
         e = np.array([-u[1], u[0]])
         side = float(e @ (p[:2] - tr['p']))
-        if abs(side) < 0.05:                       # en la línea: el lado con más espacio libre del plan
+        if abs(side) < 0.05:                       # on the line: the side of the plan with more free space
             side = 1.0 if (self.plan_y is not None and np.mean(self.plan_y) - self.lane >= 0) else -1.0
         e = e * np.sign(side)
         return self.V_ESC * e
 
     def _rf_predicted(self):
-        """Volumen barrido predicho de las pistas dinámicas confirmadas (n ≥ 2, |v| > 0.3 m/s)."""
+        """Predicted swept volume of the confirmed dynamic tracks (n ≥ 2, |v| > 0.3 m/s)."""
         out = []
         for tr in self._tracks:
             if not self._rf_confirmed(tr, 2):
@@ -543,7 +543,7 @@ class EvasionPlanner:
         return np.array(out) if out else np.zeros((0, 2))
 
     def _vo_update(self, t, pts):
-        """Alinea los impactos actuales con el keyframe de hace ~VO_DT s → sesgo de velocidad."""
+        """Aligns the current hits with the keyframe from ~VO_DT s ago → velocity bias."""
         if t is None or len(pts) < 20:
             return
         pts = pts[:: max(1, len(pts) // 300), :2]
@@ -572,15 +572,15 @@ class EvasionPlanner:
         if S[bi, bj] <= 0:
             return
         shift = np.array([offs[bi], offs[bj]])
-        # condicionamiento por eje (corredores: el eje longitudinal puede ser ambiguo)
+        # per-axis conditioning (corridors: the longitudinal axis can be ambiguous)
         good = np.array([S[bi, bj] - min(S[max(bi - 2, 0), bj], S[min(bi + 2, len(offs) - 1), bj]) > 0.15 * S[bi, bj],
                          S[bi, bj] - min(S[bi, max(bj - 2, 0)], S[bi, min(bj + 2, len(offs) - 1)]) > 0.15 * S[bi, bj]])
         edge = np.array([bi in (0, len(offs) - 1), bj in (0, len(offs) - 1)])
         good &= ~edge
         dt = t - t0
-        # puntos actuales = X + δ(t); keyframe = X + δ(t0) → shift = δ(t0) − δ(t) = −∫sesgo
-        # Esquema a ~1 Hz sin solape: corrige la deriva de la ventana en posición (p_jump, lo
-        # aplica el lazo) y fija la velocidad a la tasa medida; luego reinicia el keyframe.
+        # current points = X + δ(t); keyframe = X + δ(t0) → shift = δ(t0) − δ(t) = −∫bias
+        # ~1 Hz scheme without overlap: corrects the window's position drift (p_jump, applied by
+        # the loop) and sets the velocity bias to the measured rate; then resets the keyframe.
         b_meas = -shift / dt
         self.p_jump = np.where(good, shift, 0.0)
         self.v_bias_hat = np.where(good, (1 - self.VO_K) * self.v_bias_hat + self.VO_K * (self.v_bias_hat + b_meas),
@@ -590,10 +590,10 @@ class EvasionPlanner:
 
     def _drift_align(self, pts):
         """
-        Desplazamiento (dx, dy) que mejor alinea los impactos del frame con las celdas ya ocupadas
-        del mapa (correlación sobre una rejilla ±DC_R). Devuelve la corrección a aplicar
-        (ganancia DC_GAIN) o None si el mapa/observación no la determinan. Cada eje se acepta solo
-        si está bien condicionado (en un corredor el eje longitudinal puede ser ambiguo).
+        Offset (dx, dy) that best aligns the frame's hits with the map's already-occupied cells
+        (correlation over a ±DC_R grid). Returns the correction to apply
+        (gain DC_GAIN) or None if the map/observation does not determine it. Each axis is accepted
+        only if it is well conditioned (in a corridor the longitudinal axis can be ambiguous).
         """
         g = self.grid
         if len(pts) < 30 or (g.g > 1.5).sum() < 20:
@@ -611,10 +611,10 @@ class EvasionPlanner:
         c = len(offs) // 2
         s0 = S[c, c]
         bi, bj = np.unravel_index(np.argmax(S), S.shape)
-        if S[bi, bj] < 1.15 * s0 + 5.0:                       # sin mejora clara → no corregir
+        if S[bi, bj] < 1.15 * s0 + 5.0:                       # no clear improvement → do not correct
             return None
         corr = np.array([offs[bi], offs[bj]])
-        # condicionamiento por eje: la mejora debe venir de ese eje (no plana a lo largo de él)
+        # per-axis conditioning: the improvement must come from that axis (not flat along it)
         if S[bi, bj] - S[c, bj] < 0.05 * S[bi, bj]:
             corr[0] = 0.0
         if S[bi, bj] - S[bi, c] < 0.05 * S[bi, bj]:
@@ -627,14 +627,14 @@ class EvasionPlanner:
     def update(self, state, depth_m=None, tof=None, pose=None):
         """
         state: {'p': (3,), 'v': (3,), 'yaw': float}
-        depth_m: profundidad calibrada 96×96 (m) o None
-        tof: 8×8 (m) o None
-        pose: (p, yaw, pitch, roll) en el instante de captura (por defecto state)
-        Retorna (v_objetivo_mundo (3,), yaw_objetivo, info)
+        depth_m: calibrated 96×96 depth (m) or None
+        tof: 8×8 (m) or None
+        pose: (p, yaw, pitch, roll) at capture time (defaults to state)
+        Returns (target world velocity (3,), target yaw, info)
         """
         p, z, occ_xy = self._perceive(state, depth_m, tof, pose)
         t_ = state.get('t')
-        if t_ is not None:                                  # ego-movimiento (yaw) para RF_EGO_REJ
+        if t_ is not None:                                  # ego-motion (yaw) for RF_EGO_REJ
             if getattr(self, '_yaw_prev', None) is not None and t_ > self._yaw_prev[1]:
                 om = ((state['yaw'] - self._yaw_prev[0] + math.pi) % (2 * math.pi) - math.pi) / (t_ - self._yaw_prev[1])
                 self._ego = (p.copy(), float(om))
@@ -643,7 +643,7 @@ class EvasionPlanner:
         xd, yd = self._to_path(p[:2])
         occ_plan = occ_p
         if self.exclude is not None and len(occ_p):
-            # objetivo seguido: no es un obstáculo a rodear (el filtro de seguridad sí lo ve)
+            # followed target: not an obstacle to detour around (the safety filter does see it)
             ce = self._to_path(np.asarray(self.exclude[0])[:2])
             occ_plan = occ_p[np.hypot(occ_p[:, 0] - ce[0], occ_p[:, 1] - ce[1]) > self.exclude[1]]
         xs, yp, x_block = self._plan(occ_plan, xd, yd)
@@ -657,58 +657,58 @@ class EvasionPlanner:
         else:
             c_near, away, order = np.inf, np.zeros(2), []
 
-        # seguimiento del perfil SIN cortar esquinas: referencia en el primer bin
-        # + feed-forward de pendiente (v_lat = v_fwd·dy/dx)
+        # profile tracking WITHOUT cutting corners: reference at the first bin
+        # + slope feed-forward (v_lat = v_fwd·dy/dx)
         y_goal = float(yp[0])
         slope0 = float((yp[1] - yp[0]) / self.DX)
         y_align = y_goal
         if self.CONSISTENT:
-            # objetivo lateral a v·T_LOOK por delante (seguimiento de trayectoria, no del 1er punto)
+            # lateral target v·T_LOOK ahead (trajectory tracking, not tracking of the 1st point)
             x_look = xd + max(self.DX, abs(self.v_cruise) * self.T_LOOK)
             y_goal = float(np.interp(x_look, np.concatenate([[xd], xs]), np.concatenate([[yd], yp])))
             i_l = int(np.clip(np.searchsorted(xs, x_look), 1, len(xs) - 1))
             slope0 = float((yp[i_l] - yp[i_l - 1]) / self.DX)
         slope = np.abs(np.diff(np.concatenate([[yd], yp[:int(1.2 / self.DX)]]))).max() / self.DX
         k_slope = 1.0 - 0.5 * min(slope / self.SLOPE_MAX, 1.0)
-        if self.CONSISTENT:     # pendiente ya acotada por el FOV: frenado leve solo por curvatura
+        if self.CONSISTENT:     # slope already bounded by the FOV: mild braking for curvature only
             k_slope = 1.0 - 0.25 * min(slope / max(math.tan(self.FOV_OK), 1e-3), 1.0)
         if self.speed_law == 'brake':
-            # velocidad desde distancia de frenado real: v·τ + v²/2a ≤ distancia libre del plan
+            # speed from the real braking distance: v·τ + v²/2a ≤ free distance along the plan
             a, tau = self.A_BRAKE, self.T_REACT
             gap = x_block - self.radius - self.GAP_BIAS - 0.15
             v_blk = (-a * tau + math.sqrt((a * tau) ** 2 + 2 * a * max(gap, 0.0))) if np.isfinite(gap) else np.inf
             v_lim = min(self.v_cruise, v_blk, self.v_sense_cap())
-        else:                                            # rampa lineal (resultados E3 publicados)
+        else:                                            # linear ramp (published E3 results)
             v_lim = self.v_cruise * float(np.clip((x_block - self.D_STOP) / (self.D_SLOW - self.D_STOP), 0, 1))
         arrived, d_goal = False, np.inf
         if self.goal is not None and self.arrive:
             gp = self._to_path(self.goal)
             d_goal = float(np.hypot(gp[0] - xd, gp[1] - yd))
-            # frenado por distancia a lo largo del tramo: se detiene en la perpendicular
-            # por B y corrige lo lateral después (nunca lo sobrepasa aunque vaya desviado)
+            # braking by distance along the segment: it stops at the perpendicular through B
+            # and corrects the lateral offset afterwards (never overshoots B even when off-track)
             v_lim = min(v_lim, math.sqrt(2 * self.A_ARRIVE * max(gp[0] - xd - 0.05, 0.0)))
             arrived = d_goal < self.ACCEPT
         dbg = {'v_cruise': self.v_cruise, 'v_lim': v_lim, 'k_slope': k_slope, 'x_block': x_block}
-        v_fwd = v_lim * k_slope if self.v_cruise >= 0 else self.v_cruise   # v_cruise<0: retroceso (seguimiento)
+        v_fwd = v_lim * k_slope if self.v_cruise >= 0 else self.v_cruise   # v_cruise<0: backing up (following)
         if arrived:
             v_fwd = 0.0
         dbg['k_align'] = float(np.clip(1.0 - abs(y_align - yd) / 0.4, 0.0, 1.0))
-        v_fwd *= dbg['k_align']   # primero alinearse
-        if z < self.z_cruise - 0.15:                     # despegue: primero altura
+        v_fwd *= dbg['k_align']   # align first
+        if z < self.z_cruise - 0.15:                     # takeoff: altitude first
             v_fwd = 0.0
-        # límite de velocidad por holgura al obstáculo más cercano
+        # speed limit from the clearance to the nearest obstacle
         if v_fwd > 0:
             v_fwd = min(v_fwd, self.v_cruise * float(np.clip((c_near - self.radius) / 0.4, 0.5, 1.0)))
         dbg['v_fwd_pre_barrier'] = v_fwd
         lat_err = y_goal - yd
         v_lat_max = max(self.V_LAT, 0.6 * abs(self.v_cruise))
         v_lat = float(np.clip(self.K_LAT * lat_err + max(v_fwd, 0.0) * slope0, -v_lat_max, v_lat_max))
-        # bolsillo: el primer bin frente al dron está bloqueado y no hay paso lateral
-        # libre → retroceder despacio hasta recuperar maniobrabilidad (evita deadlock)
+        # pocket: the first bin in front of the drone is blocked and there is no free sidestep
+        # → back up slowly until maneuverability is recovered (avoids deadlock)
         backoff = self.bin0_blocked and x_block < self.D_STOP
         if self.CONSISTENT:
-            # R8: el retroceso fuera del FOV se acota a BACKOFF_MAX por bloqueo (antes, con deriva de
-            # estimación, el dron retrocedió 5.7 m a ciegas); se rearma cuando el bloqueo desaparece
+            # R8: backing up outside the FOV is bounded to BACKOFF_MAX per blockage (previously, with
+            # estimation drift, the drone backed up 5.7 m blind); it re-arms once the blockage clears
             if backoff:
                 self._backoff_d = getattr(self, '_backoff_d', 0.0) + 0.15 * 0.1
                 if self._backoff_d > self.BACKOFF_MAX:
@@ -718,13 +718,13 @@ class EvasionPlanner:
                 self._backoff_d = 0.0
         if backoff:
             v_fwd, v_lat = -0.15, 0.0
-        # filtro de seguridad (tipo barrera): la componente de velocidad hacia cada
-        # celda ocupada cercana no puede exceder la que permite frenar antes de tocarla
+        # safety filter (barrier-like): the velocity component toward each nearby
+        # occupied cell cannot exceed the one that still allows braking before touching it
         vp = np.array([v_fwd, v_lat])
         for k in order:
             if dist[k] > 1.2:
                 break
-            u = -dv[k] / max(dist[k], 1e-6)                    # hacia el obstáculo
+            u = -dv[k] / max(dist[k], 1e-6)                    # toward the obstacle
             gap = max(dist[k] - self.radius - self.GAP_BIAS, 0.0)
             a, tau = self.A_BRAKE, self.T_REACT
             lim = -a * tau + math.sqrt((a * tau) ** 2 + 2 * a * gap)   # v·τ + v²/2a ≤ gap
@@ -734,33 +734,33 @@ class EvasionPlanner:
         v_fwd, v_lat = float(vp[0]), float(vp[1])
         dbg['v_after_barrier'] = float(np.hypot(v_fwd, v_lat))
         brake = c_near < self.D_EMERG
-        if brake:                                        # escape: alejarse del punto más cercano
+        if brake:                                        # escape: move away from the nearest point
             v_fwd, v_lat = 0.3 * away[0], 0.3 * away[1]
         v_z = float(np.clip(self.K_Z * (self.z_cruise - z), -self.V_Z, self.V_Z))
         v_world = np.array([self.cp * v_fwd - self.sp * v_lat, self.sp * v_fwd + self.cp * v_lat, v_z])
-        v_des_dir = v_world[:2].copy()                   # dirección deseada (antes de escalar)
-        # espacio desconocido: con FOV de 60° el corredor cercano (< half_w/tan30° ≈ 1 m) solo
-        # se ve de antes; tras un giro puede no haberse observado → frenar hasta verlo
+        v_des_dir = v_world[:2].copy()                   # desired direction (before scaling)
+        # unknown space: with a 60° FOV the nearby corridor (< half_w/tan30° ≈ 1 m) is only
+        # seen from earlier on; after a turn it may not have been observed → brake until it is seen
         if self.speed_law == 'brake' and not brake:
             vh = np.hypot(*v_world[:2])
             if vh > 0.05:
-                if not self._seed_seen:                  # entorno del despegue: libre
+                if not self._seed_seen:                  # takeoff surroundings: free
                     self.grid.mark_seen(p[:2], 1.0)
                     self._seed_seen = True
-                # la huella del propio dron es espacio libre por definición (fix R2: antes solo
-                # se marcaba al despegar; tras girar, el corredor < ~1 m quedaba "desconocido")
+                # the drone's own footprint is free space by definition (fix R2: previously it was only
+                # marked at takeoff; after turning, the corridor < ~1 m remained "unknown")
                 self.grid.mark_seen(p[:2], self.radius + 0.1)
                 s_unk = self.grid.unknown_along(p[:2], v_world[:2] / vh, self.radius + 0.1)
                 if np.isfinite(s_unk):
                     a, tau = self.A_BRAKE, self.T_REACT
                     lim = -a * tau + math.sqrt((a * tau) ** 2 + 2 * a * max(s_unk - 0.3, 0.0))
                     creeping = self._stall > 1.5
-                    lim = max(lim, self.V_CREEP if creeping else 0.0)   # anti-bloqueo
+                    lim = max(lim, self.V_CREEP if creeping else 0.0)   # anti-deadlock
                     if vh > lim:
                         v_world[:2] *= lim / vh
                     dbg['k_unknown'] = min(lim / vh, 1.0)
-                    # fix R2: el contador NO se reinicia mientras se avanza en modo creep
-                    # (antes lim=V_CREEP ≥ 0.1 lo reseteaba y el creep duraba un solo frame)
+                    # fix R2: the counter is NOT reset while advancing in creep mode
+                    # (previously lim=V_CREEP ≥ 0.1 reset it and the creep lasted a single frame)
                     self._stall = self._stall + 0.1 if (lim < 0.1 or creeping) and lim < 0.5 * vh else 0.0
                 else:
                     self._stall = 0.0
@@ -771,7 +771,7 @@ class EvasionPlanner:
                 k = float(np.clip(1.0 - (th - self.FOV_OK) / (self.FOV_LIM - self.FOV_OK), 0.0, 1.0))
                 v_world[:2] *= max(k, min(self.V_BLIND / vh, 1.0))
                 dbg['k_fov'] = k
-        # filtro de objetivos (ruido frame a frame de la CNN) — sin filtrar si hay que frenar
+        # target filter (CNN frame-to-frame noise) — not applied when braking is required
         slowing = self.v_prev is not None and np.hypot(*v_world[:2]) < np.hypot(*self.v_prev[:2]) - 0.05
         if self.v_prev is not None and not brake and not (slowing and self.speed_law == 'brake'):
             v_world = self.v_prev + self.TARGET_ALPHA * (v_world - self.v_prev)
@@ -799,7 +799,7 @@ class EvasionPlanner:
         if self.RF_DYN and getattr(self, 'mode_override', None):
             mode = self.mode_override
         self.mode = mode
-        # orientación: a lo largo del camino, hacia la velocidad, o apuntando al objetivo
+        # heading: along the path, toward the velocity, or pointing at the target
         if self.yaw_mode == 'target' and self.look_point is not None:
             dlp = np.asarray(self.look_point)[:2] - p[:2]
             if np.hypot(*dlp) > 0.3:

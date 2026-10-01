@@ -1,17 +1,17 @@
 """
-R3 · Entrenamiento comparativo a presupuesto reducido (CPU): CNN-M vs LNCA (± ToF temprano).
+R3 · Comparative training on a reduced (CPU) budget: CNN-M vs LNCA (± early ToF).
 
-Todos los modelos usan EXACTAMENTE los mismos datos, pérdida (get_depth_loss), aumentación,
-épocas y LR. No toca _03_cnn/model_*.tflite ni metrics.json (salida aparte).
+All models use EXACTLY the same data, loss (get_depth_loss), augmentation,
+epochs and LR. Does not touch models/model_*.tflite or metrics.json (separate output).
 
-Variantes:
-  M          : U-Net depthwise actual (26 k)
-  M+cal      : M + escala global por imagen desde el ToF 8×8 (como ToFCalibrator, sin EMA)
-  LNCA24     : encoder conv → 12×12×24 → 4 pasos NCA → PixelShuffle
-  LNCA24+ToF : + ToF 8×8 inyectado en la rejilla latente 12×12 (fusión temprana)
+Variants:
+  M          : current depthwise U-Net (26 k)
+  M+cal      : M + per-image global scale from the 8×8 ToF (like ToFCalibrator, without EMA)
+  LNCA24     : conv encoder → 12×12×24 → 4 NCA steps → PixelShuffle
+  LNCA24+ToF : + 8×8 ToF injected into the 12×12 latent grid (early fusion)
 
-Uso:  python r3_lnca_train.py --n-train 4000 --epochs 15
-Salida: assets/r3_lnca_train.json, _03_cnn/r3/*.tflite
+Usage:  nanouav run r03 --n-train 4000 --epochs 15
+Output: results/r3_lnca_train.json, models/r3/*.tflite
 """
 import os, sys, json, time, argparse
 from nanouav import paths
@@ -27,18 +27,18 @@ from nanouav.perception.lnca_zoo import build_lnca, count_macs
 OUT = os.path.join(str(paths.models_dir()), 'r3')
 CACHE = os.path.join(str(paths.data_dir()), 'synth_r3.npz')
 
-# ── ToF 8×8 → rejilla latente 12×12 (tabla fija; en el MCU es un gather de 144 entradas)
+# ── 8×8 ToF → 12×12 latent grid (fixed table; on the MCU it is a 144-entry gather)
 _edges = [ZONE_BOXES[0][k][2] for k in range(TOF_GRID)] + [ZONE_BOXES[0][TOF_GRID - 1][3]]
 LAT_IDX = np.full(12, -1, int)
 for k in range(12):
-    c = 8 * k + 4                                   # centro en píxeles de la celda latente
+    c = 8 * k + 4                                   # latent cell center, in pixels
     for z in range(TOF_GRID):
         if _edges[z] <= c < _edges[z + 1]:
             LAT_IDX[k] = z
 
 
 def tof_sim(depth_m, rng):
-    """ToF 8×8 (percentil bajo por zona) + ruido VL53L5CX aprox. + fuera de rango inválido."""
+    """8×8 ToF (low percentile per zone) + approx. VL53L5CX noise + out-of-range marked invalid."""
     t = pool_to_tof(depth_m)
     t = t * (1 + rng.normal(0, 0.02, t.shape)) + rng.normal(0, 0.01, t.shape)
     valid = (t > D_MIN) & (t < D_MAX - 0.3)
@@ -51,7 +51,7 @@ def tof_to_lat(t, valid):
         for j in range(12):
             zi, zj = LAT_IDX[i], LAT_IDX[j]
             if zi >= 0 and zj >= 0 and valid[zi, zj]:
-                g[i, j, 0] = np.log(t[zi, zj] / D_MIN) / np.log(D_MAX / D_MIN)   # log-prof. normalizada
+                g[i, j, 0] = np.log(t[zi, zj] / D_MIN) / np.log(D_MAX / D_MIN)   # normalized log-depth
                 g[i, j, 1] = 1.0
     return g
 
@@ -94,7 +94,7 @@ def make_ds(X, Y, L, batch, train, with_tof):
         x = x * tf.random.uniform((), 0.8, 1.2) + tf.random.uniform((), -0.06, 0.06)
         x = tf.clip_by_value(x, 1e-4, 1.0) ** tf.random.uniform((), 0.8, 1.25)
         x = x + tf.random.normal(tf.shape(x), 0.0, tf.random.uniform((), 0.0, 0.02))
-        # abandono de ToF (zonas inválidas / sensor ausente): la red no debe depender ciegamente
+        # ToF dropout (invalid zones / missing sensor): the network must not rely on it blindly
         keep = tf.cast(tf.random.uniform(()) > 0.15, tf.float32)
         return tf.clip_by_value(x, 0.0, 1.0), y, l * keep
 
@@ -145,7 +145,7 @@ def predict_int8(path, X, L):
 
 
 def tof_scale(pred_n, T, V):
-    """Escala global por imagen: mediana(ToF / CNN) sobre zonas válidas (núcleo de ToFCalibrator)."""
+    """Per-image global scale: median(ToF / CNN) over valid zones (core of ToFCalibrator)."""
     out = pred_n.copy()
     for i in range(len(pred_n)):
         dm = norm_to_m(pred_n[i, ..., 0])
@@ -158,17 +158,17 @@ def tof_scale(pred_n, T, V):
 
 
 def _warm_start(m, path):
-    """Copia pesos de un modelo entrenado capa a capa (mismo orden de capas con pesos y misma forma)."""
+    """Copies weights from a trained model layer by layer (same order of weighted layers and same shapes)."""
     import keras
     from nanouav.perception.model_zoo import get_depth_loss
-    # Sin deserializar la config (evita incompatibilidades entre versiones de Keras): se
-    # reconstruye la arquitectura desde el código y se cargan solo los pesos del .keras.
+    # Without deserializing the config (avoids incompatibilities between Keras versions): the
+    # architecture is rebuilt from code and only the weights are loaded from the .keras file.
     variant = os.path.basename(path).replace('model_', '').split('.')[0]
     try:
         src = build_variant(variant)
         src.load_weights(path)
     except Exception as e:
-        print(f'[warm-start] load_weights falló ({type(e).__name__}); se intenta load_model', flush=True)
+        print(f'[warm-start] load_weights failed ({type(e).__name__}); trying load_model', flush=True)
         src = keras.models.load_model(path, compile=False, custom_objects={'depth_loss': get_depth_loss()})
     sw = [l for l in src.layers if l.get_weights()]
     dw = [l for l in m.layers if l.get_weights() and l.name != 'tof_inject']
@@ -179,7 +179,7 @@ def _warm_start(m, path):
     for l in m.layers:
         if l.name == 'tof_inject':
             l.set_weights([np.zeros_like(w) for w in l.get_weights()])
-    print(f'[warm-start] {n}/{len(dw)} capas copiadas desde {os.path.basename(path)}', flush=True)
+    print(f'[warm-start] {n}/{len(dw)} layers copied from {os.path.basename(path)}', flush=True)
 
 
 def main():
@@ -190,10 +190,10 @@ def main():
     ap.add_argument('--lr', type=float, default=3e-3)
     ap.add_argument('--models', default='M,LNCA24,LNCA24_ToF')
     ap.add_argument('--init-from', default=None,
-                    help='.keras entrenado (p. ej. _03_cnn/model_M.keras): copia pesos por nombre/forma; '
-                         'la capa tof_inject arranca en cero → el modelo empieza idéntico a M')
+                    help='trained .keras (e.g. models/model_M.keras): copies weights by name/shape; '
+                         'the tof_inject layer starts at zero → the model starts out identical to M')
     ap.add_argument('--install', action='store_true',
-                    help='copia el .tflite resultante a _03_cnn/model_<nombre>.tflite (lo usa el lazo cerrado)')
+                    help='copies the resulting .tflite to models/model_<name>.tflite (used by the closed loop)')
     ap.add_argument('--out-json', default=str(paths.results_dir() / 'r3_lnca_train.json'))
     a = ap.parse_args()
     import tensorflow as tf, keras
@@ -201,7 +201,7 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     t0 = time.time()
     d = build_data(a.n_train, 500, 600, 300)
-    print(f'[data] listo ({time.time() - t0:.0f}s)', flush=True)
+    print(f'[data] ready ({time.time() - t0:.0f}s)', flush=True)
     for k in list(d):
         if k.endswith('tr'):
             d[k] = d[k][:a.n_train]
@@ -226,7 +226,7 @@ def main():
         steps = int(np.ceil(len(d['Xtr']) / a.batch)) * a.epochs
         m.compile(optimizer=keras.optimizers.Adam(keras.optimizers.schedules.CosineDecay(a.lr, steps, alpha=0.02)),
                   loss=get_depth_loss(),
-                  jit_compile=False)   # sin XLA: su autotuner no encuentra kernels cuDNN fusionados en GPUs Pascal
+                  jit_compile=False)   # no XLA: its autotuner cannot find fused cuDNN kernels on Pascal GPUs
         ts = time.time()
         h = m.fit(make_ds(d['Xtr'], d['Ytr'], d['Ltr'], a.batch, True, with_tof),
                   validation_data=make_ds(d['Xva'], d['Yva'], d['Lva'], 64, False, with_tof),
@@ -244,7 +244,7 @@ def main():
              'val_loss': [float(x) for x in h.history['val_loss']],
              'int8_test': depth_metrics(Yte, pq), 'int8_gazebo': depth_metrics(Ygz, pg)}
         results[name] = r
-        if not with_tof:              # misma red + calibración global por ToF (pipeline actual)
+        if not with_tof:              # same network + global ToF calibration (current pipeline)
             results[name + '+cal'] = {'int8_test': depth_metrics(Yte, tof_scale(pq, d['Tte'], d['Vte'])),
                                       'int8_gazebo': depth_metrics(Ygz, tof_scale(pg, d['Tgz'], d['Vgz']))}
         json.dump(results, open(resp, 'w'), indent=1)
@@ -252,7 +252,7 @@ def main():
             import shutil
             shutil.copy(path, os.path.join(str(paths.models_dir()), f'model_{name}.tflite'))
             m1.save(os.path.join(str(paths.models_dir()), f'model_{name}.keras'))
-            print(f'[install] _03_cnn/model_{name}.tflite', flush=True)
+            print(f'[install] models/model_{name}.tflite', flush=True)
         q, g = r['int8_test'], r['int8_gazebo']
         print(f'[{name}] {t_train:.0f}s  test AbsRel {q["abs_rel"]:.3f} δ1 {q["delta1"]:.3f} '
               f'minErr {q["min_dist_mae"]:.3f} rec<1m {q["obs1m_recall"]:.2f} | gz AbsRel {g["abs_rel"]:.3f} '

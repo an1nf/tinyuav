@@ -1,13 +1,13 @@
 """
-_06_control/reference.py — Generación de referencias suaves.
+nanouav/control/reference.py — Smooth reference generation.
 
-JerkLimited: perfil de velocidad con aceleración y jerk acotados (S-curve casi
-time-optimal, sin sobrepaso): la aceleración deseada sigue la curva de frenado
-a_des = sign(e)·min(a_max, sqrt(2·j_max·|e|)), y su cambio se limita a j_max·dt.
-Entrega (v_ref, a_ref) → a_ref se usa como feed-forward en el lazo de velocidad.
+JerkLimited: velocity profile with bounded acceleration and jerk (near
+time-optimal S-curve, no overshoot): the desired acceleration follows the braking
+curve a_des = sign(e)·min(a_max, sqrt(2·j_max·|e|)), and its change is limited to j_max·dt.
+Returns (v_ref, a_ref) → a_ref is used as feed-forward in the velocity loop.
 
-YawShaper: mismo principio sobre el ángulo de yaw (tasa y aceleración angular
-acotadas), con wrap a ±π. Entrega (ψ_ref, r_ref).
+YawShaper: same principle applied to the yaw angle (bounded rate and angular
+acceleration), wrapped to ±π. Returns (ψ_ref, r_ref).
 """
 import numpy as np
 
@@ -35,7 +35,7 @@ class JerkLimited:
 
     def update(self, v_target, dt):
         e = np.asarray(v_target, float) - self.v
-        # frenado consistente con la aceleración actual (evita sobrepaso)
+        # braking consistent with the current acceleration (avoids overshoot)
         e_brake = e - self.a * np.abs(self.a) / (2 * self.j_max)
         a_des = np.sign(e_brake) * np.minimum(self.a_max, np.sqrt(2 * self.j_max * np.abs(e_brake)))
         self.a += np.clip(a_des - self.a, -self.j_max * dt, self.j_max * dt)

@@ -1,7 +1,7 @@
 """
-R6 · ¿Generaliza el modo 'consistent' (R5) a mundos con varios obstáculos?
-Corredores aleatorios del Monte Carlo E3 (random_corridor_world), ley 'brake', CNN M int8.
-Uso: python r6_corridor_consistent.py --law consistent --speeds 1.0,1.5 --n 8
+R6 · Does the 'consistent' mode (R5) generalize to worlds with several obstacles?
+Random corridors from the E3 Monte Carlo (random_corridor_world), 'brake' law, int8 CNN M.
+Usage: nanouav run r06 --law consistent --speeds 1.0,1.5 --n 8
 """
 import os, sys, json, time, math, argparse
 import numpy as np

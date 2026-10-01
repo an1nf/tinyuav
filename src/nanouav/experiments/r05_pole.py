@@ -1,13 +1,13 @@
 """
-R5 · Experimento controlado del poste (Falanga 2019 / Loquercio 2021 Fig. 5) en nuestro lazo.
+R5 · Controlled pole experiment (Falanga 2019 / Loquercio 2021 Fig. 5) in our loop.
 
-Un poste único sobre la recta, barrido de velocidad de crucero. Se ejecuta dos veces:
-  UAV_FAKE_CNN=1 python r5_pole.py ...   → profundidad privilegiada (GT + ruido leve)
-                 python r5_pole.py ...   → CNN M int8 real
-La diferencia separa fallos de PERCEPCIÓN de fallos de PLANIFICACIÓN/CONTROL.
+A single pole on the straight path, with a cruise-speed sweep. It is run twice:
+  NANOUAV_FAKE_CNN=1 nanouav run r05 ...   → privileged depth (GT + light noise)
+                     nanouav run r05 ...   → real int8 CNN M
+The difference separates PERCEPTION failures from PLANNING/CONTROL failures.
 
-Métricas extra: velocidad al pasar el poste, si frenó (<0.2 m/s) antes de esquivar,
-distancia al poste cuando empieza la desviación lateral (>0.1 m).
+Extra metrics: speed when passing the pole, whether it braked (<0.2 m/s) before dodging,
+distance to the pole when the lateral deviation starts (>0.1 m).
 """
 import os, sys, json, time, argparse
 import numpy as np

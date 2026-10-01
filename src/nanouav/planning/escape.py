@@ -1,38 +1,38 @@
 """
-_04_policy/escape.py  —  Evasión reactiva pura
+nanouav/planning/escape.py  —  Pure reactive evasion
 
-Calcula la dirección y velocidad de escape dada la percepción actual.
+Computes the escape direction and speed from the current perception.
 
-Estrategia:
-  1. Calcular "centro de masa del peligro" en el mapa de profundidad CNN
-     (zonas más cercanas pesan más, ponderación 1/d²)
-  2. La dirección de escape es la opuesta a ese centro de masa
-  3. La velocidad de escape es proporcional a la urgencia (1 - dist/umbral)
-  4. Fusión: dirección del CNN (resolución 96×96), urgencia del ToF (escala real)
+Strategy:
+  1. Compute the "danger center of mass" on the CNN depth map
+     (closer regions weigh more, 1/d² weighting)
+  2. The escape direction is opposite to that center of mass
+  3. The escape speed is proportional to the urgency (1 - dist/threshold)
+  4. Fusion: direction from the CNN (96×96 resolution), urgency from the ToF (true scale)
 
-Salida: EscapeCommand con vx, vy, vz, y la visualización del vector.
-Compatible con ESP32-S3: solo numpy, sin dependencias pesadas.
+Output: EscapeCommand with vx, vy, vz, and the vector visualization.
+ESP32-S3 compatible: numpy only, no heavy dependencies.
 """
 import numpy as np
 from dataclasses import dataclass
 
-EVADE_THRESHOLD  = 0.5   # m — por debajo de esto, evadir activamente
-CAUTION_THRESHOLD = 1.0  # m — por debajo de esto, reducir velocidad
-V_MAX_ESCAPE     = 0.5   # m/s — velocidad máxima de escape
-V_Z_BOOST        = 0.15  # m/s — componente vertical siempre positiva al evadir
-DANGER_MIN_DIST  = 0.15  # m — distancia mínima de seguridad absoluta
+EVADE_THRESHOLD  = 0.5   # m — below this, actively evade
+CAUTION_THRESHOLD = 1.0  # m — below this, reduce speed
+V_MAX_ESCAPE     = 0.5   # m/s — maximum escape speed
+V_Z_BOOST        = 0.15  # m/s — vertical component, always positive while evading
+DANGER_MIN_DIST  = 0.15  # m — absolute minimum safety distance
 
 
 @dataclass
 class EscapeCommand:
-    """Comando de velocidad para el PID del dron."""
-    vx: float          # m/s lateral (+ = derecha)
-    vy: float          # m/s frontal  (+ = adelante, - = retroceder)
-    vz: float          # m/s vertical (+ = subir)
-    urgency: float     # [0, 1] — 0=sin urgencia, 1=máxima urgencia
-    danger_cx: float   # centro de peligro x normalizado [-1, 1]
-    danger_cy: float   # centro de peligro y normalizado [-1, 1]
-    escape_angle: float  # grados — dirección de escape
+    """Velocity command for the drone PID."""
+    vx: float          # m/s lateral (+ = right)
+    vy: float          # m/s forward  (+ = forward, - = back up)
+    vz: float          # m/s vertical (+ = up)
+    urgency: float     # [0, 1] — 0=no urgency, 1=maximum urgency
+    danger_cx: float   # normalized danger center x [-1, 1]
+    danger_cy: float   # normalized danger center y [-1, 1]
+    escape_angle: float  # degrees — escape direction
     mode: str          # 'idle' | 'caution' | 'evade' | 'emergency'
 
     def __str__(self):
@@ -47,12 +47,12 @@ class EscapeCommand:
 
 def _danger_centroid(depth: np.ndarray) -> tuple:
     """
-    Calcula el centro de masa del peligro en el mapa de profundidad.
+    Computes the danger center of mass on the depth map.
 
-    depth: float32 (H, W) en metros
-    Retorna: (cx, cy) normalizados en [-1, 1]
-      cx < 0 → peligro a la izquierda
-      cy < 0 → peligro arriba
+    depth: float32 (H, W) in meters
+    Returns: (cx, cy) normalized to [-1, 1]
+      cx < 0 → danger on the left
+      cy < 0 → danger above
     """
     H, W = depth.shape
     danger = np.clip(1.0 / (depth**2 + 0.01), 0, 1000)
@@ -69,9 +69,9 @@ def _danger_centroid(depth: np.ndarray) -> tuple:
 
 def _tof_urgency(tof: np.ndarray) -> tuple:
     """
-    Calcula urgencia y dirección de peligro del ToF 8×8.
+    Computes urgency and danger direction from the 8×8 ToF.
 
-    Retorna: (urgency [0,1], min_dist_m, tof_cx, tof_cy)
+    Returns: (urgency [0,1], min_dist_m, tof_cx, tof_cy)
     """
     GRID = 8
     min_dist = float(tof.min())
@@ -89,37 +89,37 @@ def compute_escape(depth_m: np.ndarray,
                    tof: np.ndarray,
                    cnn_weight: float = 0.7) -> EscapeCommand:
     """
-    Calcula el comando de escape reactivo.
+    Computes the reactive escape command.
 
-    depth_m:    float32 (96, 96) profundidad calibrada en metros
-    tof:        float32 (8, 8)   lectura ToF en metros
-    cnn_weight: peso de la dirección CNN vs ToF [0, 1]
+    depth_m:    float32 (96, 96) calibrated depth in meters
+    tof:        float32 (8, 8)   ToF reading in meters
+    cnn_weight: weight of the CNN direction vs the ToF [0, 1]
 
-    Retorna EscapeCommand.
+    Returns an EscapeCommand.
     """
-    # Urgencia y dirección del peligro desde ToF (escala real)
+    # Urgency and danger direction from the ToF (true scale)
     urgency, min_dist, tof_cx, tof_cy = _tof_urgency(tof)
 
-    # Dirección del peligro desde CNN (resolución alta)
+    # Danger direction from the CNN (high resolution)
     cnn_cx, cnn_cy = _danger_centroid(depth_m)
 
-    # Fusión: dirección ponderada
+    # Fusion: weighted direction
     w_cnn = cnn_weight
     w_tof = 1.0 - cnn_weight
     danger_cx = w_cnn * cnn_cx + w_tof * tof_cx
     danger_cy = w_cnn * cnn_cy + w_tof * tof_cy
 
-    # Dirección de escape: opuesta al centroide de peligro
+    # Escape direction: opposite to the danger centroid
     esc_x = -danger_cx
     esc_y = -danger_cy
     mag = np.sqrt(esc_x**2 + esc_y**2) + 1e-6
     esc_x /= mag
     esc_y /= mag
 
-    # Ángulo de escape en grados (0=derecha, 90=abajo, 180=izquierda, 270=arriba)
+    # Escape angle in degrees (0=right, 90=down, 180=left, 270=up)
     angle = float(np.degrees(np.arctan2(esc_y, esc_x))) % 360
 
-    # Modo según distancia mínima
+    # Mode from the minimum distance
     if min_dist < DANGER_MIN_DIST:
         mode = 'emergency'
         v    = V_MAX_ESCAPE
@@ -129,17 +129,17 @@ def compute_escape(depth_m: np.ndarray,
     elif min_dist < CAUTION_THRESHOLD:
         mode = 'caution'
         v    = V_MAX_ESCAPE * urgency * 0.4
-        # En precaución: solo retroceder suavemente, sin lateral agresivo
+        # In caution: only back up gently, no aggressive lateral motion
         esc_x *= 0.3
-        esc_y  = -0.7  # retroceder
+        esc_y  = -0.7  # back up
     else:
         mode = 'idle'
         v    = 0.0
 
-    # Comando final
+    # Final command
     vx = float(esc_x * v)              # lateral
-    vy = float(esc_y * v)              # frontal/retroceso
-    vz = float(V_Z_BOOST * urgency)    # siempre subir un poco al evadir
+    vy = float(esc_y * v)              # forward/backward
+    vz = float(V_Z_BOOST * urgency)    # always climb a little while evading
 
     if mode == 'idle':
         vx = vy = vz = 0.0
@@ -156,10 +156,10 @@ def compute_escape(depth_m: np.ndarray,
 
 def escape_arrow_uv(cmd: EscapeCommand, scale: float = 1.0) -> tuple:
     """
-    Retorna (u, v) del vector de escape en coordenadas de imagen.
-    u: componente horizontal (+ = derecha en imagen)
-    v: componente vertical   (+ = abajo en imagen)
-    Para dibujar la flecha sobre el frame de cámara.
+    Returns (u, v) of the escape vector in image coordinates.
+    u: horizontal component (+ = right in the image)
+    v: vertical component   (+ = down in the image)
+    Used to draw the arrow over the camera frame.
     """
     u = cmd.vx / V_MAX_ESCAPE * scale
     v = -cmd.vz / V_Z_BOOST   * scale * 0.3 + cmd.vy / V_MAX_ESCAPE * scale

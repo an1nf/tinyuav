@@ -1,12 +1,12 @@
 FROM nano_uav_sim:fixed
 
-# Copiar proyecto
+# Copy the project
 COPY . /sim/nano_uav/
 
-# Dependencias Python adicionales del proyecto
+# Additional Python dependencies of the project
 RUN pip3 install --break-system-packages pillow
 
-# Variables de entorno
+# Environment variables
 ENV GZ_SIM_RESOURCE_PATH=/sim/nano_uav/gazebo/models
 ENV PYTHONPATH=/sim/nano_uav/src:$PYTHONPATH
 ENV NANOUAV_HOME=/sim/nano_uav

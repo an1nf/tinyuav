@@ -1,14 +1,14 @@
 """
-E1-A · Experimento: modelo de jitter con física real del ESP32-S3.
+E1-A · Experiment: jitter model with real ESP32-S3 physics.
 
-Ejecutar:
+Run:
     conda activate nano_uav
-    python e1a_jitter_model.py
+    nanouav run e1a
 
-Produce:
-    assets/e1a_distributions.png  — distribuciones por variante
-    assets/e1a_breakdown.png      — descomposición por fuente
-    assets/e1a_comparison.png     — modelo físico vs modelo empírico anterior
+Produces:
+    results/e1a_distributions.png  — distributions per variant
+    results/e1a_breakdown.png      — breakdown by source
+    results/e1a_comparison.png     — physical model vs previous empirical model
 """
 import os, sys
 
@@ -36,8 +36,8 @@ COMP_COLORS = {
     'cache': '#EF9F27', 'dma': '#9B59B6', 'wifi': '#E24B4A'
 }
 COMP_LABELS = {
-    'ctx': 'Cambio de ctx', 'ahb': 'Bus AHB',
-    'cache': 'Cache miss', 'dma': 'DMA cámara', 'wifi': 'WiFi IRQ'
+    'ctx': 'Context switch', 'ahb': 'Bus AHB',
+    'cache': 'Cache miss', 'dma': 'Camera DMA', 'wifi': 'WiFi IRQ'
 }
 
 N = 20_000
@@ -53,23 +53,23 @@ def _style(ax, title='', xlabel='', ylabel=''):
     if ylabel:  ax.set_ylabel(ylabel, color='#888', fontsize=8)
 
 
-# ── 1. Estadísticas por variante ──────────────────────────────────────────
-print('[E1-A] Calculando distribuciones...')
+# ── 1. Statistics per variant ─────────────────────────────────────────────
+print('[E1-A] Computing distributions...')
 stats = {v: jitter_stats(v, N) for v in ['XS', 'S', 'M', 'L']}
 
-print(f'\n{"Variante":8} {"p50":>7} {"p95":>7} {"p99":>7} {"p99.9":>8} {"max":>8} {">200µs":>8} {"Apto"}')
+print(f'\n{"Variant":8} {"p50":>7} {"p95":>7} {"p99":>7} {"p99.9":>8} {"max":>8} {">200µs":>8} {"Safe"}')
 print('─' * 65)
 for v, st in stats.items():
     print(f'{v:8} {st["p50"]:7.1f} {st["p95"]:7.1f} {st["p99"]:7.1f} '
           f'{st["p999"]:8.1f} {st["max"]:8.0f} {st["pct_over_200"]:7.3f}%  '
           f'{"✓" if st["safe_for_flight"] else "✗"}')
 
-# ── 2. Descomposición por fuente ──────────────────────────────────────────
-print('\n[E1-A] Descomponiendo fuentes de jitter...')
+# ── 2. Breakdown by source ────────────────────────────────────────────────
+print('\n[E1-A] Breaking down jitter sources...')
 breakdown = {v: component_breakdown(v, 5000) for v in ['XS', 'S', 'M', 'L']}
 
-print(f'\nDescomposición p99 (µs) por fuente:')
-print(f'{"Variante":8} {"ctx":>8} {"AHB":>8} {"cache":>8} {"DMA":>8} {"WiFi":>8} {"total":>8}')
+print(f'\np99 breakdown (µs) by source:')
+print(f'{"Variant":8} {"ctx":>8} {"AHB":>8} {"cache":>8} {"DMA":>8} {"WiFi":>8} {"total":>8}')
 print('─' * 58)
 for v, bd in breakdown.items():
     print(f'{v:8} {bd["ctx"]["p99"]:8.2f} {bd["ahb"]["p99"]:8.2f} '
@@ -77,55 +77,55 @@ for v, bd in breakdown.items():
           f'{bd["wifi"]["p99"]:8.2f} {bd["total"]["p99"]:8.2f}')
 
 
-# ── Figura 1: Distribuciones ──────────────────────────────────────────────
-print('\n[E1-A] Generando gráficas...')
+# ── Figure 1: Distributions ───────────────────────────────────────────────
+print('\n[E1-A] Generating plots...')
 fig = plt.figure(figsize=(14, 10), facecolor=BG)
-fig.suptitle('E1-A · Modelo de jitter PID con física ESP32-S3 (Monte Carlo N=20k)',
+fig.suptitle('E1-A · PID jitter model with ESP32-S3 physics (Monte Carlo N=20k)',
              color='white', fontsize=11, y=0.98)
 gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.42, wspace=0.32,
                        left=0.07, right=0.97, top=0.93, bottom=0.06)
 
 for idx, (variant, color) in enumerate(COLORS.items()):
     ax = fig.add_subplot(gs[idx // 2, idx % 2])
-    _style(ax, f'Variante {variant}  (arena={VARIANT_PARAMS[variant].arena_kb} KB)',
-           'Jitter (µs)', 'frecuencia')
+    _style(ax, f'Variant {variant}  (arena={VARIANT_PARAMS[variant].arena_kb} KB)',
+           'Jitter (µs)', 'frequency')
 
     samples = sample_jitter(variant, N, seed=idx)
-    # Zoom en el rango principal (excluye spikes WiFi para visualizar mejor)
+    # Zoom into the main range (excludes WiFi spikes for better visualization)
     p999 = np.percentile(samples, 99.9)
     ax.hist(samples[samples < p999], bins=60, color=color, alpha=0.85,
             edgecolor='#222', linewidth=0.3)
     for pct, ls, label in [(50, '--', 'p50'), (95, ':', 'p95'), (99, '-', 'p99')]:
         val = np.percentile(samples, pct)
         ax.axvline(val, color='white', lw=0.8, ls=ls, label=f'{label}={val:.1f}µs')
-    ax.axvline(200, color='#E24B4A', lw=1.0, ls='-', label='límite 200µs')
+    ax.axvline(200, color='#E24B4A', lw=1.0, ls='-', label='200µs limit')
     ax.legend(fontsize=7, facecolor='#222', edgecolor='#333', labelcolor='white')
 
     st = stats[variant]
     ax.text(0.97, 0.92,
             f'>{200}µs: {st["pct_over_200"]:.3f}%\n'
-            f'{"APTO ✓" if st["safe_for_flight"] else "NO APTO ✗"}',
+            f'{"SAFE ✓" if st["safe_for_flight"] else "UNSAFE ✗"}',
             transform=ax.transAxes, color=color, fontsize=8,
             ha='right', va='top', fontweight='bold')
 
 plt.savefig(os.path.join(ASSETS, 'e1a_distributions.png'),
             dpi=130, bbox_inches='tight', facecolor=BG)
 plt.close(fig)
-print('  → assets/e1a_distributions.png')
+print('  → results/e1a_distributions.png')
 
 
-# ── Figura 2: Descomposición por fuente ──────────────────────────────────
+# ── Figure 2: Breakdown by source ────────────────────────────────────────
 fig, axes = plt.subplots(1, 2, figsize=(13, 5), facecolor=BG)
-fig.suptitle('E1-A · Descomposición del jitter por fuente',
+fig.suptitle('E1-A · Jitter breakdown by source',
              color='white', fontsize=11)
 
-# Barras apiladas: media
+# Stacked bars: mean
 variants_list = ['XS', 'S', 'M', 'L']
 components    = ['ctx', 'ahb', 'cache', 'dma', 'wifi']
 x = np.arange(len(variants_list))
 bottom = np.zeros(len(variants_list))
 
-_style(axes[0], 'Contribución media por fuente (µs)', 'Variante', 'µs')
+_style(axes[0], 'Mean contribution per source (µs)', 'Variant', 'µs')
 for comp in components:
     vals = [breakdown[v][comp]['mean'] for v in variants_list]
     axes[0].bar(x, vals, bottom=bottom, label=COMP_LABELS[comp],
@@ -134,15 +134,15 @@ for comp in components:
 axes[0].set_xticks(x); axes[0].set_xticklabels(variants_list, color='#888')
 axes[0].legend(fontsize=8, facecolor='#222', edgecolor='#333', labelcolor='white')
 
-# Barras apiladas: p99
+# Stacked bars: p99
 bottom = np.zeros(len(variants_list))
-_style(axes[1], 'Contribución p99 por fuente (µs)', 'Variante', 'µs')
+_style(axes[1], 'p99 contribution per source (µs)', 'Variant', 'µs')
 for comp in components:
     vals = [breakdown[v][comp]['p99'] for v in variants_list]
     axes[1].bar(x, vals, bottom=bottom, label=COMP_LABELS[comp],
                 color=COMP_COLORS[comp], alpha=0.88)
     bottom += np.array(vals)
-axes[1].axhline(200, color='white', lw=0.8, ls='--', label='límite 200µs')
+axes[1].axhline(200, color='white', lw=0.8, ls='--', label='200µs limit')
 axes[1].set_xticks(x); axes[1].set_xticklabels(variants_list, color='#888')
 axes[1].legend(fontsize=8, facecolor='#222', edgecolor='#333', labelcolor='white')
 
@@ -150,17 +150,17 @@ fig.tight_layout()
 plt.savefig(os.path.join(ASSETS, 'e1a_breakdown.png'),
             dpi=130, bbox_inches='tight', facecolor=BG)
 plt.close(fig)
-print('  → assets/e1a_breakdown.png')
+print('  → results/e1a_breakdown.png')
 
 
-# ── Figura 3: Modelo físico vs empírico anterior ──────────────────────────
+# ── Figure 3: Physical model vs previous empirical model ──────────────────
 fig, axes = plt.subplots(1, 2, figsize=(13, 5), facecolor=BG)
-fig.suptitle('E1-A · Modelo físico vs modelo empírico (literatura)',
+fig.suptitle('E1-A · Physical model vs empirical model (literature)',
              color='white', fontsize=11)
 
 from nanouav.perception.cnn import jitter_sample as empirical_jitter
 
-_style(axes[0], 'p99 jitter: físico vs empírico', 'Variante', 'µs (p99)')
+_style(axes[0], 'p99 jitter: physical vs empirical', 'Variant', 'µs (p99)')
 _style(axes[1], 'Scatter FPS vs p99 jitter', 'FPS inferencia', 'Jitter p99 (µs)')
 
 w = 0.35
@@ -171,9 +171,9 @@ for v in variants_list:
     emp = [empirical_jitter(v, 0.2) for _ in range(2000)]
     p99_empirical.append(np.percentile(emp, 99))
 
-axes[0].bar(x - w/2, p99_physical,  width=w, color='#5DCAA5', alpha=0.85, label='Físico (E1-A)')
-axes[0].bar(x + w/2, p99_empirical, width=w, color='#E24B4A', alpha=0.85, label='Empírico (anterior)')
-axes[0].axhline(200, color='white', lw=0.8, ls='--', label='límite 200µs')
+axes[0].bar(x - w/2, p99_physical,  width=w, color='#5DCAA5', alpha=0.85, label='Physical (E1-A)')
+axes[0].bar(x + w/2, p99_empirical, width=w, color='#E24B4A', alpha=0.85, label='Empirical (previous)')
+axes[0].axhline(200, color='white', lw=0.8, ls='--', label='200µs limit')
 axes[0].set_xticks(x); axes[0].set_xticklabels(variants_list, color='#888')
 axes[0].legend(fontsize=8, facecolor='#222', edgecolor='#333', labelcolor='white')
 
@@ -187,36 +187,36 @@ for v, color in COLORS.items():
                      xytext=(5, 5), textcoords='offset points',
                      color=color, fontsize=9)
 
-axes[1].axhline(200, color='white', lw=0.8, ls='--', label='límite 200µs')
+axes[1].axhline(200, color='white', lw=0.8, ls='--', label='200µs limit')
 from matplotlib.lines import Line2D
-leg = [Line2D([0],[0], marker='o', color='w', markerfacecolor='#888', label='Físico'),
+leg = [Line2D([0],[0], marker='o', color='w', markerfacecolor='#888', label='Physical'),
        Line2D([0],[0], marker='x', color='w', markerfacecolor='#888',
-              markeredgecolor='#888', label='Empírico')]
+              markeredgecolor='#888', label='Empirical')]
 axes[1].legend(handles=leg, fontsize=8, facecolor='#222', edgecolor='#333', labelcolor='white')
-axes[1].set_xlabel('FPS inferencia', color='#888')
+axes[1].set_xlabel('Inference FPS', color='#888')
 
 fig.tight_layout()
 plt.savefig(os.path.join(ASSETS, 'e1a_comparison.png'),
             dpi=130, bbox_inches='tight', facecolor=BG)
 plt.close(fig)
-print('  → assets/e1a_comparison.png')
+print('  → results/e1a_comparison.png')
 
-# ── Resumen interpretativo ────────────────────────────────────────────────
+# ── Interpretive summary ──────────────────────────────────────────────────
 print(f"""
-[E1-A] Conclusiones del modelo físico:
+[E1-A] Physical-model conclusions:
 
-  Fuente dominante:  WiFi IRQ (spikes raros pero grandes, ~120µs)
-  Fuente continua:   Cambio de contexto FreeRTOS (~3-5µs siempre)
-  Fuente variable:   Cache miss post-CNN (crece con tamaño de arena)
-  Fuente menor:      Contención bus AHB (<1µs media)
+  Dominant source:   WiFi IRQ (rare but large spikes, ~120µs)
+  Continuous source: FreeRTOS context switch (~3-5µs, always present)
+  Variable source:   post-CNN cache misses (grow with arena size)
+  Minor source:      AHB bus contention (<1µs mean)
 
-  Con PID en prioridad máxima y WiFi activo:
-    Todas las variantes tienen p99 < 30µs  →  muy por debajo del límite 200µs
-    Los spikes >200µs son eventos WiFi raros (<0.1% del tiempo)
+  With PID at maximum priority and WiFi active:
+    All variants have p99 < 30µs  →  well below the 200µs limit
+    Spikes >200µs are rare WiFi events (<0.1% of the time)
 
-  Implicación: el límite real no es qué variante de CNN usar,
-  sino si el WiFi está activo durante el vuelo.
-  Desactivar WiFi durante maniobras críticas reduciría p99 a <15µs.
+  Implication: the real limit is not which CNN variant to use,
+  but whether WiFi is active during flight.
+  Disabling WiFi during critical maneuvers would reduce p99 to <15µs.
 
-  E3-A (medición real con GPIO) falsificará estas predicciones.
+  E3-A (real measurement with GPIO) will try to falsify these predictions.
 """)

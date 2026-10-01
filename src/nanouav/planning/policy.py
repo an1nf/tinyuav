@@ -6,10 +6,10 @@ from nanouav.sensors.optical_flow import DIV_THRESHOLD
 
 @dataclass
 class Decision:
-    action: str          # 'libre' | 'precaucion' | 'evadir'
+    action: str          # 'libre' (free) | 'precaucion' (caution) | 'evadir' (evade)
     confidence: float    # 0.0 – 1.0
     triggered_by: str    # 'none' | 'tof' | 'flow' | 'cnn'
-    min_dist: float      # metros
+    min_dist: float      # meters
 
 
 def _classify(min_dist: float, triggered_by: str) -> Decision:
@@ -21,13 +21,13 @@ def _classify(min_dist: float, triggered_by: str) -> Decision:
 
 
 def policy_p1(depth_pred: np.ndarray) -> Decision:
-    """P1: CNN siempre activa."""
+    """P1: CNN always active."""
     return _classify(float(depth_pred.min()), 'cnn')
 
 
 def policy_p2(tof: np.ndarray, depth_pred: np.ndarray,
               tof_threshold: float = 1.5) -> Decision:
-    """P2: ToF decide si ejecutar CNN."""
+    """P2: ToF decides whether to run the CNN."""
     tof_min = float(tof.min())
     if tof_min > tof_threshold:
         return _classify(tof_min, 'tof')
@@ -36,15 +36,15 @@ def policy_p2(tof: np.ndarray, depth_pred: np.ndarray,
 
 def policy_p3(divergence: float, tof: np.ndarray, depth_pred: np.ndarray,
               div_threshold: float = DIV_THRESHOLD, tof_threshold: float = 1.5) -> Decision:
-    """P3: flujo óptico dispara la CNN; ToF como respaldo rápido."""
+    """P3: optical flow triggers the CNN; ToF as a fast fallback."""
     tof_min = float(tof.min())
-    if tof_min < 0.4:                          # ToF de emergencia
+    if tof_min < 0.4:                          # emergency ToF
         return _classify(tof_min, 'tof')
-    if divergence > div_threshold:             # flujo activa CNN
+    if divergence > div_threshold:             # flow triggers the CNN
         return _classify(float(depth_pred.min()), 'cnn')
-    if tof_min < tof_threshold:                # ToF como guarda
+    if tof_min < tof_threshold:                # ToF as a guard
         return _classify(tof_min, 'tof')
-    return _classify(4.0, 'none')              # sin activación → libre
+    return _classify(4.0, 'none')              # no trigger → free
 
 
 ACTION_COLOR = {'libre': '\033[32m', 'precaucion': '\033[33m', 'evadir': '\033[31m'}
