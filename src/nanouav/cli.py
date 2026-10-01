@@ -121,6 +121,8 @@ def cmd_doctor(a) -> int:
     for name, fn in (('models', paths.models_dir), ('data', paths.data_dir), ('results', paths.results_dir)):
         p = fn(create=False)
         print(f'  {name:8s} {p} {"" if p.exists() else "(missing)"}')
+    tfl = sorted(f.name for f in paths.models_dir().glob('model_*.tflite')) if paths.models_dir().exists() else []
+    print(f'  networks {", ".join(tfl) if tfl else "none — `nanouav models import <dir>` or `nanouav run train`"}')
     for mod in ('numpy', 'cv2', 'matplotlib', 'yaml', 'ai_edge_litert', 'tflite_runtime', 'tensorflow'):
         print(f'  {mod:15s} {"ok" if iu.find_spec(mod) else "-"}')
     if iu.find_spec('tensorflow') and a.gpu:
