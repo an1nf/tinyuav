@@ -24,6 +24,13 @@ Gravedad: **A** = puede dar resultados erróneos o una excepción en un camino q
 | M | `planning/mh_planner.py` · márgenes | los márgenes (`GAP_BIAS`, `M_MIN`, `M_ABS`, `D_EMERG`…) son absolutos y están ajustados para el X3. Con el nano (Ø 0.22 m) y profundidad perfecta, `estrechos` con w = 0.6 se cruza pero dando muchas vueltas (46 m de recorrido), y con w = 0.45 no se cruza ni con rejilla de 5 cm. La equivalencia "w = 0.45 para el nano ≈ w = 1.2 para el X3" de R13 no se cumple. Probar márgenes proporcionales al radio. |
 | — | `planning/mh_planner.py` (comportamiento) | ante una puerta de 1.0 m en una pared de 6 m con salida lateral, el MH prefiere rodear la pared en lugar de cruzar la puerta (con 1.4 m sí la cruza). Es coherente con su margen (`radius` 0.36 + `GAP_BIAS`), pero vale la pena revisarlo junto con R13. `tests/test_planners.py` fija ambos casos. |
 
+## Escenarios de evaluación
+
+| grav. | dónde | problema |
+|---|---|---|
+| A | `experiments/r10_dynamic.py` · `cross` | rumbo de colisión constante: con v_obs ≥ 0.58·v_dron el balón queda fuera del campo de la cámara (±30°) hasta ~0.3 m. Los éxitos a 1.0 y 2.0 m/s se deben a la sincronización (el dron va a ~0.93 m/s, no a 1.0), no a que se esquive: con GT, 0/20 a 1.0 m/s y 20/20 a 2.0 m/s, en ambos casos sin detección previa. No reportarlos como evasión. Se necesita más campo visual (o ToF laterales / barrido de yaw) para ese régimen. |
+| M | `experiments/r05_pole.py` | con ley *brake* la velocidad real se satura en ≈ 1.73 m/s: las filas 2.0/2.5/3.0 m/s son el mismo experimento. |
+
 ## Percepción
 
 | grav. | dónde | problema |

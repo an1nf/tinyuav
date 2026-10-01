@@ -6,6 +6,12 @@ along the line y = 0, sphere r = 0.12 m (ball) at flight altitude:
   cross : crosses from side to side; launched so it passes (x = 4, y = 0) when the drone would get there
   head  : comes head-on (−x) with a 0.1 m lateral offset; closing speed = v + v_obs
 Metrics: collision with the sphere, success (reaching x = 8), minimum clearance to the sphere.
+
+Geometry note (R16): 'cross' is a constant-bearing collision course. The ball stays at a bearing of
+atan(v_obs / v_drone) from the flight direction until the very end, so with the 60° camera
+(half-FOV 30°) it is only visible for v_obs < tan(30°)·v_drone ≈ 0.58 m/s. Above that the drone does not
+see it until ~0.3 m and the outcome is decided by timing luck (small speed deviations), not by
+perception or planning; the JSON stores 'bearing_deg' and 'in_fov' per speed for that reason.
 Usage: nanouav run r10 --scen cross --vobs 0.5,1,2,3 --n 5 [--rf]
 """
 import os, sys, json, time, math, argparse
@@ -16,6 +22,7 @@ from nanouav.scene.renderer import World, Sphere, Texture, random_ground, random
 from nanouav.control.vehicle import PROFILES
 from nanouav.sim.closed_loop import run_episode, C
 from nanouav.sim.missions import fast_kw, set_brake_law
+from nanouav.config import CAM_HFOV
 
 X_MEET, V_DRONE = 4.0, 1.0
 AGGR = False
@@ -57,7 +64,9 @@ def run_dyn(P, scen, v_obs, seed, rf=False):
                              on_step=on_step, done_fn=lambda t, p: p[0] > 8.0, planner_kw=kw, limits=lim,
                              variant=VARIANT)
     s['d_ball_min'] = st['dmin']
-    s['hit_ball'] = bool(st['dmin'] < P.radius)
+    # the world contains only the ball: any collision is with the ball (d_ball_min is sampled at the
+    # simulation steps and can end 1–2 mm above the radius when the episode stops at contact)
+    s['hit_ball'] = bool(s['collided'] or st['dmin'] < P.radius)
     return s
 
 
@@ -83,8 +92,14 @@ def main():
                       for k in ('success', 'collided', 'hit_ball', 'timeout', 'time_s', 'd_ball_min', 'min_clearance_m')})
             print(f'[{a.scen} vobs={v} rf={a.rf} aggr={a.aggr}] {i}: {L[-1]} ({time.time() - t0:.0f}s)', flush=True)
         out[str(v)] = L
+        if a.scen == 'cross':
+            brg = math.degrees(math.atan2(v, V_DRONE))
+            out[f'{v}_geometry'] = {'bearing_deg': round(brg, 1), 'in_fov': bool(brg < math.degrees(CAM_HFOV) / 2)}
     json.dump(out, open(os.path.join(str(paths.results_dir()), f'r10_dyn_{P.name}_{a.scen}{"_rf" if a.rf else ""}{"_aggr" if a.aggr else ""}_{a.variant}.json'), 'w'), indent=1)
     for v, L in out.items():
+        if v.endswith('_geometry'):
+            print(f"  {v}: {L}")
+            continue
         print(f"v_obs={v}: ok {sum(r['success'] for r in L)}/{len(L)} hits {sum(r['hit_ball'] for r in L)} "
               f"timeouts {sum(r['timeout'] for r in L)} d_min_med {np.median([r['d_ball_min'] for r in L]):.2f}")
 

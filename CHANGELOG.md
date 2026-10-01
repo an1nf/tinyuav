@@ -3,6 +3,18 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.13.2] — 2026-10-01
+
+### Corregido
+- `r10`: `hit_ball` era `False` en choques con el balón (comparación estricta con muestras tomadas en
+  otro instante); en ese mundo el único obstáculo es el balón, así que ahora `hit_ball` = colisión.
+  Cambia la columna "hits" de los resúmenes, no el éxito ni las colisiones.
+
+### Añadido
+- `r10 --scen cross` guarda `bearing_deg` e `in_fov` por velocidad: el balón llega por un rumbo
+  constante atan(v_obs / v_dron); con la cámara de 60° solo es visible si v_obs < 0.58·v_dron. Por
+  encima, el resultado depende de la suerte en la sincronización, no de la percepción (ver R16).
+
 ## [0.13.1] — 2026-10-01
 
 Sin cambios en los resultados de simulación (el test de regresión pasa sin regenerar la referencia).
