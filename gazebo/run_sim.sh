@@ -101,12 +101,16 @@ if [ "$MODE" = "motors" ]; then
     python3 $ROOT/gazebo/nodes/flight_controller_node.py --ros-args -p yaw_sign:=${YAW_SIGN:-1} &
     FC_PID=$!
 fi
+# ROS 2 (Jazzy) rejects empty overrides such as `-p run_tag:=` → only pass string params that are set
+OPT_ARGS=()
+[ -n "$WJSON" ] && OPT_ARGS+=(-p "world_json:=$WJSON")
+[ -n "${RUN_TAG:-}" ] && OPT_ARGS+=(-p "run_tag:=$RUN_TAG")
 python3 $ROOT/gazebo/nodes/perception_node.py --ros-args -p control_mode:=$MODE \
     -p variant:=${VARIANT:-M} -p profile:=${PROFILE:-x3} -p consistent:=${CONSISTENT:-false} \
     -p rf_dyn:=${RF_DYN:-false} -p v_cruise:=${V_CRUISE:-0.5} \
     -p planner:=${PLANNER:-mh} -p goal:=${GOAL:-true} -p goal_x:=$GOAL_X -p goal_y:=$GOAL_Y -p loop:=${LOOP:-false} \
-    -p world_json:="$WJSON" -p t_max:=${T_MAX:-0.0} -p exit_on_done:=${EXIT_ON_DONE:-false} \
-    -p run_tag:="${RUN_TAG:-}" -p hud:=$([ "${HEADLESS:-false}" = "true" ] && echo false || echo true) &
+    -p t_max:=${T_MAX:-0.0} -p exit_on_done:=${EXIT_ON_DONE:-false} \
+    -p hud:=$([ "${HEADLESS:-false}" = "true" ] && echo false || echo true) "${OPT_ARGS[@]}" &
 NODE_PID=$!
 
 cleanup () { kill $NODE_PID $DYN_PID $FC_PID $BRIDGE_PID $GZ_PID 2>/dev/null; sleep 1; kill -9 $GZ_PID 2>/dev/null; pkill -f "gz sim" 2>/dev/null; true; }

@@ -8,7 +8,7 @@ RUN pip3 install --break-system-packages pillow
 
 # Environment variables
 ENV GZ_SIM_RESOURCE_PATH=/sim/nano_uav/gazebo/models
-ENV PYTHONPATH=/sim/nano_uav/src:$PYTHONPATH
+ENV PYTHONPATH=/sim/nano_uav/src
 ENV NANOUAV_HOME=/sim/nano_uav
 ENV NANO_UAV_ROOT=/sim/nano_uav
 ENV GZ_PARTITION=nano_uav_sim
