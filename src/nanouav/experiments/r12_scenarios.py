@@ -12,6 +12,7 @@ from nanouav.scene.renderer import World, Box, Cylinder, Plane, Texture, random_
 from nanouav.control.vehicle import PROFILES
 from nanouav.sim.closed_loop import run_episode, C
 from nanouav.sim.missions import fast_kw, set_brake_law
+from nanouav.planning.presets import parse_cfg, apply_cfg   # noqa: F401  (parse_cfg: public API)
 from nanouav.sim.closed_loop import random_corridor_world
 
 
@@ -45,11 +46,6 @@ def scenario_world(spec, seed):
     return w, s, balls
 
 
-def parse_cfg(text):
-    """'INSPECT_TOF=1,M_ABS=0.02' → {'INSPECT_TOF': 1.0, 'M_ABS': 0.02} (planner attributes)."""
-    return {k.strip(): float(v) for k, v in (x.split('=') for x in text.split(',') if x)}
-
-
 def run(P, planner, goal, seed, variant='M', v=0.5, jitter=0.0, world='gz', cfg=None):
     rng = np.random.default_rng(seed)
     scn, balls = None, []
@@ -77,10 +73,7 @@ def run(P, planner, goal, seed, variant='M', v=0.5, jitter=0.0, world='gz', cfg=
         set_brake_law(pl)
         pl.CONSISTENT, pl.FOV_OK = True, math.radians(28)
         pl.set_segment(A, goal, arrive=not corridor, v_cruise=v)
-        for k_, v_ in (cfg or {}).items():
-            if not hasattr(pl, k_):
-                raise AttributeError(f'planner has no attribute {k_!r} (--cfg)')
-            setattr(pl, k_, type(getattr(pl, k_))(v_) if isinstance(getattr(pl, k_), (bool, int, float)) else v_)
+        apply_cfg(pl, cfg)
 
     def done(t, p):
         if corridor:
@@ -136,6 +129,7 @@ def main():
     os.makedirs(str(paths.results_dir()), exist_ok=True)
     ftag = '_fuse2' if settings.flag('FUSE2') else ''        # R14 fusion: keep both results side by side
     ftag += ('_' + a.cfg.replace('=', '').replace(',', '_')) if a.cfg else ''
+    ftag += f'_v{a.v:g}' if a.v != 0.5 else ''                # speed sweeps: one file per speed
     json.dump(out, open(os.path.join(str(paths.results_dir()), f'g1_{a.world.replace(":", "-").replace("/", "_").replace(";", "_")}_{a.planner.replace(",", "+")}_{P.name}_{mode}_{a.variant}_j{a.jitter:g}{ftag}.json'), 'w'))
 
 

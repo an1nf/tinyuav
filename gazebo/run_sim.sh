@@ -9,6 +9,8 @@
 #
 # Other variables: VARIANT=M|M_ToF  PROFILE=x3|nano  PLANNER=mh|lane  CONSISTENT=true|false  RF_DYN=true|false
 #                  V_CRUISE=0.5  GOAL_X/GOAL_Y (override B)  LOOP=true  T_MAX=120  RUN_TAG=...  CONTROL_MODE=motors
+#                  PLANNER_CFG="K=v,..." (planner attributes, same as `nanouav run r12 --cfg`)
+#                  A world reset from the Gazebo GUI starts a new measured episode (results/gz_runs/*_epN.json)
 set -e
 source /opt/ros/jazzy/setup.bash
 ROOT=${NANO_UAV_ROOT:-/sim/nano_uav}
@@ -109,6 +111,7 @@ fi
 OPT_ARGS=()
 [ -n "$WJSON" ] && OPT_ARGS+=(-p "world_json:=$WJSON")
 [ -n "${RUN_TAG:-}" ] && OPT_ARGS+=(-p "run_tag:=$RUN_TAG")
+[ -n "${PLANNER_CFG:-}" ] && OPT_ARGS+=(-p "planner_cfg:=$PLANNER_CFG")     # e.g. "MAP_DECAY_FOV=1,MAP_HIT_WINS=1"
 python3 $ROOT/gazebo/nodes/perception_node.py --ros-args -p control_mode:=$MODE \
     -p variant:=${VARIANT:-M} -p profile:=${PROFILE:-x3} -p consistent:=${CONSISTENT:-false} \
     -p rf_dyn:=${RF_DYN:-false} -p v_cruise:=${V_CRUISE:-0.5} \

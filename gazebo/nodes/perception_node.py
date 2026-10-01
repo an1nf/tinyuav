@@ -38,6 +38,7 @@ from nanouav.perception.cnn import predict_depth_norm, is_real_mode
 from nanouav.perception.tof_calibrator import ToFCalibrator, fuse_tof, fuse
 from nanouav.planning.evasion import EvasionPlanner
 from nanouav.planning.mh_planner import MHPlanner
+from nanouav.planning.presets import fast_kw, set_brake_law, apply_cfg
 from nanouav.control.vehicle import PROFILES
 from nanouav.control.flight_stack import ReferenceGenerator, REF_LIMITS, yaw_accel_limit
 from nanouav.control.supervisor import StabilityMonitor
@@ -70,29 +71,25 @@ class PerceptionNode(Node):
         self.declare_parameter('t_max', 0.0)           # simulation seconds; 0 = value from the JSON (or 120)
         self.declare_parameter('exit_on_done', False)  # exit on arrival / collision / timeout
         self.declare_parameter('run_tag', '')
+        self.declare_parameter('planner_cfg', '')      # planner attributes, same syntax as `r12 --cfg` ("M_V=0.3")
         gp = lambda n: self.get_parameter(n).value
         self.mode_ctrl, self.variant = gp('control_mode'), gp('variant')
         self.twist_frame = gp('twist_frame')
         P = PROFILES[gp('profile')]
 
-        self.planner_kind = gp('planner')
-        cls = MHPlanner if self.planner_kind == 'mh' else EvasionPlanner
-        self.planner = cls(radius=P.radius, v_cruise=gp('v_cruise'), z_cruise=gp('z_cruise'))
-        if gp('consistent') or self.planner_kind == 'mh':
-            self.planner.speed_law = 'brake'
-            self.planner.CONSISTENT = True
-            self.planner.FOV_OK = math.radians(28)
-            self.planner.T_REACT, self.planner.GAP_BIAS = 0.6, 0.15
-        self.planner.RF_DYN = bool(gp('rf_dyn'))
+        self.planner_kind, self.v_cruise, self.z_cruise = gp('planner'), gp('v_cruise'), gp('z_cruise')
+        self.consistent, self.rf_dyn, self.planner_cfg = bool(gp('consistent')), bool(gp('rf_dyn')), gp('planner_cfg')
+        self.P = P
+        self.planner = self._make_planner()
         self.goal_on, self.loop = bool(gp('goal')), bool(gp('loop'))
         self.B = np.array([gp('goal_x'), gp('goal_y')], float)
         self.A = None                        # set from the first odometry message
         self.leg, self.t_leg, self.t_arr, self.t_log = 0, None, None, 0.0
-        self.v_cruise = gp('v_cruise')
         if self.goal_on:
             self.get_logger().info(f"A→B mission: B=({self.B[0]:.2f}, {self.B[1]:.2f}) loop={self.loop}")
-        self.get_logger().info(f"planner: {self.planner_kind} consistent={gp('consistent')} rf_dyn={gp('rf_dyn')} variant={gp('variant')}")
-        self.P = P
+        self.get_logger().info(f"planner: {self.planner_kind} consistent={self.consistent} rf_dyn={self.rf_dyn} "
+                               f"variant={gp('variant')} v_cruise={self.v_cruise} limits={self.ref_profile}"
+                               + (f" cfg={self.planner_cfg}" if self.planner_cfg else ''))
         self.scn = None
         wj = gp('world_json')
         if wj:
@@ -105,20 +102,21 @@ class PerceptionNode(Node):
         self.t_max = gp('t_max') or (self.scn['t_max'] if self.scn else 120.0)
         self.exit_on_done, self.run_tag = bool(gp('exit_on_done')), gp('run_tag')
         self.variant_name, self.profile_name = gp('variant'), P.name
-        self.ep = {'t_takeoff': None, 'min_clear': np.inf, 'collisions': 0, 'in_coll': False, 'path': 0.0,
-                   'p_prev': None, 'result': None, 'modes': {}, 'traj': [], 'rtf': []}
+        self.ep, self.ep_idx = self._empty_ep(), 1
         self.done = False
-        self.sim_t, self._rtf_ref, self._clock_bad = None, None, False
+        self.sim_t, self._rtf_ref, self._clock_bad, self._clock_jumps, self._paused = None, None, False, [], False
         self.dyn_pos = {}
         self.cal = ToFCalibrator()
-        self.ref = ReferenceGenerator(dict(REF_LIMITS['normal'], yaw_a=yaw_accel_limit(P)))
+        self.ref = ReferenceGenerator(dict(REF_LIMITS[self.ref_profile], yaw_a=yaw_accel_limit(P)))
+        self._ref_reset = False
         self.sup = StabilityMonitor()
         self.hold_z, self.hold_yaw = gp('z_cruise'), 0.0
 
         self._lock = threading.Lock()
+        self._ep_lock = threading.RLock()     # episode state (planner, A, t_arr) vs a world reset
         self._frame_evt = threading.Event()
         self.state = None                   # {'p','v','R','w','yaw','roll','pitch'}
-        self.gray, self.gray_pose = None, None
+        self.gray, self.gray_pose, self.gray_ep = None, None, 0
         self.tof = np.full((8, 8), D_MAX, np.float32)
         self.hud = {'gray': np.zeros((96, 96), np.uint8), 'depth': np.full((96, 96), D_MAX, np.float32),
                     'info': {}, 'mode': 'NORMAL'}
@@ -145,6 +143,24 @@ class PerceptionNode(Node):
             threading.Thread(target=self._hud_loop, daemon=True).start()
         self.get_logger().info(f'Nano-UAV v12 · control={self.mode_ctrl} · profile={P.name} · '
                                f'CNN {"REAL int8" if is_real_mode(self.variant) else "FAKE"} ({self.variant})')
+
+    def _make_planner(self):
+        """Same planner and parameters as the offline missions (`r12`): brake law, speed-dependent
+        braking/reference limits (`fast_kw`) and the optional `planner_cfg` overrides."""
+        kw, self.ref_profile = fast_kw(self.v_cruise)
+        cls = MHPlanner if self.planner_kind == 'mh' else EvasionPlanner
+        pl = cls(radius=self.P.radius, v_cruise=self.v_cruise, z_cruise=self.z_cruise, **kw)
+        if self.consistent or self.planner_kind == 'mh':
+            set_brake_law(pl)
+            pl.CONSISTENT = True
+            pl.FOV_OK = math.radians(28)
+        pl.RF_DYN = self.rf_dyn
+        return apply_cfg(pl, self.planner_cfg)
+
+    @staticmethod
+    def _empty_ep():
+        return {'t_takeoff': None, 'min_clear': np.inf, 'collisions': 0, 'in_coll': False, 'path': 0.0,
+                'p_prev': None, 'result': None, 'modes': {}, 'traj': [], 'rtf': []}
 
     # ── inputs ────────────────────────────────────────────────────────────
     def arm(self):
@@ -181,6 +197,7 @@ class PerceptionNode(Node):
                 s = self.state
                 self.gray = g.copy()
                 self.gray_pose = (s['p'].copy(), s['yaw'], s['pitch'], s['roll'])
+                self.gray_ep = self.ep_idx
             self._frame_evt.set()
         except Exception as e:
             self.get_logger().warn(f'cam: {e}')
@@ -209,30 +226,35 @@ class PerceptionNode(Node):
                 continue
             self._frame_evt.clear()
             with self._lock:
-                gray, pose, tof, st = self.gray, self.gray_pose, self.tof.copy(), dict(self.state)
+                if self.state is None or self.gray_ep != self.ep_idx:
+                    continue                      # frame from before a world reset
+                gray, pose, tof, st, ep_id = self.gray, self.gray_pose, self.tof.copy(), dict(self.state), self.gray_ep
             try:
                 # tof is passed to the CNN: early-fusion variants (M_ToF) use it; M ignores it
                 depth = fuse(self.cal.update_and_scale(predict_depth_norm(gray, self.variant, tof=tof), tof), tof)
             except RuntimeError:                  # no .tflite model → ToF only
                 depth = None
             st['t'] = time.monotonic() - self.t0      # used by the RF_DYN / VO layers
-            if self.goal_on:
-                self._mission_step(st)
-            v_t, yaw_t, info = self.planner.update(st, depth, tof, pose)
-            if self.goal_on:
-                self._mission_log(st, info)
-            with self._lock:
-                if self.mode_ctrl == 'velocity':
-                    if self.sup.mode == 'NORMAL':
-                        self.ref.set_target(v_t, yaw_t)
-                else:
-                    sp = Twist()
-                    sp.linear.x, sp.linear.y, sp.linear.z = map(float, v_t)
-                    sp.angular.z = float(yaw_t)
-                    self.sp_pub.publish(sp)
-                self.hud.update(gray=gray, info=dict(info, scale=self.cal.scale_ema))
-                if depth is not None:
-                    self.hud['depth'] = depth
+            with self._ep_lock:
+                if ep_id != self.ep_idx:              # the world was reset during the inference
+                    continue
+                if self.goal_on:
+                    self._mission_step(st)
+                v_t, yaw_t, info = self.planner.update(st, depth, tof, pose)
+                if self.goal_on:
+                    self._mission_log(st, info)
+                with self._lock:
+                    if self.mode_ctrl == 'velocity':
+                        if self.sup.mode == 'NORMAL':
+                            self.ref.set_target(v_t, yaw_t)
+                    else:
+                        sp = Twist()
+                        sp.linear.x, sp.linear.y, sp.linear.z = map(float, v_t)
+                        sp.angular.z = float(yaw_t)
+                        self.sp_pub.publish(sp)
+                    self.hud.update(gray=gray, info=dict(info, scale=self.cal.scale_ema))
+                    if depth is not None:
+                        self.hud['depth'] = depth
 
     # ── simulation clock and episode monitor ──────────────────────────────
     def clock_cb(self, msg):
@@ -241,14 +263,21 @@ class PerceptionNode(Node):
         if self._clock_bad:
             return
         if self.sim_t is not None and new < self.sim_t - 1e-3:
-            # simulation time went backwards: a second /clock publisher (another simulation in the same
-            # ROS domain / Gazebo partition) or a world reset → stop trusting the simulation clock and
-            # continue the episode on wall time (the elapsed time so far is kept)
-            self.get_logger().error('/clock went backwards (%.1f → %.1f s): another simulation publishing /clock? '
-                                    'Episode monitor falls back to wall time.' % (self.sim_t, new))
-            if self.ep['t_takeoff'] is not None:
-                self.ep['t_takeoff'] = (w - self.t0) - (self.sim_t - self.ep['t_takeoff'])
-            self._clock_bad = True
+            # simulation time went backwards. Normally a world reset (Gazebo GUI "reset", or
+            # /world/<name>/control): the drone is back at its spawn pose → start a new episode.
+            # Several jumps within a few seconds instead mean two /clock publishers (another simulation in
+            # the same ROS domain / Gazebo partition): stop trusting the simulation clock (wall time).
+            self._clock_jumps = [x for x in self._clock_jumps if w - x < 10.0] + [w]
+            if len(self._clock_jumps) >= 3:
+                self.get_logger().error('/clock keeps going backwards (%.1f → %.1f s): another simulation publishing '
+                                        '/clock? Episode monitor falls back to wall time.' % (self.sim_t, new))
+                if self.ep['t_takeoff'] is not None:
+                    self.ep['t_takeoff'] = (w - self.t0) - (self.sim_t - self.ep['t_takeoff'])
+                self._clock_bad = True
+                return
+            self.get_logger().warn('/clock went back (%.1f → %.1f s): world reset → new episode' % (self.sim_t, new))
+            self.sim_t, self._rtf_ref = new, None
+            self._new_episode('world reset')
             return
         self.sim_t = new
         if self._rtf_ref is None:
@@ -256,9 +285,31 @@ class PerceptionNode(Node):
         elif w - self._rtf_ref[0] > 5.0:
             rtf = (self.sim_t - self._rtf_ref[1]) / (w - self._rtf_ref[0])
             self._rtf_ref = (w, self.sim_t)
+            if rtf < 0.01:                                   # paused (e.g. after a reset from the GUI)
+                if not self._paused:
+                    self.get_logger().info('simulation paused')
+                self._paused = True
+                return
+            self._paused = False
             self.ep['rtf'].append(round(rtf, 3))
             if rtf < 0.8:
                 self.get_logger().warn(f'real-time factor {rtf:.2f} (< 0.8: slow rendering, GPU in the container?)')
+
+    def _new_episode(self, reason):
+        """Forget the current episode (planner map, A, arrival) and measure a new one from the current pose."""
+        with self._ep_lock:
+            if not self.done and self.ep['t_takeoff'] is not None:
+                self.get_logger().warn(f'episode {self.ep_idx} aborted ({reason}), not saved')
+            self.ep_idx += 1
+            self.ep, self.done = self._empty_ep(), False
+            self.A, self.leg, self.t_leg, self.t_arr = None, 0, None, None
+            self.planner = self._make_planner()
+            self.cal = ToFCalibrator()
+            with self._lock:
+                self.state = None                            # wait for odometry from after the reset
+                self.hud['info'] = {}
+                self._ref_reset = True
+            self.get_logger().info(f'=== episode {self.ep_idx} ({reason})')
 
     def _dyn_cb(self, msg, name, r):
         p = msg.pose.pose.position
@@ -317,10 +368,11 @@ class PerceptionNode(Node):
                'profile': self.profile_name, 'world': self.scn['name'] if self.scn else 'nano_uav_world',
                'seed': self.scn['seed'] if self.scn else None, 'A': self.A.tolist() if self.A is not None else None,
                'B': self.B.tolist(), 'modes': ep['modes'], 'rtf': ep['rtf'], 'traj': ep['traj'],
-               'sim_time': self.sim_t is not None and not self._clock_bad}
+               'sim_time': self.sim_t is not None and not self._clock_bad, 'episode': self.ep_idx,
+               'v_cruise': self.v_cruise, 'planner_cfg': self.planner_cfg}
         d = os.path.join(str(paths.results_dir()), 'gz_runs')
         os.makedirs(d, exist_ok=True)
-        tag = self.run_tag or time.strftime('%Y%m%d_%H%M%S')
+        tag = (self.run_tag or time.strftime('%Y%m%d_%H%M%S')) + (f'_ep{self.ep_idx}' if self.ep_idx > 1 else '')
         fn = os.path.join(d, f"{out['world']}_s{out['seed']}_{self.planner_kind}_{self.variant_name}_{tag}.json")
         json.dump(out, open(fn, 'w'), indent=1)
         self.get_logger().info(f"=== EPISODIO: {res} · t={el:.1f} s · path {ep['path']:.1f} m · min clearance "
@@ -364,6 +416,11 @@ class PerceptionNode(Node):
             st = self.state
             if st is None:
                 return
+            if self._ref_reset:                                   # new episode: restart from the current state
+                self._ref_reset = False
+                self.ref.vel.reset(st['v'], np.zeros(3))
+                self.ref.yaw.reset(st['yaw'])
+                self.ref.set_target((0.0, 0.0, 0.0), st['yaw'])
             mode, entered = self.sup.update(st, False, now - self.t0, dt)
             if entered:                                           # bumpless transfer
                 self.ref.vel.reset(st['v'], self.ref.vel.a)
@@ -376,7 +433,7 @@ class PerceptionNode(Node):
                 self.ref.set_target((0.0, 0.0, vz), self.hold_yaw)
             elif self.hud['mode'] == 'RECOVER':                   # leaving RECOVER
                 self.ref.vel.reset(st['v'], self.ref.vel.a)
-                self.ref.vel.set_limits(REF_LIMITS['normal']['a'], REF_LIMITS['normal']['j'])
+                self.ref.vel.set_limits(REF_LIMITS[self.ref_profile]['a'], REF_LIMITS[self.ref_profile]['j'])
                 self.get_logger().info('RECOVER → NORMAL')
             self.hud['mode'] = mode
             v_ref, _, psi_ref, r_ref = self.ref.update(dt)

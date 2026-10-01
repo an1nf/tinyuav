@@ -83,8 +83,8 @@ def world_json(tmp_path):
 def make_perception(ros, world, **over):
     _, Node = ros
     s, f = world
-    Node.OVERRIDES = dict(world_json=str(f), planner='mh', hud=False, goal_x=s['B'][0], goal_y=s['B'][1],
-                          t_max=5.0, exit_on_done=True, run_tag='pytest', **over)
+    Node.OVERRIDES = dict(dict(world_json=str(f), planner='mh', hud=False, goal_x=s['B'][0], goal_y=s['B'][1],
+                               t_max=5.0, exit_on_done=True, run_tag='pytest'), **over)
     return load_node('perception_node').PerceptionNode(), s
 
 
@@ -189,17 +189,59 @@ def test_flight_controller_outputs_motor_speeds(ros):
     assert len(msg.velocity) == 4 and all(np.isfinite(msg.velocity)) and min(msg.velocity) > 0
 
 
-def test_clock_going_backwards_falls_back_to_wall_time(ros, world_json):
-    """Two simulations on the same /clock (shared partition/domain) must not freeze the episode monitor."""
+def test_world_reset_starts_a_new_episode(ros, world_json):
+    """Gazebo GUI 'reset': /clock goes back to ~0 and the drone is back at A → a fresh episode and planner."""
+    from nanouav import paths
+    node, s = make_perception(ros, world_json, exit_on_done=False)
+    A = (*s['A'], 0.65)
+    node.subscriptions['/clock'](clock(50.0))
+    node.subscriptions['/model/nano_uav/odometry'](odom(A))
+    node.monitor()                                            # take-off at sim 50 s
+    node.subscriptions['/clock'](clock(56.0))
+    node.monitor()                                            # 6 s > t_max → episode 1 ends (timeout)
+    assert node.done
+    planner1 = node.planner
+    node.subscriptions['/model/nano_uav/odometry'](odom((s['B'][0], s['B'][1], 0.65)))
+    node.subscriptions['/clock'](clock(0.3))                  # world reset
+    assert node.ep_idx == 2 and not node.done and not node._clock_bad
+    assert node.planner is not planner1 and node.A is None and node.t_arr is None
+    assert node.state is None                                 # stale (pre-reset) odometry is dropped
+    node.subscriptions['/model/nano_uav/odometry'](odom(A))
+    node.subscriptions['/clock'](clock(0.5))
+    node.monitor()                                            # take-off of episode 2
+    assert node.ep['t_takeoff'] == pytest.approx(0.5)
+    node.subscriptions['/clock'](clock(6.0))
+    node.monitor()
+    assert node.done
+    names = sorted(f.name for f in (paths.results_dir() / 'gz_runs').glob('*.json'))
+    assert len(names) == 2 and names[1].endswith('_pytest_ep2.json')
+    r = json.loads((paths.results_dir() / 'gz_runs' / names[1]).read_text())
+    assert r['episode'] == 2 and r['result'] == 'timeout' and r['sim_time'] and r['path_m'] == 0.0
+    assert not any(x < 0 for x in r['rtf'])
+
+
+def test_interleaved_clocks_fall_back_to_wall_time(ros, world_json):
+    """Two simulations on the same /clock (shared partition/domain): repeated jumps → wall time."""
     node, s = make_perception(ros, world_json)
     node.subscriptions['/clock'](clock(50.0))
     node.subscriptions['/model/nano_uav/odometry'](odom((*s['A'], 0.65)))
-    node.monitor()                                            # take-off at sim 50 s
-    node.subscriptions['/clock'](clock(52.0))
-    node.subscriptions['/clock'](clock(3.0))                  # another simulation's clock
+    for t in (3.0, 50.2, 3.1, 50.3, 3.2):                     # two publishers alternating
+        node.subscriptions['/clock'](clock(t))
     assert node._clock_bad
-    el = node._now() - node.ep['t_takeoff']
-    assert 1.5 < el < 3.0                                     # elapsed time preserved across the switch
+    node.subscriptions['/model/nano_uav/odometry'](odom((*s['A'], 0.65)))
+    node.monitor()                                            # take-off on wall time
     node.ep['t_takeoff'] -= 10.0                              # pretend 10 more (wall) seconds went by
     node.monitor()
     assert node.done                                          # t_max = 5 s → timeout fires on wall time
+
+
+def test_node_planner_matches_offline_presets(ros, world_json):
+    """Gazebo and `r12` must fly the same planner: braking, reference limits and --cfg overrides."""
+    from nanouav.planning.presets import fast_kw
+    node, _ = make_perception(ros, world_json, v_cruise=1.0, planner_cfg='M_V=0.3,STAG_T=4')
+    pl = node.planner
+    kw, prof = fast_kw(1.0)
+    assert node.ref_profile == prof == 'fast' and pl.A_BRAKE == kw['a_brake'] and pl.v_max == 1.0
+    assert pl.T_REACT == 0.6 and pl.GAP_BIAS == 0.15 and pl.CONSISTENT and pl.M_V == 0.3 and pl.STAG_T == 4.0
+    with pytest.raises(AttributeError):
+        make_perception(ros, world_json, planner_cfg='NOT_A_PARAM=1')

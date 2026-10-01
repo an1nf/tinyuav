@@ -29,17 +29,7 @@ from nanouav.sim.closed_loop import run_episode, random_corridor_world, C
 ASSETS = str(paths.results_dir())
 
 
-def fast_kw(v):
-    """Planner and reference parameters as a function of speed."""
-    fast = v > 0.8
-    return ({'v_max': v, 'a_brake': 1.0 if fast else 0.8}, 'fast' if fast else 'normal')
-
-
-def set_brake_law(planner):
-    planner.speed_law = 'brake'
-    planner.W_LANE = 0.6          # missions: returning to the segment line weighs more than the hysteresis
-    planner.T_REACT = 0.6         # 0.1 s frame + 0.06 latency + jerk ramp + tracking delay
-    planner.GAP_BIAS = 0.15       # map error (CNN + cell) observed at higher speed
+from nanouav.planning.presets import fast_kw, set_brake_law   # noqa: E402,F401  (shared with Gazebo)
 
 
 # ── worlds ─────────────────────────────────────────────────────────────────

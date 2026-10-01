@@ -4,6 +4,7 @@
 #   bash gazebo/batch_eval.sh                                   → obstaculos,bosque,rendijas,interior × seeds 0–4 × mh
 #   WORLDS=bosque,rendijas SEEDS=0,1,2 PLANNERS=mh,lane bash gazebo/batch_eval.sh
 #   PAR=2 ...                                                   → containers in parallel (each uses ~1–2 cores + GPU)
+#   VARIANT=M_ToF V_CRUISE=1.0 PLANNER_CFG="MAP_DECAY_FOV=1" … → passed to every episode (gz_docker.sh)
 #   nanouav summarize --gazebo                                  → table with 95% CI (Wilson) + comparison with our own simulator
 WORLDS=${WORLDS:-obstaculos,bosque,rendijas,interior}
 SEEDS=${SEEDS:-0,1,2,3,4}
@@ -19,7 +20,7 @@ done; done; done
 echo "$(wc -l < "$jobs_file") episodes · parallel=$PAR · tag=$TAG"
 run_one () {
     read w s p <<< "$1"
-    log="$HERE/../results/gz_logs/${w}_s${s}_${p}.log"
+    log="$HERE/../results/gz_logs/${w}_s${s}_${p}_${VARIANT:-M}_${TAG}.log"
     WORLD=$w SEED=$s PLANNER=$p HEADLESS=true EXIT_ON_DONE=true RUN_TAG=$TAG \
         timeout ${EP_TIMEOUT:-400} bash "$HERE/gz_docker.sh" > "$log" 2>&1
     echo "[$w s$s $p] $(grep -o 'EPISODIO: [a-z_]* · t=[0-9.]* s' "$log" | tail -1)"

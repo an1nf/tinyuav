@@ -43,12 +43,12 @@ def main():
     G = defaultdict(list)
     for f in files:
         r = json.load(open(f))
-        G[(r['world'], r['planner'], r['variant'], r['profile'])].append(r)
+        G[(r['world'], r['planner'], r['variant'], r['profile'], r.get('v_cruise', 0.5), r.get('planner_cfg', ''))].append(r)
     if not G:
         print('no results in results/gz_runs'); return
-    print(f"{'world':12s} {'plan':5s} {'CNN':6s} {'prof':5s} {'success':>7s} {'CI95':>13s} {'col':>4s} {'t_med':>6s} "
-          f"{'path':>6s} {'min_clr':>8s} {'RTF':>5s} │ {'offline':>9s}")
-    for (w, p, v, pr), L in sorted(G.items()):
+    print(f"{'world':12s} {'plan':5s} {'CNN':6s} {'prof':5s} {'v':>4s} {'success':>7s} {'CI95':>13s} {'col':>4s} "
+          f"{'t_med':>6s} {'path':>6s} {'min_clr':>8s} {'RTF':>5s} │ {'offline':>9s}  cfg")
+    for (w, p, v, pr, vc, cfg), L in sorted(G.items()):
         n, k = len(L), sum(r['success'] for r in L)
         lo, hi = wilson(k, n)
         col = sum(r['collisions'] > 0 for r in L)
@@ -58,8 +58,8 @@ def main():
         rtf = med([x for r in L for x in r.get('rtf', [])])
         off = offline(w, p, pr)
         off_s = f'{sum(off)}/{len(off)}' if off else '—'
-        print(f'{w:12s} {p:5s} {v:6s} {pr:5s} {k:3d}/{n:<3d} [{lo:.2f}, {hi:.2f}] {col:4d} {tm:6.1f} {pm:6.1f} '
-              f'{cm:8.2f} {rtf:5.2f} │ {off_s:>9s}')
+        print(f'{w:12s} {p:5s} {v:6s} {pr:5s} {vc:4.2g} {k:3d}/{n:<3d} [{lo:.2f}, {hi:.2f}] {col:4d} {tm:6.1f} {pm:6.1f} '
+              f'{cm:8.2f} {rtf:5.2f} │ {off_s:>9s}  {cfg}')
     print('\nresult per episode: ' + ', '.join(sorted({r["result"] for L in G.values() for r in L})))
 
 
