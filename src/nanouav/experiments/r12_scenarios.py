@@ -45,7 +45,12 @@ def scenario_world(spec, seed):
     return w, s, balls
 
 
-def run(P, planner, goal, seed, variant='M', v=0.5, jitter=0.0, world='gz'):
+def parse_cfg(text):
+    """'INSPECT_TOF=1,M_ABS=0.02' → {'INSPECT_TOF': 1.0, 'M_ABS': 0.02} (planner attributes)."""
+    return {k.strip(): float(v) for k, v in (x.split('=') for x in text.split(',') if x)}
+
+
+def run(P, planner, goal, seed, variant='M', v=0.5, jitter=0.0, world='gz', cfg=None):
     rng = np.random.default_rng(seed)
     scn, balls = None, []
     if world.startswith(('scn:', 'json:')):
@@ -72,6 +77,10 @@ def run(P, planner, goal, seed, variant='M', v=0.5, jitter=0.0, world='gz'):
         set_brake_law(pl)
         pl.CONSISTENT, pl.FOV_OK = True, math.radians(28)
         pl.set_segment(A, goal, arrive=not corridor, v_cruise=v)
+        for k_, v_ in (cfg or {}).items():
+            if not hasattr(pl, k_):
+                raise AttributeError(f'planner has no attribute {k_!r} (--cfg)')
+            setattr(pl, k_, type(getattr(pl, k_))(v_) if isinstance(getattr(pl, k_), (bool, int, float)) else v_)
 
     def done(t, p):
         if corridor:
@@ -105,6 +114,7 @@ def main():
     ap.add_argument('--jitter', type=float, default=0.0)
     ap.add_argument('--variant', default='M')
     ap.add_argument('--v', type=float, default=0.5)
+    ap.add_argument('--cfg', default='', help='planner attributes, e.g. "INSPECT_TOF=1" (R17)')
     ap.add_argument('--world', default='gz', help='gz | corridor | scn:bosque[;gap=1.0] | json:path.json (goal = scenario B)')
     a = ap.parse_args()
     P = PROFILES[a.profile]
@@ -116,7 +126,7 @@ def main():
             key = f'{pl}_{g[0]:g}_{g[1]:g}'
             L = []
             for i in range(a.n):
-                s = run(P, pl, g, 900 + i, a.variant, a.v, a.jitter, a.world)
+                s = run(P, pl, g, 900 + i, a.variant, a.v, a.jitter, a.world, parse_cfg(a.cfg))
                 L.append({k: s[k] for k in ('success', 'collided', 'timeout', 'time_s', 'min_clearance_m',
                                             'd_goal_end', 'path_len', 'traj')})
                 r = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in L[-1].items() if k != 'traj'}
@@ -125,6 +135,7 @@ def main():
             print(f'== {key}: ok {sum(r["success"] for r in L)}/{len(L)} col {sum(r["collided"] for r in L)}', flush=True)
     os.makedirs(str(paths.results_dir()), exist_ok=True)
     ftag = '_fuse2' if settings.flag('FUSE2') else ''        # R14 fusion: keep both results side by side
+    ftag += ('_' + a.cfg.replace('=', '').replace(',', '_')) if a.cfg else ''
     json.dump(out, open(os.path.join(str(paths.results_dir()), f'g1_{a.world.replace(":", "-").replace("/", "_").replace(";", "_")}_{a.planner.replace(",", "+")}_{P.name}_{mode}_{a.variant}_j{a.jitter:g}{ftag}.json'), 'w'))
 
 

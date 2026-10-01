@@ -29,6 +29,7 @@ Gravedad: **A** = puede dar resultados erróneos o una excepción en un camino q
 | grav. | dónde | problema |
 |---|---|---|
 | A | `experiments/r10_dynamic.py` · `cross` | rumbo de colisión constante: con v_obs ≥ 0.58·v_dron el balón queda fuera del campo de la cámara (±30°) hasta ~0.3 m. Los éxitos a 1.0 y 2.0 m/s se deben a la sincronización (el dron va a ~0.93 m/s, no a 1.0), no a que se esquive: con GT, 0/20 a 1.0 m/s y 20/20 a 2.0 m/s, en ambos casos sin detección previa. No reportarlos como evasión. Se necesita más campo visual (o ToF laterales / barrido de yaw) para ese régimen. |
+| A | `planning/mh_planner.py` + CNN · `estrechos` semilla 0, w = 1.2 (X3) | en Gazebo con M_ToF el dron vaga entre las paredes (inspecciona, rechaza la puerta, vuelve por su recorrido) y no termina. El mismo mundo offline: GT 2/2; con el M_ToF corto de R3, 0/2 con el mismo patrón (el mapa de la CNN cierra la puerta vista desde 2–3 m y la ruta de costo-a-meta bordea la pared por lo desconocido). Un intento de confirmar la puerta con el ToF durante INSPECT no cambió nada en 3 episodios y provocó un choque en otro: descartado. Pendiente medir con el M_ToF a presupuesto completo (`r12 --world json:gazebo/worlds/gen/estrechos_s0_w1.2.json`). |
 | M | `experiments/r05_pole.py` | con ley *brake* la velocidad real se satura en ≈ 1.73 m/s: las filas 2.0/2.5/3.0 m/s son el mismo experimento. |
 
 ## Percepción
