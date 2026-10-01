@@ -5,6 +5,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 
 ## [0.13.2] — 2026-10-01
 
+### Documentación
+- Informe `docs/research/R16_entrenamiento_y_lazo_cerrado.md`: resultados de la campaña del
+  2026-10-01 (entrenamiento completo, M vs M_ToF, estructuras finas, cables, pasos estrechos).
+
 ### Corregido
 - `r10`: `hit_ball` era `False` en choques con el balón (comparación estricta con muestras tomadas en
   otro instante); en ese mundo el único obstáculo es el balón, así que ahora `hit_ball` = colisión.

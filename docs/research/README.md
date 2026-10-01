@@ -17,6 +17,7 @@ Su equivalente actual está en [../migracion.md](../migracion.md); por ejemplo
 | [R13_pasos_estrechos.md](R13_pasos_estrechos.md) | R13: pasos estrechos, anti-estancamiento | `r12 --world scn:estrechos…`, suite `narrow_passages` |
 | [R14_ddos_metricas_por_clase.md](R14_ddos_metricas_por_clase.md) | R14: métricas por clase, `fuse_tof2` | `r14`, suite `perception` |
 | [R15_tracking_drones.md](R15_tracking_drones.md) | R15: falsas detecciones dinámicas vs ego-movimiento | `r15`, suite `perception` |
+| [R16_entrenamiento_y_lazo_cerrado.md](R16_entrenamiento_y_lazo_cerrado.md) | R16: entrenamiento completo, M vs M_ToF en lazo cerrado, límites del sensor (cables, campo visual) | `train`, `r03`, `r14`, suites `baseline`, `thin_structures`, `cables`, `narrow_passages` |
 
 Plantilla para un informe nuevo (`RNN_tema.md`): pregunta · qué se toma de la fuente · cambios en el
 código (archivo y bandera, apagada por defecto) · montaje y **comando exacto** (`nanouav run …` o
