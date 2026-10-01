@@ -44,6 +44,15 @@ def _model_path(variant):
     return p if os.path.exists(p) else os.path.join(d, 'model.tflite')
 
 
+class TFLiteRuntimeMissing(ImportError):
+    """A trained .tflite model exists but no TFLite runtime can be imported.
+
+    Subclass of ImportError on purpose: callers that catch RuntimeError to fall back to ToF-only
+    flight (e.g. the Gazebo node) must NOT silently swallow this — it means the experiment would
+    otherwise run with fake depth while being labelled as 'cnn'.
+    """
+
+
 def _get_interp(variant='M'):
     global _real_mode
     if variant in _interps:
@@ -57,7 +66,10 @@ def _get_interp(variant='M'):
             try:
                 from tflite_runtime.interpreter import Interpreter
             except ImportError:
-                Interpreter = None
+                raise TFLiteRuntimeMissing(
+                    f'{path} exists but neither ai_edge_litert nor tflite_runtime can be imported. '
+                    'Install it (pip install ai-edge-litert) or run with --fake-cnn / NANOUAV_FAKE_CNN=1 '
+                    'to use ground-truth depth on purpose.') from None
         if Interpreter is not None:
             it = Interpreter(model_path=path, num_threads=1)
             it.allocate_tensors()

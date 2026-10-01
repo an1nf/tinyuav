@@ -153,6 +153,9 @@ def train_variant(v, data, epochs, batch, lr):
 
 
 def evaluate(v, model, data):
+    # the exported batch-1 model is not compiled: without this, Keras' predict() would pick XLA
+    # ('auto'), whose autotuner fails on Pascal GPUs (same reason as in train_variant)
+    model.compile(jit_compile=False)
     Xte, Yte = to_float(data['Xte'], data['Yte'])
     Xgz, Ygz = to_float(data['Xgz'], data['Ygz'])
     pf = model.predict(Xte, verbose=0, batch_size=64)
@@ -243,6 +246,8 @@ def main():
     ap.add_argument('--lr', type=float, default=3e-3)
     ap.add_argument('--n-train', type=int, default=12000)
     ap.add_argument('--tartanair', action='store_true')
+    ap.add_argument('--eval-only', action='store_true',
+                    help='no training: evaluate the saved models/model_<v>.keras + .tflite and update metrics.json')
     a = ap.parse_args()
 
     import tensorflow as tf
@@ -262,13 +267,19 @@ def main():
     results = json.load(open(mpath)) if os.path.exists(mpath) else {}
     histories, preview = {}, None
     for v in a.variants.split(','):
-        model, hist, t_train, _ = train_variant(v, data, a.epochs, a.batch, a.lr)
-        res, prev = evaluate(v, model, data)
-        res['train_s'] = t_train
-        res['epochs'] = len(hist['loss'])
-        res['val_loss_hist'] = [float(x) for x in hist['val_loss']]
+        if a.eval_only:
+            model = build_variant(v, batch_size=1)
+            model.load_weights(os.path.join(CNN_DIR, f'model_{v}.keras'))
+            res, prev = evaluate(v, model, data)
+            res['eval_only'] = True              # training history is in the training log, not here
+        else:
+            model, hist, t_train, _ = train_variant(v, data, a.epochs, a.batch, a.lr)
+            res, prev = evaluate(v, model, data)
+            res['train_s'] = t_train
+            res['epochs'] = len(hist['loss'])
+            res['val_loss_hist'] = [float(x) for x in hist['val_loss']]
+            histories[v] = hist
         results[v] = res
-        histories[v] = hist
         if v == 'M' or preview is None:
             preview = (v, prev)
         json.dump(results, open(mpath, 'w'), indent=2)
@@ -282,7 +293,8 @@ def main():
     import shutil
     if os.path.exists(os.path.join(CNN_DIR, 'model_M.tflite')):
         shutil.copy(os.path.join(CNN_DIR, 'model_M.tflite'), os.path.join(CNN_DIR, 'model.tflite'))
-    plots({k: results[k] for k in ['XS', 'S', 'M', 'L'] if k in results}, histories, preview)
+    if not a.eval_only:
+        plots({k: results[k] for k in ['XS', 'S', 'M', 'L'] if k in results}, histories, preview)
     print('\n[done] metrics in models/metrics.json · plots in results/cnn_v2_*.png')
 
 

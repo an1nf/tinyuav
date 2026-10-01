@@ -7,8 +7,7 @@ import pytest
 
 from conftest import has_tflite_model
 
-pytestmark = [pytest.mark.tflite,
-              pytest.mark.skipif(not has_tflite_model(), reason='no models/model_M.tflite or no TFLite runtime')]
+needs_model = pytest.mark.skipif(not has_tflite_model(), reason='no models/model_M.tflite or no TFLite runtime')
 
 
 @pytest.fixture
@@ -29,6 +28,8 @@ def views():
                                        rng=np.random.default_rng(seed))
 
 
+@pytest.mark.tflite
+@needs_model
 def test_real_mode_and_output_range(cnn):
     assert cnn.is_real_mode('M')
     g, _ = next(views())
@@ -37,6 +38,8 @@ def test_real_mode_and_output_range(cnn):
     assert 0.0 <= y.min() and y.max() <= 1.0 and y.std() > 0.01
 
 
+@pytest.mark.tflite
+@needs_model
 def test_fake_flag_disables_the_model(cnn, monkeypatch):
     monkeypatch.setenv('NANOUAV_FAKE_CNN', '1')
     assert not cnn.is_real_mode('M')
@@ -46,8 +49,26 @@ def test_fake_flag_disables_the_model(cnn, monkeypatch):
     assert cnn.predict_depth_norm(g, 'M', depth_gt=d).shape == (96, 96)
 
 
+@pytest.mark.tflite
+@needs_model
 def test_depth_accuracy_on_scenarios(cnn):
     """Mean AbsRel on 6 scenario views (≈0.19 for the shipped M model; generous bound)."""
     from nanouav import config
     ar = [float(np.mean(np.abs(config.norm_to_m(cnn.predict_depth_norm(g, 'M')) - d) / d)) for g, d in views()]
     assert np.mean(ar) < 0.35, ar
+
+
+def test_missing_runtime_is_an_error_not_a_silent_fallback(tmp_path, monkeypatch):
+    """With a model on disk but no runtime, the CNN must fail loudly instead of switching to fake depth."""
+    import sys
+    from nanouav.perception import cnn as m
+    (tmp_path / 'model_M.tflite').write_bytes(b'not a real model')
+    monkeypatch.setenv('NANOUAV_MODELS', str(tmp_path))
+    monkeypatch.setitem(sys.modules, 'ai_edge_litert', None)          # makes the import raise ImportError
+    monkeypatch.setitem(sys.modules, 'ai_edge_litert.interpreter', None)
+    monkeypatch.setitem(sys.modules, 'tflite_runtime', None)
+    monkeypatch.setitem(sys.modules, 'tflite_runtime.interpreter', None)
+    m._interps.clear()
+    with pytest.raises(m.TFLiteRuntimeMissing):
+        m.is_real_mode('M')
+    m._interps.clear()

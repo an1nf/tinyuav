@@ -15,16 +15,20 @@ nanouav doctor --gpu                                   # debe listar la GPU
 
 ### Si TensorFlow no encuentra las bibliotecas de CUDA
 
-Con las ruedas `nvidia-*` de pip, TensorFlow normalmente localiza las bibliotecas solo. Si
-`doctor --gpu` muestra una lista vacía y el log menciona `libcudnn` o `libcublas`, añadir sus
-carpetas a `LD_LIBRARY_PATH` antes de lanzar el entrenamiento:
+Síntoma: `Cannot dlopen some GPU libraries` y `nanouav doctor --gpu` muestra `GPUs: []`. Las ruedas
+`nvidia-*` de pip traen CUDA/cuDNN, pero TensorFlow no siempre las encuentra (en particular con
+`--system-site-packages`, donde `nvidia` puede estar repartido en varias carpetas). Lo más cómodo es
+añadirlo al `activate` del entorno, una sola vez:
 
 ```bash
-export LD_LIBRARY_PATH="$(python - <<'EOF'
-import glob, os, nvidia
-print(':'.join(sorted(glob.glob(os.path.join(list(nvidia.__path__)[0], '*', 'lib')))))
+cat >> .venv/bin/activate <<'EOF'
+# CUDA/cuDNN de los paquetes nvidia-* de pip → visibles para TensorFlow
+export LD_LIBRARY_PATH="$(python -c "import nvidia,glob,os; print(':'.join(sorted(p for d in nvidia.__path__ for p in glob.glob(os.path.join(d,'*','lib')))))"):$LD_LIBRARY_PATH"
+# ptxas de CUDA 12 (el de /usr/local/cuda 13 ya no compila para Pascal; sin esto solo hay avisos)
+export PATH="$(python -c "import nvidia,glob; print(':'.join(g for p in nvidia.__path__ for g in glob.glob(p + '/cuda_nvcc/bin')))"):$PATH"
 EOF
-):$LD_LIBRARY_PATH"
+deactivate; source .venv/bin/activate
+python -c "import tensorflow as tf; g = tf.config.list_physical_devices('GPU'); print(g); assert g"
 ```
 
 ### GPU Pascal (TITAN X, GTX 10xx)
@@ -36,8 +40,16 @@ combinación:
    `pip install nvidia-cudnn-cu12==9.3.0.75`. Las versiones posteriores dieron errores de cuDNN en
    esta GPU.
 2. **Sin XLA**: los modelos se compilan con `jit_compile=False` (en `train_cnn.py`,
-   `r3_lnca_train.py` y `r11_vel_net.py`),
-   porque el autotuner de XLA no encuentra kernels de cuDNN fusionados en Pascal.
+   `r3_lnca_train.py` y `r11_vel_net.py`, también para `predict()`), porque el autotuner de XLA no
+   encuentra kernels de cuDNN fusionados en Pascal (`Autotuner could not find any supported configs`).
+   Keras 3 activa XLA por defecto en GPU, incluso en un modelo sin compilar.
+
+Probado en la TITAN X: TF 2.21.0, cuDNN 9.3.0.75, driver 580; M con 60 épocas × 30 000 imágenes
+tarda ≈ 14 s por época (≈ 15 min).
+
+Si un entrenamiento termina pero falla al evaluar, los pesos ya están guardados
+(`models/model_<v>.keras` y `.tflite`); se evalúa sin reentrenar con
+`nanouav run train --variants M --eval-only`.
 
 En GPUs más recientes no debería hacer falta ninguna de las dos cosas.
 
