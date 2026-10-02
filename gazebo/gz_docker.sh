@@ -30,6 +30,8 @@ for v in WORLD SEED WORLD_KW REGEN VARIANT PROFILE PLANNER CONSISTENT RF_DYN V_C
     [ -n "${!v}" ] && ENVS="$ENVS -e $v=${!v}"
 done
 TTY=""; [ -t 0 ] && TTY="-it"
+# files the container writes (generated worlds, textures, episode results) are handed back to this user
+OWNER_ARGS="-e HOST_UID=$(id -u) -e HOST_GID=$(id -g)"
 
 if [ "$1" = "diag" ]; then
     CMD='echo "== nvidia-smi"; nvidia-smi -L || echo "NO GPU: is nvidia-container-toolkit installed? --gpus all?";
@@ -41,5 +43,5 @@ echo "(if there are no EGL errors, rendering uses the GPU)"'
     exec $DOCKER run --rm $TTY $GPU_ARGS -v "$ROOTDIR":/sim/nano_uav -w /sim/nano_uav $IMG bash -c "$CMD"
 fi
 if [ $# -gt 0 ]; then CMD=("$@"); else CMD=(bash gazebo/run_sim.sh); fi
-exec $DOCKER run --rm $TTY --ipc=host $GPU_ARGS $X_ARGS $ENVS \
+exec $DOCKER run --rm $TTY --ipc=host $GPU_ARGS $X_ARGS $ENVS $OWNER_ARGS \
     -v "$ROOTDIR":/sim/nano_uav -w /sim/nano_uav $IMG "${CMD[@]}"

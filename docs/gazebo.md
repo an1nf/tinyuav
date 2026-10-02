@@ -49,12 +49,14 @@ Variables de `run_sim.sh` (todas opcionales): `WORLD`, `SEED`, `WORLD_KW`, `REGE
   paused`). Si `/clock` retrocede tres veces en 10 s, hay dos simulaciones publicando el mismo reloj:
   el monitor pasa a tiempo de pared.
 
-Ir más rápido: `V_CRUISE=1.0`. En un bosque denso como `bosque` semilla 2, la ganancia es pequeña:
-el ~80 % del tiempo manda la ley de holgura entre troncos, no el crucero. Con `WORLD_KW="gap=2.2"` el
-tiempo baja un 33 %. Las opciones R17
-(`PLANNER_CFG="FLY_KEEP_NEAR=1,MAP_DECAY_FOV=1,MAP_HIT_WINS=1"`) evitan choques con troncos finos con
-profundidad perfecta, y están pendientes de validar con la CNN. Ver
+Ir más rápido: `V_CRUISE=1.0 PLANNER_CFG="FLY_KEEP_NEAR=1"`. En `bosque` semilla 2, con el M_ToF,
+da 10/10 en 30.8 s offline, frente a 9/10 en 35.2 s a 0.5 m/s sin opciones. En un bosque denso la
+ganancia está limitada por la holgura entre troncos; con `WORLD_KW="gap=2.2"` el tiempo baja más. Ver
 `docs/research/R17_velocidad_y_troncos_finos.md`.
+
+Los archivos que escribe el contenedor (mundos generados, texturas, `results/gz_runs`) se devuelven
+al usuario del host al generar el mundo y al salir. Si ya hay archivos de root de antes, arreglarlo
+una vez con `sudo chown -R $USER:$USER gazebo/worlds/gen gazebo/models/nano_textures results`.
 
 ### Lotes sin ventanas
 

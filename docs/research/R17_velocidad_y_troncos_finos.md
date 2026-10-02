@@ -124,34 +124,101 @@ El dron avanzaba 27° desviado de su cámara, lo que permite `FOV_OK` = 28°, y 
 costado. Es el mismo punto ciego lateral.
 
 El M_ToF del PC de entrenamiento (presupuesto completo, el que voló en Gazebo) es mejor que el local,
-y en Gazebo tardó 40.5 s donde el local tarda 77 s offline. **La decisión de activarlas por defecto
-depende de la suite `speed_thin` con esa red:**
+y en Gazebo tardó 40.5 s donde el local tarda 77 s offline. Por eso la decisión se tomó con la suite
+`speed_thin` en ese equipo (§5).
+
+## 5 · Validación con las redes completas (PC de entrenamiento, 2026-10-02, n = 10)
 
 ```bash
-nanouav gazebo gen-world --scenario bosque --seed 2
-nanouav gazebo gen-world --scenario estrechos --seed 0 --kw w=1.2
-nanouav suite configs/suites/speed_thin.yaml -j 7          # 36 trabajos, ~1–1.5 h; GT, M y M_ToF, base / r17 / FLY
-nanouav summarize --dir results/speed_thin                 # éxito, IC 95 %, choques y tiempo mediano
+nanouav suite configs/suites/speed_thin.yaml -j 7          # 36 trabajos, ~1 h 15 min
+nanouav summarize --dir results/speed_thin
 ```
+
+Éxito y tiempo mediano de los éxitos. En `bosque` todo fallo es un choque, no hay *timeouts*.
+Las celdas marcadas con † son del equipo de desarrollo (los trabajos `*-gt-fly`), que da números algo
+distintos con la misma semilla por las versiones de numpy/OpenCV.
+
+**bosque_s2** (el mundo de Gazebo):
+
+| profundidad | v | actual | r17 | `FLY_KEEP_NEAR` |
+|---|---|---|---|---|
+| GT | 0.5 | 6/10 · 31.8 s | 10/10 · 34.7 s | 10/10 · 33.2 s † |
+| GT | 1.0 | 4/10 · 25.6 s | 8/10 · 32.6 s | 8/10 · 34.1 s † |
+| GT | 1.5 | 9/10 · 26.1 s | 10/10 · 35.0 s | 9/10 · 29.8 s † |
+| M | 0.5 | 8/10 · 39.5 s | 9/10 · 62.8 s | 9/10 · 43.2 s |
+| M | 1.0 | 9/10 · 38.9 s | 9/10 · 46.7 s | 9/10 · 40.8 s |
+| M_ToF | 0.5 | 9/10 · 35.2 s | 10/10 · 41.7 s | 9/10 · 42.1 s |
+| M_ToF | 1.0 | 8/10 · 30.1 s | 9/10 · 35.6 s | **10/10 · 30.8 s** |
+
+**bosques aleatorios** (semillas 900–909):
+
+| profundidad | v | actual | r17 | `FLY_KEEP_NEAR` |
+|---|---|---|---|---|
+| GT | 0.5 | 10/10 · 28.7 s | 10/10 · 33.8 s | 10/10 · 31.2 s † |
+| GT | 1.0 | 10/10 · 22.3 s | 10/10 · 27.0 s | 10/10 · 23.8 s † |
+| GT | 1.5 | 10/10 · 24.8 s | 10/10 · 27.1 s | 10/10 · 24.3 s † |
+| M | 0.5 | 10/10 · 40.6 s | 10/10 · 45.9 s | pendiente |
+| M | 1.0 | 8/10 · 27.8 s | 8/10 · 26.7 s | pendiente |
+| M_ToF | 0.5 | 10/10 · 31.5 s | 10/10 · 37.0 s | pendiente |
+| M_ToF | 1.0 | 9/10 · 23.0 s | 10/10 · 29.9 s | pendiente |
+
+**estrechos** semilla 0, w = 1.2 (n = 5): M 1/5 → 2/5 con r17, M_ToF 4/5 → 3/5. Ningún choque: los
+fallos son *timeouts* por el vagabundeo de R16, que las opciones no curan ni empeoran.
+
+**Lectura.**
+
+1. **El fallo es real.** En bosque_s2 la profundidad perfecta choca en 11 de 30 episodios; con r17, en
+   2 de 30 (Fisher p = 0.01). Solo `FLY_KEEP_NEAR` deja 3 de 30. En los bosques aleatorios la GT no
+   choca: hace falta una geometría como la de bosque_s2 (un tronco de 0.1 m junto a la salida).
+2. **La CNN sufre menos el fallo.** Con la configuración actual, el M_ToF choca menos que la GT en
+   bosque_s2 (1 de 10 frente a 4 de 10 a 0.5 m/s). La CNN suaviza los bordes y "engorda" los
+   troncos, así que el filtro de píxeles voladores no los borra. El fallo afecta sobre todo a la
+   profundidad nítida: GT, y en el futuro un ToF denso o estéreo.
+3. **Con la CNN, la mejora en choques es una tendencia, no un resultado.** Sumando M y M_ToF:
+   9/80 choques con la configuración actual frente a 5/80 con r17 (p = 0.40). En bosque_s2: 6/40
+   frente a 3/40 con r17 y 3/40 con `FLY_KEEP_NEAR`.
+4. **El coste está en `MAP_DECAY_FOV`.** r17 tarda un 17–30 % más con el M_ToF, y con el M hasta un
+   59 % (bosque_s2 a 0.5 m/s, 39.5 → 62.8 s). Recordar lo que queda fuera de la vista también conserva
+   los fantasmas de la CNN, y el dron da rodeos. `FLY_KEEP_NEAR` cuesta un 2–5 % a 1 m/s y un 9–20 %
+   a 0.5 m/s.
+5. **Velocidad con el M_ToF completo.** Subir de 0.5 a 1.0 m/s ahorra un 14 % en bosque_s2
+   (35.2 → 30.1 s) y un 27 % en los bosques aleatorios (31.5 → 23.0 s). A 1 m/s choca más con la
+   configuración actual: 3/20 frente a 1/20 a 0.5 m/s.
+6. **La mejor combinación para el mundo de Gazebo** es M_ToF a 1 m/s con `FLY_KEEP_NEAR`: 10/10 en
+   30.8 s, frente a 9/10 en 35.2 s con la configuración que voló en Gazebo (0.5 m/s, sin opciones).
+
+**Pendiente para decidir el valor por defecto.** `FLY_KEEP_NEAR` es el candidato a activarse por
+defecto en el MH: corrige un defecto y a 1 m/s apenas cuesta tiempo. Las otras dos se quedan como
+opción. Faltan `FLY_KEEP_NEAR` con la CNN en los bosques aleatorios y en `estrechos`; están en la
+misma suite y `--resume` corre solo esos trabajos:
+
+```bash
+nanouav suite configs/suites/speed_thin.yaml -j 7 --resume   # solo los 12 trabajos nuevos, ~15–20 min
+nanouav summarize --dir results/speed_thin
+```
+
+Si `FLY_KEEP_NEAR` no empeora en ninguna celda, se activa por defecto en el MH. Eso cambia los
+resultados del MH desde esa versión: hay que regenerar `tests/data/reference.json` y anotarlo en el
+CHANGELOG.
 
 ## Conclusiones
 
 1. El mapa del MH pierde troncos finos por dos defectos: el filtro de píxeles voladores los borra y el
    decaimiento global los olvida en cuanto salen del campo visual. Con profundidad perfecta eso causa
-   choques en la mitad de los episodios del mundo de Gazebo. Las opciones r17 lo corrigen (40/40) y
-   quedan como opción hasta validarlas con la CNN completa. Los resultados publicados no cambian.
-2. En un bosque como el de Gazebo, el tiempo se va en pasar entre troncos con poca holgura, no en el
-   límite de crucero. `V_CRUISE` = 1.0 ahorra 0–18 %, y un 33 % si el bosque es menos denso. Ir más
-   rápido entre troncos exige menos margen, y eso hoy choca (M_V = 0.25: 5/8).
-3. El límite de fondo es el **punto ciego lateral**: la cámara de 60° no ve el costado del corredor
-   que barre el cuerpo a menos de ~0.8 m, y el MH permite avanzar hasta 28° desviado del eje de la
-   cámara. Siguiente paso: exigir que el corredor completo (centro ± (r + margen)) quede dentro del
-   campo visual, o bien ToF laterales.
+   choques en 11 de 30 episodios del mundo de Gazebo, y las opciones los bajan a 2–3 de 30. Con la CNN
+   el efecto es menor, porque la red suaviza los bordes. `FLY_KEEP_NEAR` da casi toda la mejora y
+   cuesta poco a 1 m/s (2–5 %); `MAP_DECAY_FOV` cuesta un 17–59 % de tiempo con la CNN.
+2. En un bosque denso, el tiempo se va en pasar entre troncos con poca holgura (ley M_V), no en el
+   límite de crucero. Con el M_ToF, 1 m/s ahorra un 14–27 %. Bajar el margen por velocidad choca.
+3. El límite de fondo sigue siendo el **punto ciego lateral**: la cámara de 60° no ve el costado del
+   corredor que barre el cuerpo a menos de ~0.8 m, y el MH permite avanzar hasta 28° desviado del eje
+   de la cámara. Con la GT a 1 m/s, 2 de 10 choques persisten con cualquier opción. Siguiente paso:
+   exigir que el corredor completo (centro ± (r + margen)) quede dentro del campo visual, o ToF
+   laterales.
 
 ### Para Gazebo, hoy
 
 ```bash
-DOCKER="sudo docker" VARIANT=M_ToF WORLD=bosque SEED=2 V_CRUISE=1.0 bash gazebo/gz_docker.sh
-DOCKER="sudo docker" VARIANT=M_ToF WORLD=bosque SEED=2 V_CRUISE=1.0 PLANNER_CFG="FLY_KEEP_NEAR=1,MAP_DECAY_FOV=1,MAP_HIT_WINS=1" bash gazebo/gz_docker.sh
-DOCKER="sudo docker" VARIANT=M_ToF WORLD=bosque SEED=2 WORLD_KW="gap=2.2" V_CRUISE=1.0 bash gazebo/gz_docker.sh   # bosque menos denso
+DOCKER="sudo docker" VARIANT=M_ToF WORLD=bosque SEED=2 V_CRUISE=1.0 PLANNER_CFG="FLY_KEEP_NEAR=1" bash gazebo/gz_docker.sh
+DOCKER="sudo docker" VARIANT=M_ToF WORLD=bosque SEED=2 WORLD_KW="gap=2.2" V_CRUISE=1.0 PLANNER_CFG="FLY_KEEP_NEAR=1" bash gazebo/gz_docker.sh   # bosque menos denso
 ```

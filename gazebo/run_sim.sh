@@ -27,6 +27,17 @@ MODE=${CONTROL_MODE:-velocity}
 WORLD=${WORLD:-obstaculos}
 SEED=${SEED:-0}
 
+# The container runs as root: without this, the generated worlds, textures and results belong to root
+# and `nanouav gazebo gen-world` on the host fails with "Permission denied". gz_docker.sh passes HOST_UID.
+give_back () {
+    [ -n "${HOST_UID:-}" ] && [ "$(id -u)" = "0" ] || return 0
+    for d in $ROOT/gazebo/worlds/gen $ROOT/gazebo/models/nano_textures $ROOT/results/gz_runs; do
+        [ -e "$d" ] && { chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "$d" 2>/dev/null || true; }
+    done
+    find $ROOT/src $ROOT/gazebo -name __pycache__ -user 0 -exec chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" {} + 2>/dev/null || true
+    return 0
+}
+
 # ── world ──────────────────────────────────────────────────────────────────
 WJSON=""
 if [ "$WORLD" = "base" ]; then
@@ -44,6 +55,7 @@ else
     if [ ! -f "$SDF" ] || [ ! -f "$WJSON" ] || [ -n "$REGEN" ]; then
         echo "generating world $TAG ..."
         python3 $ROOT/gazebo/tools/gen_world.py --scenario $WORLD --seed $SEED $KWARGS
+        give_back
     fi
     read DEF_GX DEF_GY DYN <<< $(python3 -c "import json,sys; s=json.load(open(sys.argv[1])); print(s['B'][0], s['B'][1], len(s['dynamic']))" "$WJSON")
 fi
@@ -120,12 +132,13 @@ python3 $ROOT/gazebo/nodes/perception_node.py --ros-args -p control_mode:=$MODE 
     -p hud:=$([ "${HEADLESS:-false}" = "true" ] && echo false || echo true) "${OPT_ARGS[@]}" &
 NODE_PID=$!
 
-cleanup () { kill $NODE_PID $DYN_PID $FC_PID $BRIDGE_PID $GZ_PID 2>/dev/null; sleep 1; kill -9 $GZ_PID 2>/dev/null; pkill -f "gz sim" 2>/dev/null; true; }
+cleanup () { kill $NODE_PID $DYN_PID $FC_PID $BRIDGE_PID $GZ_PID 2>/dev/null; sleep 1; kill -9 $GZ_PID 2>/dev/null; pkill -f "gz sim" 2>/dev/null; give_back; true; }
 trap "cleanup; exit 0" SIGINT SIGTERM
 echo "Ctrl+C to stop"
 if [ "${EXIT_ON_DONE:-false}" = "true" ]; then
     wait $NODE_PID || true
     cleanup
 else
-    wait $GZ_PID
+    wait $GZ_PID || true
+    cleanup
 fi

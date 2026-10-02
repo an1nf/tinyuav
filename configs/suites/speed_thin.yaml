@@ -42,3 +42,18 @@ jobs:
   - id: estrechos_s0-{variant}-r17
     run: r12 --world json:gazebo/worlds/gen/estrechos_s0_w1.2.json --goals 0:0 --planner mh --n 5 --variant {variant} --cfg MAP_DECAY_FOV=1,MAP_HIT_WINS=1,FLY_KEEP_NEAR=1
     matrix: {variant: [M, M_ToF]}
+  # 2026-10-02 (after the first run, `--resume` only runs these): FLY_KEEP_NEAR alone, the cheapest
+  # option with the CNN, everywhere it was not measured yet
+  - id: bosque-v{v}-{variant}-fly
+    run: r12 --world scn:bosque --goals 0:0 --planner mh --n 10 --v {v} --variant {variant} --cfg FLY_KEEP_NEAR=1
+  - id: bosque_s2-v{v}-gt-fly
+    run: r12 --world json:gazebo/worlds/gen/bosque_s2.json --goals 0:0 --planner mh --n 10 --v {v} --cfg FLY_KEEP_NEAR=1
+    env: {NANOUAV_FAKE_CNN: "1"}
+    matrix: {v: ["0.5", "1.0", "1.5"]}
+  - id: bosque-v{v}-gt-fly
+    run: r12 --world scn:bosque --goals 0:0 --planner mh --n 10 --v {v} --cfg FLY_KEEP_NEAR=1
+    env: {NANOUAV_FAKE_CNN: "1"}
+    matrix: {v: ["0.5", "1.0", "1.5"]}
+  - id: estrechos_s0-{variant}-fly
+    run: r12 --world json:gazebo/worlds/gen/estrechos_s0_w1.2.json --goals 0:0 --planner mh --n 5 --variant {variant} --cfg FLY_KEEP_NEAR=1
+    matrix: {variant: [M, M_ToF]}

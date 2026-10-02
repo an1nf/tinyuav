@@ -3,6 +3,22 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.13.4] — 2026-10-02
+
+Sin cambios en los resultados de simulación.
+
+### Corregido
+- Gazebo: el contenedor corre como root y dejaba a nombre de root los mundos generados, las texturas y
+  `results/gz_runs`; después `nanouav gazebo gen-world` fallaba en el host con *Permission denied*.
+  `gz_docker.sh` pasa `HOST_UID`/`HOST_GID` y `run_sim.sh` devuelve esos archivos al usuario al
+  generar el mundo y al salir. `wait` sobre Gazebo ya no aborta la limpieza si Gazebo sale con error.
+
+### Documentación
+- R17 §5: validación con las redes completas (suite `speed_thin`, n = 10). `FLY_KEEP_NEAR` da casi
+  toda la mejora con poco coste a 1 m/s, mientras que `MAP_DECAY_FOV` cuesta un 17–59 % de tiempo con
+  la CNN. Con el M_ToF a 1 m/s + `FLY_KEEP_NEAR`, el mundo de Gazebo da 10/10 en 30.8 s.
+- `speed_thin.yaml`: 12 trabajos `*-fly` nuevos (con `--resume` solo corren esos).
+
 ## [0.13.3] — 2026-10-01
 
 Sin cambios en los resultados publicados: las opciones nuevas del planificador están apagadas por
