@@ -43,6 +43,7 @@ La percepción corre a 10 Hz (un fotograma nuevo = una inferencia); la referenci
 | `nanouav.control` | vehículo y control | `vehicle.PROFILES` (`nano`, `x3`), `quad_sim`, `reference`, `flight_stack`, `supervisor`, `controller` |
 | `nanouav.sim` | simulación de episodios | `closed_loop` (E3), `missions` (E4), `scenarios` (fuente única de mundos para Gazebo y offline) |
 | `nanouav.training` | entrenamiento | `train_cnn` (dataset sintético), `tartanair`, `r3_lnca_train` (M_ToF, LNCA) |
+| `nanouav.agile` | recreación de Loquercio 2021 (R18), independiente del pipeline del nano | `stereo` (SGM), `envs`, `expert` (τ_gbl + M-H), `trajectory`, `policy` (MobileNet-V3 + R-WTA), `rollout`, `dagger`, `platform.AGILE` |
 | `nanouav.benchmark` | hardware objetivo | latencia/arena, `jitter_model`, `energy_model` |
 | `nanouav.experiments` | un módulo por experimento + registro | `REGISTRY`, `get()` |
 | `nanouav.results` | informes | `summarize` (Wilson), `summarize_gz` |

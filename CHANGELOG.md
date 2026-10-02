@@ -3,6 +3,28 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.14.0] — 2026-10-02
+
+Sin cambios en los resultados existentes: el renderer gana dos parámetros con valores por defecto
+idénticos (el test de regresión pasa sin regenerar la referencia).
+
+### Añadido
+- `nanouav.agile` y `nanouav run r18`: recreación de Loquercio et al. 2021 (*Learning high-speed flight
+  in the wild*). Incluye:
+  - cámara estéreo simulada con profundidad SGM (`cv2.StereoSGBM`), con filtro de textura;
+  - entornos de entrenamiento (bosques y formas convexas por proceso de Poisson) y de prueba (bosque
+    de 1/25 m⁻², hueco estrecho);
+  - plataforma del paper (r_q = 0.2 m, c_max = 35.3 m/s², J = 0.007 kg·m²);
+  - experto privilegiado (trayectoria global + Metropolis-Hastings sobre B-splines, Eq. 1–3);
+  - estudiante (MobileNet-V3 + MLP, M = 3, pérdida R-WTA) y ejecución por polinomios de orden 5 con
+    escala de tiempo y selección por coste;
+  - DAgger reanudable y en paralelo, ajuste fino para el hueco, y evaluación contra los pilotos
+    experto, τ_gbl y ciego.
+
+  Informe y tabla de fidelidad en `docs/research/R18_agile_autonomy.md`.
+- `render_view(..., size=(H, W), d_max=...)` y `camera_rays(hfov, size)`: resolución y alcance
+  arbitrarios (por defecto 96×96 y `D_MAX`, como antes).
+
 ## [0.13.4] — 2026-10-02
 
 Sin cambios en los resultados de simulación.

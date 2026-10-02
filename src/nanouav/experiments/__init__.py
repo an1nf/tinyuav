@@ -70,6 +70,8 @@ _E = [
                tags=('perception',), legacy='r14_class_metrics.py'),
     Experiment('r15', 'nanouav.experiments.r15_dyn_egomotion', 'False dynamic detections vs ego-motion (DroneMOT-style)',
                tags=('perception', 'dynamic'), legacy='r15_dyn_egomotion.py'),
+    Experiment('r18', 'nanouav.agile.run', 'Loquercio 2021 recreation: SGM stereo, M-H expert, DAgger student (sgm|pilots|dagger|eval)',
+               needs=('cpu', 'tensorflow'), tags=('planning', 'training', 'agile')),
     # ── training & reporting ────────────────────────────────────────────────
     Experiment('train', 'nanouav.training.train_cnn', 'Train the XS/S/M/L depth CNNs and export int8 .tflite',
                needs=('gpu', 'tensorflow'), tags=('training',), legacy='train_cnn.py'),

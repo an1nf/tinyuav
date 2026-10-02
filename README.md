@@ -101,6 +101,7 @@ Arquitectura y flujo de datos: [docs/arquitectura.md](docs/arquitectura.md).
 | `r12` | Escenarios compartidos con Gazebo; carril vs MH | — |
 | `r14` | Métricas de profundidad por región/clase y tasas de seguridad (DDOS) | — |
 | `r15` | Falsas detecciones dinámicas vs ego-movimiento (DroneMOT) | — |
+| `r18` | Recreación de Loquercio 2021: estéreo + SGM, experto M-H, estudiante por DAgger (`sgm`, `pilots`, `dagger`, `eval`) | tensorflow (GPU para entrenar) |
 | `train` | Entrenar las CNN XS/S/M/L y exportar .tflite int8 | GPU, tensorflow |
 | `train-tartanair` | Entrenamiento mezclando imágenes TartanAir | GPU, tensorflow |
 | `summarize` | Tasas de éxito con IC 95 % de Wilson de todos los resultados | — |
@@ -120,6 +121,7 @@ un experimento están en [docs/experimentos.md](docs/experimentos.md).
 | `cables.yaml` | 10 | R16: cables a la altura de vuelo (nano), 2 y 5 cm, M / M_thin / M_ToF / M_ToF_thin + GT |
 | `thin_structures.yaml` | 5 | R14 en lazo cerrado: bosque de troncos de 2–5 cm, M vs M_ToF × `fuse_tof2`, más GT |
 | `perception.yaml` | 5 | R14 (métricas por región) y R15 (variantes del filtro dinámico) |
+| `speed_thin.yaml` | 48 | R17: velocidad × opciones de mapa del MH en `bosque`, GT / M / M_ToF |
 
 Cada suite escribe en `results/<nombre>/` (un log por trabajo y `jobs.json` con el estado);
 `--resume` salta lo que ya terminó bien.

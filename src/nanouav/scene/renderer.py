@@ -55,19 +55,22 @@ def body_rot(yaw, pitch, roll):
 _RAY_CACHE = {}
 
 
-def camera_rays(hfov=CAM_HFOV):
-    """Unit rays in the body frame (H,W,3) and cos(angle to the optical axis)."""
-    if hfov in _RAY_CACHE:
-        return _RAY_CACHE[hfov]
-    f = focal_px(hfov, W)
-    u = (np.arange(W) + 0.5 - W / 2) / f
-    v = (np.arange(H) + 0.5 - H / 2) / f
+def camera_rays(hfov=CAM_HFOV, size=None):
+    """Unit rays in the body frame (H,W,3) and cos(angle to the optical axis).
+    size = (height, width); default the 96×96 drone camera (square pixels)."""
+    h, w = size if size is not None else (H, W)
+    key = (hfov, h, w)
+    if key in _RAY_CACHE:
+        return _RAY_CACHE[key]
+    f = focal_px(hfov, w)
+    u = (np.arange(w) + 0.5 - w / 2) / f
+    v = (np.arange(h) + 0.5 - h / 2) / f
     U, V = np.meshgrid(u, v)
     d = np.stack([np.ones_like(U), -U, -V], axis=-1)      # camera→body
     n = np.linalg.norm(d, axis=-1, keepdims=True)
     d = d / n
     cos_ax = (1.0 / n[..., 0])
-    _RAY_CACHE[hfov] = (d, cos_ax)
+    _RAY_CACHE[key] = (d, cos_ax)
     return d, cos_ax
 
 
@@ -256,12 +259,14 @@ class World:
 # ── Render ─────────────────────────────────────────────────────────────────
 def render_view(world: World, pos, yaw=0.0, pitch=0.0, roll=0.0,
                 rng=None, cam_pitch=CAM_PITCH, cam_offset=CAM_OFFSET,
-                hfov=CAM_HFOV, post=True, shadows=True):
+                hfov=CAM_HFOV, post=True, shadows=True, size=None, d_max=D_MAX):
     """
     Render the drone camera view at pose (pos, yaw, pitch, roll).
     Returns (gray uint8 96×96, depth_m float32 96×96 in [D_MIN, D_MAX]).
+    size = (height, width) and d_max change resolution and range (stereo rig of `nanouav.agile`).
     """
-    rays_b, cos_ax = camera_rays(hfov)
+    rays_b, cos_ax = camera_rays(hfov, size)
+    H, W = rays_b.shape[:2]
     Rb = body_rot(yaw, pitch, roll)
     Rc = Rb @ rot_y(cam_pitch)
     D = rays_b @ Rc.T
@@ -304,8 +309,8 @@ def render_view(world: World, pos, yaw=0.0, pitch=0.0, roll=0.0,
     sky = world.sky[0] + (world.sky[1] - world.sky[0]) * elev
     lum = np.where(hit, lum, sky).astype(np.float32)
 
-    depth = np.where(hit, t_best * cos_ax, D_MAX)
-    depth = np.clip(depth, D_MIN, D_MAX).astype(np.float32)
+    depth = np.where(hit, t_best * cos_ax, d_max)
+    depth = np.clip(depth, D_MIN, d_max).astype(np.float32)
 
     if post:
         lum = _camera_post(lum, rng if rng is not None else np.random.default_rng())
@@ -318,6 +323,7 @@ def _camera_post(lum, rng):
     lum = lum * rng.uniform(0.75, 1.25)
     lum = np.clip(lum, 0, 1) ** rng.uniform(0.8, 1.25)
     if rng.random() < 0.5:
+        H, W = lum.shape
         yy, xx = np.mgrid[0:H, 0:W]
         r2 = ((xx - W / 2) ** 2 + (yy - H / 2) ** 2) / (W / 2) ** 2
         lum = lum * (1 - rng.uniform(0, 0.25) * r2)

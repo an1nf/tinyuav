@@ -1,0 +1,188 @@
+"""Student policy of Loquercio et al. 2021 (Methods B) in TensorFlow/Keras.
+
+Inputs: SGM depth image, platform velocity, attitude (rotation matrix, 9 values) and the desired flight
+direction (unit vector toward the reference point 1 s ahead). Velocity, direction and output
+trajectories are in the heading frame (x forward, y left, z up, rotated by the yaw); the attitude matrix
+keeps roll and pitch.
+
+Architecture (paper): pre-trained MobileNet-V3 on the depth image → 1D convolution → M feature vectors
+of 32; velocity + attitude + direction → MLP [64, 32, 32, 32] with LeakyReLU → 1D convolution → one
+32-vector per mode; concatenation, then per mode an MLP [64, 128, 128] with LeakyReLU → 10 positions
+(1 s horizon) and a collision cost. M = 3.
+
+Loss (Eq. 5–7): λ₁ · R-WTA(T_e, T_n) + λ₂ · Σ_k (c_k − C_collision(τ_n^k))², λ₁ = 10, λ₂ = 0.1, ε = 0.05,
+Adam lr 1e-3, minibatch 8. The ground-truth collision cost of the *predicted* trajectories needs the
+geometry during training; here every sample stores a local 2D distance map at flight altitude
+(heading frame, 0.25 m) plus the altitude, and C_collision is evaluated on it (an approximation:
+obstacles are treated as vertical within ±0.4 m of the flight altitude; the ground is exact).
+"""
+import glob
+import json
+import os
+
+import numpy as np
+
+M = 3
+N_PTS = 10
+D_SCALE = 10.0          # depth normalization (m)
+V_SCALE = 10.0          # velocity normalization (m/s)
+T_SCALE = 5.0           # output trajectory scale (m)
+RQ = 0.2
+DT = 0.1
+
+
+def build_model(net_size=(120, 160), weights=None, m=M):
+    import tensorflow as tf
+    L = tf.keras.layers
+    H, W = net_size
+    d_in = L.Input((H, W, 1), name='depth')
+    s_in = L.Input((15,), name='state')
+    x = L.Concatenate()([d_in, d_in, d_in])
+    bb = tf.keras.applications.MobileNetV3Small(input_shape=(H, W, 3), include_top=False, weights=weights,
+                                                include_preprocessing=False)
+    f = L.GlobalAveragePooling2D()(bb(x))
+    f = L.Reshape((1, -1))(f)
+    f = L.Conv1D(m * 32, 1)(f)
+    f = L.Reshape((m, 32))(f)
+    s = s_in
+    for n in (64, 32, 32, 32):
+        s = L.LeakyReLU(0.2)(L.Dense(n)(s))
+    s = L.Reshape((1, 32))(s)
+    s = L.Reshape((m, 32))(L.Conv1D(m * 32, 1)(s))
+    h = L.Concatenate(-1)([f, s])
+    for n in (64, 128, 128):
+        h = L.LeakyReLU(0.2)(L.Dense(n)(h))
+    out = L.Dense(N_PTS * 3 + 1)(h)
+    traj = L.Reshape((m, N_PTS, 3), name='traj')(out[..., :N_PTS * 3] * T_SCALE)
+    cost = L.Activation('softplus', name='cost')(out[..., N_PTS * 3])
+    return tf.keras.Model([d_in, s_in], [traj, cost], name='agile_student')
+
+
+def prep_depth(depth_m):
+    """m (0 = invalid) → network input in [−1, 1] (invalid = −1)."""
+    return (np.clip(np.asarray(depth_m, np.float32) / D_SCALE, 0, 1) * 2 - 1)[..., None]
+
+
+def prep_state(v_h, R, omega_h):
+    return np.concatenate([np.asarray(v_h, np.float32) / V_SCALE, np.asarray(R, np.float32).ravel(),
+                           np.asarray(omega_h, np.float32)])
+
+
+# ── losses ────────────────────────────────────────────────────────────────
+def rwta(te, tn, eps=0.05):
+    """te (B,K,10,3) expert labels, tn (B,M,10,3) predictions → mean over the batch of Eq. 5."""
+    import tensorflow as tf
+    d = tf.reduce_sum(tf.square(te[:, :, None] - tn[:, None]), axis=[-1, -2])        # (B, K, M)
+    m = tf.shape(tn)[1]
+    one = tf.one_hot(tf.argmin(d, axis=-1), m)
+    alpha = (1 - eps) * one + eps / tf.cast(m - 1, tf.float32) * (1 - one)
+    return tf.reduce_mean(tf.reduce_sum(tf.stop_gradient(alpha) * d, axis=[1, 2]))
+
+
+def collision_target(tn, esdf, z, box=(-2.0, 14.0, -8.0, 8.0), res=0.25):
+    """Ground-truth collision cost (Eq. 3, integrated with dt = 0.1) of predicted trajectories, from the
+    stored local distance map. tn (B,M,10,3) heading frame, esdf (B,ny,nx), z (B,)."""
+    import tensorflow as tf
+    x0, _, y0, _ = box
+    ny, nx = tf.shape(esdf)[1], tf.shape(esdf)[2]
+    ix = tf.clip_by_value(tf.cast(tf.floor((tn[..., 0] - x0) / res), tf.int32), 0, nx - 1)
+    iy = tf.clip_by_value(tf.cast(tf.floor((tn[..., 1] - y0) / res), tf.int32), 0, ny - 1)
+    B = tf.shape(tn)[0]
+    b = tf.broadcast_to(tf.range(B)[:, None, None], tf.shape(ix))
+    d2 = tf.gather_nd(tf.cast(esdf, tf.float32), tf.stack([b, iy, ix], -1))
+    d = tf.minimum(d2, z[:, None, None] + tn[..., 2])
+    d = tf.maximum(d, 0.0)
+    c = tf.where(d > 2 * RQ, 0.0, -d * d / (RQ * RQ) + 4.0)
+    return tf.reduce_sum(c, -1) * DT
+
+
+# ── data ──────────────────────────────────────────────────────────────────
+def load_shards(dirs, max_samples=None):
+    files = []
+    for d in ([dirs] if isinstance(dirs, str) else dirs):
+        files += sorted(glob.glob(os.path.join(d, '**', 'env_*.npz'), recursive=True))
+    keys = ('depth', 'v', 'R', 'omega', 'trajs', 'costs', 'esdf', 'z')
+    parts = {k: [] for k in keys}
+    n = 0
+    for f in files:
+        z = np.load(f)
+        if len(z['v']) == 0:
+            continue
+        for k in keys:
+            parts[k].append(z[k])
+        n += len(z['v'])
+        if max_samples and n >= max_samples:
+            break
+    if n == 0:
+        raise FileNotFoundError(f'no samples in {dirs}')
+    return {k: np.concatenate(v) for k, v in parts.items()}, len(files)
+
+
+def train(data_dirs, out_path, epochs=3, batch=8, lr=1e-3, init_from=None, net_size=(120, 160),
+          weights=None, val_frac=0.05, lam1=10.0, lam2=0.1, seed=0, log=print):
+    import tensorflow as tf
+    D, n_files = load_shards(data_dirs)
+    n = len(D['v'])
+    rng = np.random.default_rng(seed)
+    idx = rng.permutation(n)
+    n_val = max(int(n * val_frac), min(n, 8))
+    va, tr = idx[:n_val], idx[n_val:] if n > n_val else idx
+    if init_from and os.path.exists(init_from):
+        model = tf.keras.models.load_model(init_from, compile=False, safe_mode=False)
+    else:
+        model = build_model(net_size, weights)
+    opt = tf.keras.optimizers.Adam(lr)
+
+    def batch_of(ii):
+        dep = (np.clip(D['depth'][ii].astype(np.float32) / 1000.0 / D_SCALE, 0, 1) * 2 - 1)[..., None]
+        st = np.concatenate([D['v'][ii] / V_SCALE, D['R'][ii], D['omega'][ii]], 1).astype(np.float32)
+        return dep, st, D['trajs'][ii], D['esdf'][ii].astype(np.float32), D['z'][ii].astype(np.float32)
+
+    def _losses(dep, st, te, esdf, z, training):
+        tn, c = model([dep, st], training=training)
+        l_wta = rwta(te, tn)
+        ct = tf.stop_gradient(collision_target(tn, esdf, z))
+        l_c = tf.reduce_mean(tf.reduce_sum(tf.square(c - ct), -1))
+        return lam1 * l_wta + lam2 * l_c, l_wta, l_c
+
+    @tf.function(jit_compile=False)
+    def train_step(dep, st, te, esdf, z):
+        with tf.GradientTape() as tape:
+            loss, l_wta, l_c = _losses(dep, st, te, esdf, z, True)
+        opt.apply_gradients(zip(tape.gradient(loss, model.trainable_variables), model.trainable_variables))
+        return loss, l_wta, l_c
+
+    @tf.function(jit_compile=False)
+    def val_step(dep, st, te, esdf, z):
+        return _losses(dep, st, te, esdf, z, False)
+
+    hist = []
+    for ep in range(epochs):
+        rng.shuffle(tr)
+        L = []
+        for i in range(0, len(tr) - batch + 1, batch):
+            L.append([float(x) for x in train_step(*batch_of(tr[i:i + batch]))])
+        V = [[float(x) for x in val_step(*batch_of(va[i:i + batch]))]
+             for i in range(0, len(va), batch)]
+        h = {'epoch': ep, 'train': np.mean(L, 0).round(4).tolist() if L else None, 'val': np.mean(V, 0).round(4).tolist()}
+        hist.append(h)
+        log(f'[train] epoch {ep + 1}/{epochs} · {n} samples · loss/R-WTA/cost train {h["train"]} val {h["val"]}')
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    model.save(out_path)
+    json.dump({'samples': n, 'files': n_files, 'history': hist}, open(out_path + '.json', 'w'), indent=1)
+    return model, hist
+
+
+class StudentPolicy:
+    """Callable used by the rollout: (depth m, v_h, R, omega_h) → (trajs (M,10,3) heading frame, costs (M,))."""
+
+    def __init__(self, path):
+        import tensorflow as tf
+        self.model = tf.keras.models.load_model(path, compile=False, safe_mode=False)
+        self._f = tf.function(lambda d, s: self.model([d, s], training=False), jit_compile=False)
+
+    def __call__(self, depth, v_h, R, omega_h):
+        d = prep_depth(depth)[None]
+        s = prep_state(v_h, R, omega_h)[None]
+        tn, c = self._f(d, s)
+        return tn.numpy()[0].astype(float), c.numpy()[0].astype(float)
