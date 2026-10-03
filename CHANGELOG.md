@@ -3,6 +3,28 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.15.0] — 2026-10-03
+
+### Añadido
+- `nanouav.follow` y `nanouav run r19`: detectar a una persona y seguirla evitando obstáculos.
+  - Detector YOLO de personas (ultralytics; COCO o ajustado con VisDrone conservando la cabeza de COCO)
+    y un detector simulado calibrable (`eval-det`).
+  - Tracker estilo ByteTrack y bloqueo del objetivo con apariencia y compuerta 3D.
+  - Estimación 3D con la profundidad estéreo y filtro del objetivo.
+  - Personas que caminan en el simulador, misión de seguimiento para el lazo de R18 y DAgger de
+    seguimiento (`kind='follow'`).
+  - Conversión de VisDrone, entrenamiento y exportación del detector, y demo en vídeo.
+  Informe: `docs/research/R19_seguimiento_personas.md`.
+- `Rollout` con misiones (`GoalMission` = la tarea del paper, igual que antes; `FollowMission`) y
+  `Config.label_every`; `stereo.observe_full` devuelve también la imagen;
+  `global_plan(..., point_goal=True)`.
+
+### Cambiado (R18)
+- Cada polinomio arranca con la aceleración de referencia del plan en curso, no la medida (que cerraba
+  un lazo a través de la vibración y hacía oscilar a baja velocidad). Pilotos de R18 revalidados con 6
+  semillas por casilla: experto y τ_gbl 36/36 en el bosque (3, 7 y 10 m/s) y 36/36 en el hueco (3, 5 y
+  7 m/s), igual que antes. `Rollout.A0_MODE` permite comparar.
+
 ## [0.14.0] — 2026-10-02
 
 Sin cambios en los resultados existentes: el renderer gana dos parámetros con valores por defecto

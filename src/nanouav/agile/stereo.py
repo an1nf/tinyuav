@@ -141,6 +141,13 @@ def sgm_depth(left, right, rig):
     return depth
 
 
+def observe_full(world, rig, pos, yaw, pitch=0.0, roll=0.0, rng=None):
+    """One camera frame: (left image uint8, SGM depth, ground-truth depth clipped to the same range)."""
+    gl, gr, d = render_stereo(world, rig, pos, yaw, pitch, roll, rng)
+    dg = np.where(d < rig.max_range, d, 0.0).astype(np.float32)
+    return gl, sgm_depth(gl, gr, rig), dg
+
+
 def observe(world, rig, pos, yaw, pitch=0.0, roll=0.0, rng=None):
     """One camera frame: (SGM depth, ground-truth depth clipped to the same range)."""
     gl, gr, d = render_stereo(world, rig, pos, yaw, pitch, roll, rng)

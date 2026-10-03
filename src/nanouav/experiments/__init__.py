@@ -72,6 +72,8 @@ _E = [
                tags=('perception', 'dynamic'), legacy='r15_dyn_egomotion.py'),
     Experiment('r18', 'nanouav.agile.run', 'Loquercio 2021 recreation: SGM stereo, M-H expert, DAgger student (sgm|pilots|dagger|eval)',
                needs=('cpu', 'tensorflow'), tags=('planning', 'training', 'agile')),
+    Experiment('r19', 'nanouav.follow.run', 'Follow a person: YOLO person detector (VisDrone), tracker + target lock, follow mission on R18 (prep-visdrone|train-det|eval-det|video|sim|dagger)',
+               needs=('cpu', 'tensorflow'), tags=('perception', 'missions', 'agile')),
     # ── training & reporting ────────────────────────────────────────────────
     Experiment('train', 'nanouav.training.train_cnn', 'Train the XS/S/M/L depth CNNs and export int8 .tflite',
                needs=('gpu', 'tensorflow'), tags=('training',), legacy='train_cnn.py'),

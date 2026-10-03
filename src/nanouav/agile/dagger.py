@@ -58,29 +58,38 @@ def collect_one(job):
     if os.path.exists(path):
         return json.loads(str(np.load(path)['stats']))
     rng = np.random.default_rng([job.get('base_seed', 0), i, 0x5D])
-    env = (EV.gap_finetune_env if job.get('kind') == 'gap' else EV.training_env)(i, job.get('base_seed', 0))
+    kind = job.get('kind')
     v = float(rng.uniform(job['v_min'], job['v_max']))
-    cfg = Config(v_des=v, xi=job['xi'], cam_hz=job['cam_hz'], seed=i)
+    cfg = Config(v_des=v, xi=job['xi'], cam_hz=job['cam_hz'], seed=i, label_every=job.get('label_every', 1))
     t0 = time.time()
     try:
-        r, samples, _ = Rollout(env, cfg, 'dagger', _policy(job['model']), label=True).run()
+        mission = None
+        if kind == 'follow':                          # R19: follow a walking person (nanouav.follow)
+            from nanouav.follow.mission import FollowMission
+            from nanouav.follow.people import people_env
+            env = people_env(int(np.random.default_rng([job.get('base_seed', 0), i, 0x19]).integers(1 << 30)))
+            mission = FollowMission(env, seed=i)
+        else:
+            env = (EV.gap_finetune_env if kind == 'gap' else EV.training_env)(i, job.get('base_seed', 0))
+        r, samples, _ = Rollout(env, cfg, 'dagger', _policy(job['model']), label=True, mission=mission).run()
     except RuntimeError as e:                         # no global path (blocked environment)
-        r, samples = {'error': str(e), 'env': env.name}, []
-    r.update(i=i, n_samples=len(samples), wall_s=round(time.time() - t0, 1), xi=job['xi'], meta=env.meta)
+        r, samples, env = {'error': str(e), 'env': f'{kind}_{i}'}, [], None
+    r.update(i=i, n_samples=len(samples), wall_s=round(time.time() - t0, 1), xi=job['xi'],
+             meta=env.meta if env is not None else {})
     save_shard(path, samples, r)
     return r
 
 
 def run(out, n_envs=850, per_round=30, workers=4, epochs=3, batch=8, v_min=3.0, v_max=10.0, cam_hz=15.0,
         xi_step=0.25, xi_max=6.0, net_size=(120, 160), weights=None, kind='train', init_model=None,
-        base_seed=0, log=print):
+        base_seed=0, label_every=1, log=print):
     from nanouav.agile.policy import train
     data = os.path.join(out, 'data_' + kind)
     os.makedirs(data, exist_ok=True)
     state_f = os.path.join(out, f'dagger_{kind}.json')
     state = json.load(open(state_f)) if os.path.exists(state_f) else {'rounds': []}
     model, xi = init_model, 0.0
-    if kind == 'gap':
+    if kind in ('gap', 'follow'):
         xi = xi_max                                   # fine-tuning: the trained student flies
     n_rounds = math.ceil(n_envs / per_round)
     ctx = mp.get_context('spawn')
@@ -90,7 +99,7 @@ def run(out, n_envs=850, per_round=30, workers=4, epochs=3, batch=8, v_min=3.0, 
         mpath = os.path.join(out, f'student_{kind}_r{r:02d}.keras')
         ids = list(range(r * per_round, min((r + 1) * per_round, n_envs)))
         jobs = [dict(i=i, out=data, model=model, xi=xi, v_min=v_min, v_max=v_max, cam_hz=cam_hz,
-                     kind=kind, base_seed=base_seed) for i in ids]
+                     kind=kind, base_seed=base_seed, label_every=label_every) for i in ids]
         t0 = time.time()
         if workers > 1:
             with ctx.Pool(workers, initializer=_worker_init) as pool:

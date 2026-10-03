@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nanouav"
-version = "0.14.0"
+version = "0.15.0"
 description = "Monocular-depth + ToF obstacle avoidance for nano-UAVs: simulation, training and Gazebo evaluation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,6 +22,8 @@ dependencies = [
 tflite = ["ai-edge-litert>=1.0"]
 # training (GPU). Pascal GPUs (e.g. TITAN X): see docs/gpu.md for the cuDNN pin
 train = ["tensorflow>=2.16"]
+# R19 person detection (YOLO, PyTorch); on a Jetson install the JetPack PyTorch first
+follow = ["ultralytics>=8.3"]
 dev = ["pytest>=7", "ruff>=0.4"]
 
 [project.scripts]

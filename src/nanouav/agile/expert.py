@@ -69,7 +69,7 @@ class GlobalRef:
         return self.pos(s0 + self.v * np.asarray(t))
 
 
-def global_plan(env, v_des, rq=RQ, res=0.2, inflate=0.15, w_clear=4.0, straight=None):
+def global_plan(env, v_des, rq=RQ, res=0.2, inflate=0.15, w_clear=4.0, straight=None, point_goal=False):
     """→ GlobalRef from env.start to the goal line (x ≥ goal.x). straight=True: straight segment.
     Narrow openings (e.g. a 0.8 m gap for a 0.4 m drone) may not exist on the coarse grid with the full
     inflation: the search is retried with a finer grid and a smaller inflation."""
@@ -77,20 +77,20 @@ def global_plan(env, v_des, rq=RQ, res=0.2, inflate=0.15, w_clear=4.0, straight=
         err = None
         for r_, inf_ in ((res, inflate), (0.1, inflate), (0.1, 0.05), (0.05, 0.02)):
             try:
-                return _global_plan(env, v_des, rq, r_, inf_, w_clear)
+                return _global_plan(env, v_des, rq, r_, inf_, w_clear, point_goal=point_goal)
             except RuntimeError as e:
                 err = e
         raise err
     return _global_plan(env, v_des, rq, res, inflate, w_clear, straight=True)
 
 
-def _global_plan(env, v_des, rq, res, inflate, w_clear, straight=False):
+def _global_plan(env, v_des, rq, res, inflate, w_clear, straight=False, point_goal=False):
     A, B = np.asarray(env.start, float), np.asarray(env.goal, float)
     if straight:
         n = int(np.linalg.norm(B - A) / 0.1) + 1
         return GlobalRef(A + np.linspace(0, 1, n)[:, None] * (B - A), v_des)
     field = Field(env.world, ground=False)
-    x0, x1 = A[0] - 4, B[0] + 4
+    x0, x1 = min(A[0], B[0]) - 4, max(A[0], B[0]) + 4
     y0, y1 = min(A[1], B[1]) - 15, max(A[1], B[1]) + 15
     xs, ys = np.arange(x0, x1, res), np.arange(y0, y1, res)
     X, Y = np.meshgrid(xs, ys, indexing='ij')
@@ -103,6 +103,8 @@ def _global_plan(env, v_des, rq, res, inflate, w_clear, straight=False):
     nx, ny = X.shape
     si = (int(round((A[0] - x0) / res)), int(round((A[1] - y0) / res)))
     gx = int(round((B[0] - x0) / res))
+    gy = int(round((B[1] - y0) / res))
+    tol = max(1, int(round(0.4 / res)))               # point goal: within 0.4 m of B
     dist = np.full((nx, ny), np.inf)
     prev = -np.ones((nx, ny, 2), int)
     dist[si] = 0.0
@@ -113,7 +115,7 @@ def _global_plan(env, v_des, rq, res, inflate, w_clear, straight=False):
         dc, (i, j) = heapq.heappop(pq)
         if dc > dist[i, j]:
             continue
-        if i >= gx:
+        if (abs(i - gx) <= tol and abs(j - gy) <= tol) if point_goal else i >= gx:
             goal = (i, j)
             break
         for di, dj in nb:
