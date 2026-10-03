@@ -103,6 +103,7 @@ Arquitectura y flujo de datos: [docs/arquitectura.md](docs/arquitectura.md).
 | `r15` | Falsas detecciones dinámicas vs ego-movimiento (DroneMOT) | — |
 | `r18` | Recreación de Loquercio 2021: estéreo + SGM, experto M-H, estudiante por DAgger (`sgm`, `pilots`, `dagger`, `eval`) | tensorflow (GPU para entrenar) |
 | `r19` | Seguir a una persona: detector YOLO (VisDrone), tracker + bloqueo, misión de seguimiento sobre R18 | ultralytics, tensorflow |
+| `r20` | Seguir un globo de color por un bosque: detector de color, objetivo 3D, misión de seguimiento sobre R18 | tensorflow |
 | `train` | Entrenar las CNN XS/S/M/L y exportar .tflite int8 | GPU, tensorflow |
 | `train-tartanair` | Entrenamiento mezclando imágenes TartanAir | GPU, tensorflow |
 | `summarize` | Tasas de éxito con IC 95 % de Wilson de todos los resultados | — |

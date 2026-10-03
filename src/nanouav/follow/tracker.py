@@ -106,9 +106,10 @@ class Track:
 
 
 class Tracker:
-    def __init__(self, high=0.5, low=0.1, iou_min=0.2, max_lost=30, min_hits=2, w_app=0.3):
+    def __init__(self, high=0.5, low=0.1, iou_min=0.2, max_lost=30, min_hits=2, w_app=0.3, min_gate_px=1.0):
         self.high, self.low, self.iou_min, self.max_lost = high, low, iou_min, max_lost
         self.min_hits, self.w_app = min_hits, w_app
+        self.min_gate_px = min_gate_px            # small boxes (a far balloon): gate on at least this many px
         self.tracks = []
 
     def _match(self, tracks, dets, feats, use_app):
@@ -125,18 +126,27 @@ class Tracker:
         db = np.array([d['box'] for d in dets], float)
         tc, dc = (tb[:, :2] + tb[:, 2:]) / 2, (db[:, :2] + db[:, 2:]) / 2
         th, dh = tb[:, 3] - tb[:, 1], db[:, 3] - db[:, 1]
-        hh = np.maximum(th[:, None], dh[None, :])
+        hh = np.maximum(np.maximum(th[:, None], dh[None, :]), self.min_gate_px)
         cd = np.hypot(tc[:, None, 0] - dc[None, :, 0], tc[:, None, 1] - dc[None, :, 1]) / np.maximum(hh, 1)
         ratio = np.maximum(th[:, None], dh[None, :]) / np.maximum(np.minimum(th[:, None], dh[None, :]), 1)
-        near = (cd < 0.6) & (ratio < 1.6)
+        near = (cd < 0.6) & (ratio < (1.6 if self.min_gate_px <= 1 else 2.2))
         C = C + 0.5 * np.minimum(cd, 2.0)
         r, c = linear_sum_assignment(C)
         m = [(i, j) for i, j in zip(r, c) if I[i, j] >= self.iou_min or near[i, j]]
         mi, mj = {i for i, _ in m}, {j for _, j in m}
         return m, [i for i in range(len(tracks)) if i not in mi], [j for j in range(len(dets)) if j not in mj]
 
-    def update(self, dets, image=None):
+    def drop(self, ids):
+        """End these tracks (their next detections start new tracks)."""
+        self.tracks = [t for t in self.tracks if t.id not in ids]
+
+    def update(self, dets, image=None, warp=None):
+        """warp: optional camera-motion compensation, a function (u, v) → (u', v') from the previous image
+        to this one (e.g. `estimate.rotation_warp` from the attitude change); applied to every track before
+        predicting."""
         for t in self.tracks:
+            if warp is not None:
+                t.kf.x[0], t.kf.x[1] = warp(t.kf.x[0], t.kf.x[1])
             t.kf.predict()
             t.age += 1
         feats = [appearance(image, d['box']) if image is not None else None for d in dets]
@@ -164,13 +174,23 @@ class Tracker:
 class TargetLock:
     """Keep following one person. State: 'search' (no lock yet), 'locked', 'lost' (predicting)."""
 
-    def __init__(self, sim_min=0.75, lost_relock_after=3, gate_floor=1.5):
+    def __init__(self, sim_min=0.75, lost_relock_after=3, gate_floor=1.5, gate_locked=False, w_dist=0.0,
+                 jump_m=1.5, jump_v=10.0, gate_growth=None):
+        """gate_locked: also check the 3D position of the locked track every frame — a track that jumps
+        (more than jump_m + jump_v · Δt from its previous position) has switched to another object (two
+        balloons of the same color crossing: the tracker can swap their identities); it is dropped and
+        never re-locked. w_dist: when re-locking,
+        prefer the candidate nearest to the prediction (score = similarity − w_dist · distance / gate)
+        instead of the most similar one; for identical-looking targets."""
         self.track_id, self.feat, self.state = None, None, 'search'
         self.sim_min, self.relock_after, self.gate_floor = sim_min, lost_relock_after, gate_floor
+        self.gate_locked, self.w_dist, self.banned = gate_locked, w_dist, set()
+        self.jump_m, self.jump_v, self._last = jump_m, jump_v, None
+        self.gate_growth, self._t_lost = gate_growth, None      # m per second lost (None: 0.5 m per 15 frames)
         self.frames_lost, self.switches, self.relocks = 0, 0, 0
 
     def lock(self, track):
-        self.track_id, self.state, self.frames_lost = track.id, 'locked', 0
+        self.track_id, self.state, self.frames_lost, self._last = track.id, 'locked', 0, None
         self.feat = None if track.feat is None else track.feat.copy()
 
     def select_initial(self, tracks, image_size, prefer=None):
@@ -189,27 +209,48 @@ class TargetLock:
         flt: TargetFilter (for the gate). → (track or None, how) with how ∈ {'locked', 'relocked', 'lost'}."""
         if self.track_id is None:
             return None, 'search'
-        cur = next((tr for tr in tracks if tr.id == self.track_id), None)
+        cur = next((tr for tr in tracks if tr.id == self.track_id and tr.id not in self.banned), None)
+        if cur is not None and self.gate_locked:
+            q = world_pos_of(cur)
+            if q is not None and self._last is not None and \
+                    np.linalg.norm(q - self._last[0]) > self.jump_m + self.jump_v * (t - self._last[1]):
+                self.banned.add(cur.id)            # that track is now another object
+                self.switches += 1
+                self._last = None
+                cur = None
+            elif q is not None:
+                self._last = (q, t)
         if cur is not None:
-            self.frames_lost = 0
+            self.frames_lost, self._t_lost = 0, None
             self.state = 'locked'
             if cur.feat is not None and self.feat is not None and similarity(cur.feat, self.feat) > self.sim_min:
                 self.feat = 0.95 * self.feat + 0.05 * cur.feat      # slow adaptation while confident
             return cur, 'locked'
         self.frames_lost += 1
         self.state = 'lost'
+        if self._t_lost is None:
+            self._t_lost = t
         if self.frames_lost < self.relock_after:
             return None, 'lost'
         best, best_s = None, self.sim_min
+        floor = self.gate_floor + (0.5 * self.frames_lost / 15 if self.gate_growth is None
+                                   else self.gate_growth * (t - self._t_lost))
         for tr in tracks:
+            if tr.id in self.banned:
+                continue
             s = similarity(tr.feat, self.feat) if self.feat is not None else 0.0
             q = world_pos_of(tr)
-            if q is None or not flt.gate(q, t, floor=self.gate_floor + 0.5 * self.frames_lost / 15):
+            if q is None or not flt.gate(q, t, floor=floor):
                 continue
-            if s > best_s:
-                best, best_s = tr, s
+            if s <= self.sim_min:
+                continue
+            score = s - self.w_dist * flt.distance(q, t) / floor if self.w_dist else s
+            if best is None or score > best_s:
+                best, best_s = tr, score
         if best is not None:
-            self.track_id, self.state, self.frames_lost = best.id, 'locked', 0
+            self.track_id, self.state, self.frames_lost, self._t_lost = best.id, 'locked', 0, None
+            q = world_pos_of(best) if self.gate_locked else None
+            self._last = (q, t) if q is not None else None
             self.relocks += 1
             return best, 'relocked'
         return None, 'lost'

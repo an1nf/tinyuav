@@ -3,6 +3,29 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.16.0] — 2026-10-03
+
+Sin cambios en los resultados existentes: las piezas compartidas con R18/R19 ganan opciones cuyos
+valores por defecto reproducen el comportamiento anterior (los tests de R18, R19 y la regresión del
+renderer pasan sin cambios).
+
+### Añadido
+- `nanouav run r20`: seguir un globo de color a través de un bosque, evitando los árboles, sobre la
+  política de R18 (`docs/research/R20_seguimiento_globo.md`).
+  - `follow.blob.BlobDetector`: detector de color (HSV + componentes conexas, une trozos cortados por
+    un tronco); funciona igual en la imagen simulada y con una cámara real (`r20 video`, `r20 pick-color`).
+  - `follow.balloon`: globos que flotan por rutas libres con altura variable, bosque en color con
+    falsos positivos realistas, globos que cruzan (del mismo color con probabilidad 0.25).
+  - `follow.balloon_mission.BalloonMission`: distancia por tamaño aparente, filtro 3D, punto de
+    seguimiento a la altura del globo; DAgger `kind='balloon'`.
+- Imagen en color: `Texture.color`, `render_view(..., chroma=True)`, `render_stereo/observe_full(..., rgb=True)`
+  (la imagen gris es la misma); `Rollout` la pide si la misión tiene `needs_rgb`.
+- Tracker: compensación del giro de la cámara (`Tracker.update(..., warp=)`, `estimate.rotation_warp`),
+  `min_gate_px` y `drop()`. `TargetLock`: `gate_locked` (descarta una pista que salta en 3D), `w_dist` (al
+  rebloquear prefiere la más cercana a la predicción) y `gate_growth`. `TargetFilter(dims=3)`.
+- `FollowMission`: métodos por tipo de objetivo (`_detect`, `_pos_of`, `_goal_z`, …), `innov_gate` y
+  métrica `switches`. `dagger.run(..., xi_start=)`.
+
 ## [0.15.0] — 2026-10-03
 
 ### Añadido

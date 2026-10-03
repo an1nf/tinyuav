@@ -21,12 +21,14 @@ import numpy as np
 from nanouav.agile.expert import GlobalRef
 from nanouav.agile.trajectory import T_I
 from nanouav.follow.detector import SimDetector
-from nanouav.follow.estimate import TargetFilter, box_to_world
+from nanouav.follow.estimate import TargetFilter, box_to_world, rotation_warp
 from nanouav.follow.tracker import TargetLock, Tracker
 
 
 class FollowMission:
     needs_camera = True
+    cmc = False                                   # camera-motion compensation in the tracker (on for balloons)
+    innov_gate = None                             # n σ: skip outlier measurements (≤ 5 in a row) in the filter
 
     def __init__(self, env, standoff=4.0, z_follow=2.0, v_max=6.0, k_dist=0.8, t_coast=1.5, t_fail=6.0,
                  detector=None, seed=0):
@@ -34,14 +36,15 @@ class FollowMission:
         self.standoff, self.z, self.v_max, self.k = standoff, z_follow, v_max, k_dist
         self.t_coast, self.t_fail = t_coast, t_fail
         self.det = detector or SimDetector(seed=seed)
-        self.tracker, self.lock, self.flt = Tracker(), TargetLock(), TargetFilter()
+        self.tracker, self.lock, self.flt = self._make_tracker(), TargetLock(), self._make_filter()
+        self._pose_prev, self._n_rej = None, 0
         P = self.target.path.pts.copy()
         d0 = P[min(10, len(P) - 1)] - P[0]
         d0 /= max(np.linalg.norm(d0), 1e-6)
         self.L_back = standoff + 3.0                          # the trail starts behind the person's start
         back = P[0] - np.outer(np.arange(int(self.L_back / 0.1), 0, -1) * 0.1, d0)
         P = np.vstack([back, P])
-        P[:, 2] = z_follow
+        P = self._trail_z(P)
         self.trail = GlobalRef(P, self.target.speed)          # privileged reference (expert, DAgger)
         self.gref, self.line = self.trail, None
         self.t_last_seen, self.t = None, 0.0
@@ -52,11 +55,12 @@ class FollowMission:
     # ── rollout interface ─────────────────────────────────────────────────
     def start(self):
         p0 = self.target.pos(0.0)
-        A = np.array([p0[0] - self.standoff - 1.0, p0[1], self.z])
+        A = np.array([p0[0] - self.standoff - 1.0, p0[1], self.trail.pts[0, 2]])
         return A, 0.0, np.zeros(3)
 
     def t_max(self):
-        return self.target.t0 + self.target.path.length / self.target.speed + 6.0
+        dur = self.target.duration() if hasattr(self.target, 'duration') else self.target.path.length / self.target.speed
+        return self.target.t0 + dur + 6.0
 
     def render_world(self):
         return self.env.render_world()
@@ -73,27 +77,62 @@ class FollowMission:
         s_f = self.target.s(t) + self.L_back - self.standoff
         s_c, d_ref = self.trail.closest(p, getattr(self, '_s_c', None))
         self._s_c = s_c
-        v_t = self.target.speed if not self.target.done(t) and t >= self.target.t0 else 0.0
+        v_t = (self.target.speed_at(t) if hasattr(self.target, 'speed_at') else self.target.speed) \
+            if not self.target.done(t) and t >= self.target.t0 else 0.0
         v_ref = float(np.clip(v_t + self.k * (s_f - s_c), 0.0, self.v_max))
         ref = self.trail.pos(np.minimum(s_c + max(v_ref, 0.3) * T_I, s_f + v_t * T_I + 0.3))   # never past the moving follow point
         return ref, d_ref, max(v_ref, 0.3)
 
+    # ── target-specific parts (a person here; `balloon_mission.BalloonMission` overrides them) ──
+    def _make_filter(self):
+        return TargetFilter()
+
+    def _make_tracker(self):
+        return Tracker()
+
+    def _trail_z(self, P):
+        P[:, 2] = self.z
+        return P
+
+    def _detect(self, cam):
+        return self.det.detect(cam, self.walkers) if isinstance(self.det, SimDetector) else self.det.detect(cam['gray'])
+
+    def _image(self, cam):
+        return cam['gray']
+
+    def _pos_of(self, cam, tr):
+        return box_to_world(cam['rig'], cam['pose'], cam['depth'], tr.box)[0]
+
+    def _goal_z(self, tgt):
+        return self.z
+
     def frame(self, t, p, v, yaw, cam):
         self.n_frames += 1
-        dets = self.det.detect(cam, self.walkers) if isinstance(self.det, SimDetector) else self.det.detect(cam['gray'])
-        tracks = self.tracker.update(dets, cam['gray'])
-        pos_of = lambda tr: box_to_world(cam['rig'], cam['pose'], cam['depth'], tr.box)[0]
+        dets = self._detect(cam)
+        warp = rotation_warp(cam['rig'], self._pose_prev, cam['pose']) if self.cmc and self._pose_prev else None
+        self._pose_prev = cam['pose']
+        tracks = self.tracker.update(dets, self._image(cam), warp=warp)
+        pos_of = lambda tr: self._pos_of(cam, tr)
         if self.lock.track_id is None:
             tr = self._initial(tracks, cam)
             how = 'locked' if tr else 'search'
         else:
             tr, how = self.lock.update(tracks, pos_of, self.flt, t)
+            if self.lock.banned:                          # identity switch: end that track
+                self.tracker.drop(self.lock.banned)
+                self.lock.banned.clear()
         self.flt.predict(t)
         if tr is not None:
             q = pos_of(tr)
             if q is not None:
                 d = float(np.hypot(*(q[:2] - p[:2])))
-                self.flt.update(t, q, 0.15 + 0.05 * d)
+                sig = 0.15 + 0.05 * d
+                if self.innov_gate is not None and self._n_rej < 5 and \
+                        not self.flt.gate(q, t, n_sigma=self.innov_gate, floor=3 * sig):
+                    self._n_rej += 1          # outlier (e.g. two balloons merged into one blob): coast
+                else:
+                    self._n_rej = 0
+                    self.flt.update(t, q, sig)
                 self.t_last_seen = t
             self.n_locked += 1
             if tr.gt == 0:
@@ -120,7 +159,7 @@ class FollowMission:
         horiz = p[:2] - tgt[:2]
         dist = float(np.hypot(*horiz))
         u = horiz / max(dist, 1e-6)
-        goal = np.r_[tgt[:2] + u * self.standoff, self.z]
+        goal = np.r_[tgt[:2] + u * self.standoff, self._goal_z(tgt)]
         e = goal - p
         n = float(np.linalg.norm(e))
         omega = e / n if n > 1e-3 else np.r_[-u, 0.0]
@@ -151,7 +190,7 @@ class FollowMission:
     def metrics(self):
         return {'locked_frac': round(self.n_locked / max(self.n_frames, 1), 3),
                 'true_frac': round(self.n_true / max(self.n_locked, 1), 3),
-                'wrong_frames': int(self.n_wrong), 'relocks': int(self.lock.relocks),
+                'wrong_frames': int(self.n_wrong), 'relocks': int(self.lock.relocks), 'switches': int(self.lock.switches),
                 'dist_err_med': round(float(np.median(self.dist_err)), 2) if self.dist_err else None,
                 'max_dist': round(self.max_dist, 2), 'max_lost_s': round(self.t_lost_max, 2),
                 'speed': round(self.target.speed, 2), 'n_people': len(self.walkers),

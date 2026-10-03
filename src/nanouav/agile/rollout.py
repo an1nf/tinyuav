@@ -205,10 +205,12 @@ class Rollout:
                 depth = cam = None
                 need_depth = self.label or self.pilot in ('student', 'dagger')
                 if need_depth or M.needs_camera:
-                    gray, depth_full, depth_gt = observe_full(M.render_world(), cfg.rig, p, yaw, pitch, roll, self.rng)
+                    obs = observe_full(M.render_world(), cfg.rig, p, yaw, pitch, roll, self.rng,
+                                       rgb=getattr(M, 'needs_rgb', False))
+                    gray, depth_full, depth_gt = obs[:3]
                     depth = downsample_depth(depth_full, cfg.net_size)
                     cam = {'gray': gray, 'depth': depth_full, 'depth_gt': depth_gt, 'pose': (p, yaw, pitch, roll),
-                           'rig': cfg.rig}
+                           'rig': cfg.rig, 'rgb': obs[3] if len(obs) > 3 else None}
                 F = M.frame(t, p, v, yaw, cam)
                 omega, ref, self._v_des, yaw_hold = F['omega'], F['ref'], F['v_des'], F.get('yaw')
                 self._v_ref = F.get('v_ref', self._v_des)     # speed of the privileged reference

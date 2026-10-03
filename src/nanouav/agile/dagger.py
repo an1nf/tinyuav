@@ -69,6 +69,12 @@ def collect_one(job):
             from nanouav.follow.people import people_env
             env = people_env(int(np.random.default_rng([job.get('base_seed', 0), i, 0x19]).integers(1 << 30)))
             mission = FollowMission(env, seed=i)
+        elif kind == 'balloon':                       # R20: follow a balloon through the forest
+            from nanouav.follow.balloon import balloon_env
+            from nanouav.follow.balloon_mission import BalloonMission
+            env = balloon_env(int(np.random.default_rng([job.get('base_seed', 0), i, 0x20]).integers(1 << 30)),
+                              color=job.get('color', 'red'))
+            mission = BalloonMission(env, seed=i)
         else:
             env = (EV.gap_finetune_env if kind == 'gap' else EV.training_env)(i, job.get('base_seed', 0))
         r, samples, _ = Rollout(env, cfg, 'dagger', _policy(job['model']), label=True, mission=mission).run()
@@ -82,15 +88,17 @@ def collect_one(job):
 
 def run(out, n_envs=850, per_round=30, workers=4, epochs=3, batch=8, v_min=3.0, v_max=10.0, cam_hz=15.0,
         xi_step=0.25, xi_max=6.0, net_size=(120, 160), weights=None, kind='train', init_model=None,
-        base_seed=0, label_every=1, log=print):
+        base_seed=0, label_every=1, xi_start=None, log=print):
     from nanouav.agile.policy import train
     data = os.path.join(out, 'data_' + kind)
     os.makedirs(data, exist_ok=True)
     state_f = os.path.join(out, f'dagger_{kind}.json')
     state = json.load(open(state_f)) if os.path.exists(state_f) else {'rounds': []}
     model, xi = init_model, 0.0
-    if kind in ('gap', 'follow'):
+    if kind in ('gap', 'follow', 'balloon'):
         xi = xi_max                                   # fine-tuning: the trained student flies
+    if xi_start is not None:                          # e.g. a new skill (balloon: changing height)
+        xi = xi_start
     n_rounds = math.ceil(n_envs / per_round)
     ctx = mp.get_context('spawn')
     for k in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):   # one core per worker

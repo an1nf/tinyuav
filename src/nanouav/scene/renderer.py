@@ -15,6 +15,7 @@ Changes with respect to E0-D:
 API:
   World, Plane, Box, Cylinder, Sphere, Texture
   render_view(world, pos, yaw, pitch, roll, rng)   → (gray uint8, depth_m float32)
+                    chroma=True also returns the per-pixel color (Texture.color) for RGB images
   sample_world(rng) / gazebo_world()
   render_scene(seed)  → (gray, depth_m)       (compatibility)
   render_batch(n, seed) → (X [0,1], Y norm)    (compatibility)
@@ -83,6 +84,7 @@ class Texture:
     scale: float = 1.0             # cell size (m)
     extent: float = 1e9            # checker only inside |x|,|y| < extent
     seed: int = 0
+    color: tuple = None            # RGB reflectance (only for RGB images; gray images use `albedo`)
     _grid: np.ndarray = field(default=None, repr=False)
 
     def sample(self, P):
@@ -259,11 +261,13 @@ class World:
 # ── Render ─────────────────────────────────────────────────────────────────
 def render_view(world: World, pos, yaw=0.0, pitch=0.0, roll=0.0,
                 rng=None, cam_pitch=CAM_PITCH, cam_offset=CAM_OFFSET,
-                hfov=CAM_HFOV, post=True, shadows=True, size=None, d_max=D_MAX):
+                hfov=CAM_HFOV, post=True, shadows=True, size=None, d_max=D_MAX, chroma=False):
     """
     Render the drone camera view at pose (pos, yaw, pitch, roll).
     Returns (gray uint8 96×96, depth_m float32 96×96 in [D_MIN, D_MAX]).
     size = (height, width) and d_max change resolution and range (stereo rig of `nanouav.agile`).
+    chroma=True: also the color of each pixel (H, W, 3), normalized to luminance 1, so that
+    RGB = gray · chroma (the gray image is unchanged; textures without `color` are neutral).
     """
     rays_b, cos_ax = camera_rays(hfov, size)
     H, W = rays_b.shape[:2]
@@ -315,7 +319,28 @@ def render_view(world: World, pos, yaw=0.0, pitch=0.0, roll=0.0,
     if post:
         lum = _camera_post(lum, rng if rng is not None else np.random.default_rng())
     gray = np.clip(lum * 255.0 + 0.5, 0, 255).astype(np.uint8)
-    return gray, depth
+    if not chroma:
+        return gray, depth
+    C = np.empty((H, W, 3), np.float32)
+    C[:] = SKY_CHROMA
+    for k, pr in enumerate(prims):
+        col = getattr(pr.tex, 'color', None)
+        m = idx == k
+        if m.any():
+            C[m] = chroma_of(col) if col is not None else 1.0
+    return gray, depth, C
+
+
+SKY_COLOR = (0.70, 0.82, 1.0)
+
+
+def chroma_of(color):
+    """RGB reflectance → color factor with luminance 1 (RGB = gray · factor)."""
+    c = np.asarray(color, np.float32)
+    return c / max(float(0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]), 1e-3)
+
+
+SKY_CHROMA = chroma_of(SKY_COLOR)
 
 
 def _camera_post(lum, rng):

@@ -101,17 +101,23 @@ def cull(world, pos, yaw, rig, shadow_r=4.0):
     return World(keep, world.ground, sun=world.sun, ambient=world.ambient, diffuse=world.diffuse, sky=world.sky)
 
 
-def render_stereo(world, rig, pos, yaw, pitch=0.0, roll=0.0, rng=None):
-    """→ (left uint8, right uint8, ground-truth depth of the left camera in m)."""
+def render_stereo(world, rig, pos, yaw, pitch=0.0, roll=0.0, rng=None, rgb=False):
+    """→ (left uint8, right uint8, ground-truth depth of the left camera in m); rgb=True adds the left
+    image in color (H, W, 3) uint8: the same gray image times the color of each surface, plus a little
+    independent noise per channel."""
     rng = rng if rng is not None else np.random.default_rng()
     world = cull(world, pos, yaw, rig)
     kw = dict(cam_pitch=-math.radians(rig.tilt_up_deg), hfov=rig.hfov, post=False, size=rig.size,
               d_max=rig.render_range, shadows=rig.shadows)
     ox, oy, oz = rig.offset
-    gl, d = render_view(world, pos, yaw, pitch, roll, cam_offset=(ox, oy, oz), **kw)
+    out = render_view(world, pos, yaw, pitch, roll, cam_offset=(ox, oy, oz), chroma=rgb, **kw)
+    gl, d = out[:2]
     gr, _ = render_view(world, pos, yaw, pitch, roll, cam_offset=(ox, oy - rig.baseline, oz), **kw)
     gl, gr = _post_pair(gl, gr, rng)
-    return gl, gr, d
+    if not rgb:
+        return gl, gr, d
+    col = gl.astype(np.float32)[..., None] / 255.0 * out[2] + rng.normal(0, 0.01, out[2].shape)
+    return gl, gr, d, np.clip(col * 255 + 0.5, 0, 255).astype(np.uint8)
 
 
 _SGBM = {}
@@ -141,11 +147,13 @@ def sgm_depth(left, right, rig):
     return depth
 
 
-def observe_full(world, rig, pos, yaw, pitch=0.0, roll=0.0, rng=None):
-    """One camera frame: (left image uint8, SGM depth, ground-truth depth clipped to the same range)."""
-    gl, gr, d = render_stereo(world, rig, pos, yaw, pitch, roll, rng)
+def observe_full(world, rig, pos, yaw, pitch=0.0, roll=0.0, rng=None, rgb=False):
+    """One camera frame: (left image uint8, SGM depth, ground-truth depth clipped to the same range);
+    rgb=True appends the left image in color."""
+    out = render_stereo(world, rig, pos, yaw, pitch, roll, rng, rgb=rgb)
+    gl, gr, d = out[:3]
     dg = np.where(d < rig.max_range, d, 0.0).astype(np.float32)
-    return gl, sgm_depth(gl, gr, rig), dg
+    return (gl, sgm_depth(gl, gr, rig), dg) + tuple(out[3:])
 
 
 def observe(world, rig, pos, yaw, pitch=0.0, roll=0.0, rng=None):
