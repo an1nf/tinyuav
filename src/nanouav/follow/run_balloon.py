@@ -232,6 +232,9 @@ def main():
                    help='ξ of the first round: the R18 student has never changed height, so the expert flies '
                         'more at the start (R19 starts at 6)')
     p.add_argument('--xi-step', type=float, default=1.0)
+    p.add_argument('--lr', type=float, default=3e-4, help='fine-tuning: lower than the 1e-3 of R18')
+    p.add_argument('--lr-end', type=float, default=1e-5)
+    p.add_argument('--no-best', dest='best', action='store_false', help='keep the last epoch, not the best one')
     p = sub.add_parser('pick-color')
     p.add_argument('--source', required=True, help='image, video or camera index')
     p.add_argument('--box', required=True, help='x1,y1,x2,y2 around the balloon')
@@ -257,7 +260,8 @@ def main():
     os.makedirs(out, exist_ok=True)
     m = dagger.run(out, n_envs=a.envs, per_round=a.per_round, workers=a.workers, epochs=a.epochs, batch=a.batch,
                    cam_hz=a.cam_hz, kind='balloon', init_model=os.path.abspath(a.init), label_every=a.label_every,
-                   xi_start=a.xi_start, xi_step=a.xi_step)
+                   xi_start=a.xi_start, xi_step=a.xi_step,
+                   train_kw=dict(lr=a.lr, lr_end=a.lr_end, keep_best=a.best, val_by_env=True))
     print('student →', m)
 
 

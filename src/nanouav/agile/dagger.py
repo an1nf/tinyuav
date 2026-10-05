@@ -88,7 +88,7 @@ def collect_one(job):
 
 def run(out, n_envs=850, per_round=30, workers=4, epochs=3, batch=8, v_min=3.0, v_max=10.0, cam_hz=15.0,
         xi_step=0.25, xi_max=6.0, net_size=(120, 160), weights=None, kind='train', init_model=None,
-        base_seed=0, label_every=1, xi_start=None, log=print):
+        base_seed=0, label_every=1, xi_start=None, train_kw=None, log=print):
     from nanouav.agile.policy import train
     data = os.path.join(out, 'data_' + kind)
     os.makedirs(data, exist_ok=True)
@@ -123,7 +123,8 @@ def run(out, n_envs=850, per_round=30, workers=4, epochs=3, batch=8, v_min=3.0, 
             f'success {summ["success"]}/{len(ok)} · student {summ["student_frac"]:.0%} of frames · {summ["collect_s"]} s')
         if not os.path.exists(mpath):
             _, hist = train(data if kind == 'train' else [os.path.join(out, 'data_train'), data], mpath,
-                            epochs=epochs, batch=batch, init_from=model, net_size=net_size, weights=weights, log=log)
+                            epochs=epochs, batch=batch, init_from=model, net_size=net_size, weights=weights, log=log,
+                            **(train_kw or {}))
             summ['val'] = hist[-1]['val']
         model = mpath
         xi = min(xi + xi_step, xi_max)

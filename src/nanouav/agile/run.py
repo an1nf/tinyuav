@@ -128,6 +128,13 @@ def main():
             p.add_argument('--init', default='')
             p.add_argument('--imagenet', action='store_true', help='pre-trained MobileNet-V3 (downloads weights)')
             p.add_argument('--net-size', default='120x160', help='H x W of the depth input (paper: 480x640)')
+            p.add_argument('--lr', type=float, default=1e-3)
+            p.add_argument('--lr-end', type=float, default=None, help='cosine decay of the learning rate down to this')
+            p.add_argument('--best', action='store_true', help='keep the epoch with the lowest validation R-WTA')
+            p.add_argument('--val-by-env', action='store_true', help='validation on whole environments')
+        if name == 'train':
+            p.add_argument('--data', default='', help='comma-separated shard directories (default data_<kind>)')
+            p.add_argument('--name', default='', help='output model name (default student_<kind>.keras)')
     a = ap.parse_args()
     if a.cmd == 'sgm':
         return cmd_sgm(a)
@@ -139,13 +146,18 @@ def main():
     if a.cmd == 'train':
         from nanouav.agile.policy import train
         out = _out(a)
-        train(os.path.join(out, 'data_' + a.kind), os.path.join(out, f'student_{a.kind}.keras'), epochs=a.epochs,
-              batch=a.batch, init_from=a.init or None, net_size=net, weights='imagenet' if a.imagenet else None)
+        data = [os.path.join(out, d) if not os.path.isabs(d) else d for d in a.data.split(',')] if a.data \
+            else os.path.join(out, 'data_' + a.kind)
+        name = a.name or f'student_{a.kind}.keras'
+        train(data, os.path.join(out, name if name.endswith('.keras') else name + '.keras'), epochs=a.epochs,
+              batch=a.batch, init_from=a.init or None, net_size=net, weights='imagenet' if a.imagenet else None,
+              lr=a.lr, lr_end=a.lr_end, keep_best=a.best, val_by_env=a.val_by_env)
         return
     from nanouav.agile import dagger
     m = dagger.run(_out(a), n_envs=a.envs, per_round=a.per_round, workers=a.workers, epochs=a.epochs, batch=a.batch,
                    v_min=a.v_min, v_max=a.v_max, cam_hz=a.cam_hz, net_size=net,
-                   weights='imagenet' if a.imagenet else None, kind=a.kind, init_model=a.init or None)
+                   weights='imagenet' if a.imagenet else None, kind=a.kind, init_model=a.init or None,
+                   train_kw=dict(lr=a.lr, lr_end=a.lr_end, keep_best=a.best, val_by_env=a.val_by_env))
     print('student →', m)
 
 

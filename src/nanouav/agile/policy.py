@@ -102,14 +102,15 @@ def load_shards(dirs, max_samples=None):
     for d in ([dirs] if isinstance(dirs, str) else dirs):
         files += sorted(glob.glob(os.path.join(d, '**', 'env_*.npz'), recursive=True))
     keys = ('depth', 'v', 'R', 'omega', 'trajs', 'costs', 'esdf', 'z')
-    parts = {k: [] for k in keys}
+    parts = {k: [] for k in keys + ('_env',)}
     n = 0
-    for f in files:
+    for fi, f in enumerate(files):
         z = np.load(f)
         if len(z['v']) == 0:
             continue
         for k in keys:
             parts[k].append(z[k])
+        parts['_env'].append(np.full(len(z['v']), fi, np.int32))   # which environment (for a split by env)
         n += len(z['v'])
         if max_samples and n >= max_samples:
             break
@@ -119,19 +120,32 @@ def load_shards(dirs, max_samples=None):
 
 
 def train(data_dirs, out_path, epochs=3, batch=8, lr=1e-3, init_from=None, net_size=(120, 160),
-          weights=None, val_frac=0.05, lam1=10.0, lam2=0.1, seed=0, log=print):
+          weights=None, val_frac=0.05, lam1=10.0, lam2=0.1, seed=0, lr_end=None, keep_best=False,
+          val_by_env=False, log=print):
+    """lr_end: cosine decay of the learning rate from lr to lr_end over all the steps (None: constant).
+    keep_best: save the weights of the epoch with the lowest validation R-WTA instead of the last ones.
+    val_by_env: validation = whole environments (val_frac of the shards), not random samples of every
+    environment (consecutive frames of one flight are nearly equal, so a sample split is optimistic)."""
     import tensorflow as tf
     D, n_files = load_shards(data_dirs)
     n = len(D['v'])
     rng = np.random.default_rng(seed)
-    idx = rng.permutation(n)
-    n_val = max(int(n * val_frac), min(n, 8))
-    va, tr = idx[:n_val], idx[n_val:] if n > n_val else idx
+    if val_by_env and len(np.unique(D['_env'])) >= 4:
+        envs = rng.permutation(np.unique(D['_env']))
+        v_envs = envs[:max(1, int(round(len(envs) * val_frac)))]
+        is_val = np.isin(D['_env'], v_envs)
+        va, tr = np.nonzero(is_val)[0], rng.permutation(np.nonzero(~is_val)[0])
+    else:
+        idx = rng.permutation(n)
+        n_val = max(int(n * val_frac), min(n, 8))
+        va, tr = idx[:n_val], idx[n_val:] if n > n_val else idx
     if init_from and os.path.exists(init_from):
         model = tf.keras.models.load_model(init_from, compile=False, safe_mode=False)
     else:
         model = build_model(net_size, weights)
-    opt = tf.keras.optimizers.Adam(lr)
+    steps = max(epochs * (len(tr) // batch), 1)
+    sched = tf.keras.optimizers.schedules.CosineDecay(lr, steps, alpha=lr_end / lr) if lr_end else lr
+    opt = tf.keras.optimizers.Adam(sched)
 
     def batch_of(ii):
         dep = (np.clip(D['depth'][ii].astype(np.float32) / 1000.0 / D_SCALE, 0, 1) * 2 - 1)[..., None]
@@ -156,7 +170,7 @@ def train(data_dirs, out_path, epochs=3, batch=8, lr=1e-3, init_from=None, net_s
     def val_step(dep, st, te, esdf, z):
         return _losses(dep, st, te, esdf, z, False)
 
-    hist = []
+    hist, best = [], (np.inf, None, -1)
     for ep in range(epochs):
         rng.shuffle(tr)
         L = []
@@ -167,9 +181,16 @@ def train(data_dirs, out_path, epochs=3, batch=8, lr=1e-3, init_from=None, net_s
         h = {'epoch': ep, 'train': np.mean(L, 0).round(4).tolist() if L else None, 'val': np.mean(V, 0).round(4).tolist()}
         hist.append(h)
         log(f'[train] epoch {ep + 1}/{epochs} · {n} samples · loss/R-WTA/cost train {h["train"]} val {h["val"]}')
+        if keep_best and h['val'][1] < best[0]:
+            best = (h['val'][1], model.get_weights(), ep)
+    if keep_best and best[1] is not None:
+        model.set_weights(best[1])
+        log(f'[train] keeping epoch {best[2] + 1} (val R-WTA {best[0]:.3f})')
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     model.save(out_path)
-    json.dump({'samples': n, 'files': n_files, 'history': hist}, open(out_path + '.json', 'w'), indent=1)
+    json.dump({'samples': n, 'files': n_files, 'history': hist, 'kept_epoch': best[2] if keep_best else epochs - 1,
+               'lr': lr, 'lr_end': lr_end, 'val_by_env': bool(val_by_env), 'n_val': int(len(va))},
+              open(out_path + '.json', 'w'), indent=1)
     return model, hist
 
 

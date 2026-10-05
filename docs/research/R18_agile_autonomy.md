@@ -82,6 +82,43 @@ cuadros en la segunda ronda y chocó en 9 de 30 entornos): **no dice nada todav�
 la tubería completa (recolección en paralelo → entrenamiento → vuelo del estudiante) funciona. La
 corrida de referencia es la de 850 entornos en el PC de entrenamiento.
 
+## DAgger completo en el PC de entrenamiento (850 entornos, 2026-10-05)
+
+`nanouav run r18 dagger --envs 850 --workers 7` en una TITAN X (Pascal) y 8 núcleos. Las rondas 1–7 se
+entrenaron con 3 épocas y batch 8; desde la ronda 8, con 6 épocas y batch 32. Total: **78 334 muestras**
+(el paper tiene ~90 000). Cada ronda tardó 12–15 min.
+
+| ronda | ξ | éxito del episodio | cuadros volados por el estudiante |
+|---|---|---|---|
+| 1 | 0 | 29/30 | 0 % |
+| 5 | 1.0 | 8/30 | 61 % |
+| 8 | 1.75 | 8/30 | 92 % |
+| 10 | 2.25 | 15/30 | 89 % |
+| 16 | 3.75 | 17/30 | 94 % |
+| 22 | 5.25 | 18/30 | 98 % |
+| 24–25 | 5.75–6 | 19/30 | 97–100 % |
+| 26–29 | 6 | 16/30, 16/30, 16/30, 6/10 | 95–100 % |
+
+Desde ξ ≈ 5 el estudiante vuela casi todo el episodio. Esos éxitos (17–19 de 30 en entornos de
+entrenamiento al azar, con velocidad entre 3 y 10 m/s) son la mejor estimación previa de lo que dará
+`r18 eval`.
+
+**Pérdida de validación.** No sirve para comparar rondas ni para elegir el modelo:
+- el conjunto de validación (5 % de las muestras al azar) cambia en cada ronda y se vuelve más difícil,
+  porque las rondas nuevas son estados que visita el estudiante;
+- dentro de una ronda salta de época en época (ronda 22: 16.5 → 33.1 → 19.3 → 17.0), con Adam a
+  lr = 1e-3 constante, que se reinicia en cada ronda;
+- se guardaba la **última** época. La ronda 29 terminó con val 22.8 cuando la primera época daba 16.8.
+
+Por eso 0.16.1 añade a `train` y `dagger`:
+- un descenso coseno del lr (`--lr-end`);
+- guardar la mejor época (`--best`);
+- validación con entornos enteros (`--val-by-env`), porque los cuadros seguidos de un vuelo casi se
+  repiten y separar muestras sueltas da una validación optimista.
+
+Con eso, un repaso del modelo final sobre las 78 000 muestras (`r18 train --init ... --name
+student_polish`) pule los pesos sin recolectar nada nuevo.
+
 ## Siguiente paso: seguimiento de objetivos
 
 La política está condicionada por la dirección deseada ω. Para el proyecto paralelo: detector de 1–3

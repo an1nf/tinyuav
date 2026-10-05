@@ -3,6 +3,21 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.16.1] — 2026-10-05
+
+Sin cambios en los resultados: las opciones nuevas están apagadas por defecto en `r18`. En `r20
+dagger` están encendidas.
+
+### Añadido
+- `policy.train(..., lr_end=, keep_best=, val_by_env=)`. `lr_end` da un descenso coseno del lr;
+  `keep_best` guarda la época con menor R-WTA de validación; `val_by_env` valida con entornos enteros.
+  `load_shards` marca el entorno de cada muestra (`_env`).
+- `nanouav run r18 train|dagger`: `--lr`, `--lr-end`, `--best` y `--val-by-env`. `r18 train`:
+  `--data` (varios directorios) y `--name` (para no pisar `student_train.keras`).
+- `r20 dagger`: lr 3e-4 → 1e-5, mejor época y validación por entornos por defecto.
+- R18: resultados del DAgger completo de 850 entornos en el PC de entrenamiento
+  (`docs/research/R18_agile_autonomy.md`).
+
 ## [0.16.0] — 2026-10-03
 
 Sin cambios en los resultados existentes: las piezas compartidas con R18/R19 ganan opciones cuyos

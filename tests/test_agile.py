@@ -124,3 +124,27 @@ def test_expert_bspline_starts_at_the_current_state():
     assert (T[:, 1] - T[:, 0]) / 1e-4 == pytest.approx(np.repeat(v0[None], 4, 0), abs=2e-3)   # τ'(0) = v
     assert T[:, 2] == pytest.approx(C[:, 2])                                                # ends at the last control point
     assert TR._BS.sum(1) == pytest.approx(np.ones(10))
+
+
+@pytest.mark.slow
+def test_train_best_epoch_cosine_and_env_split(tmp_path):
+    import json
+
+    from nanouav.agile.dagger import save_shard
+    from nanouav.agile.policy import train
+    rng = np.random.default_rng(0)
+    d = tmp_path / 'data_train'
+    d.mkdir()
+    for e in range(6):                                   # 6 tiny "environments" of 8 samples
+        S = [{'depth': rng.integers(500, 9000, (120, 160)).astype(np.uint16), 'v': rng.normal(0, 1, 3).astype(np.float32),
+              'R': np.eye(3, dtype=np.float32).ravel(), 'omega': np.array([1, 0, 0], np.float32),
+              'trajs': rng.normal(0, 1, (3, 10, 3)).astype(np.float32), 'costs': rng.random(3).astype(np.float32),
+              'esdf': rng.random((64, 64)).astype(np.float16), 'z': np.float32(1.5)} for _ in range(8)]
+        save_shard(str(d / f'env_{e:04d}.npz'), S, {})
+    out = str(tmp_path / 'm.keras')
+    _, hist = train(str(d), out, epochs=3, batch=8, lr=1e-3, lr_end=1e-5, keep_best=True, val_by_env=True,
+                    val_frac=0.34, log=lambda *a: None)
+    meta = json.load(open(out + '.json'))
+    assert meta['n_val'] == 16                           # 2 whole environments
+    best = int(np.argmin([h['val'][1] for h in hist]))
+    assert meta['kept_epoch'] == best
