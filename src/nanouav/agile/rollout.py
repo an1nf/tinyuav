@@ -138,6 +138,16 @@ class Rollout:
     # jumped to β·v at every new plan. The student's predictions regress toward the mean training speed
     # (at 3 m/s it predicts ~4.3 m per second: β ≈ 0.7, a 30 % velocity drop 15 times per second).
     PROJ = 'scaled'
+    # Time scale β = v_des / v_μ. 'chord' (≤ 0.17.1): v_μ from the straight distance to the last point;
+    # 'arc': from the length of the path through the points. With the chord, a curved or hooked
+    # prediction (short chord, long path) is flown much faster than v_des: crashes of the 850-environment
+    # student at v_des = 10 happened at 12–19 m/s.
+    TSCALE = 'chord'
+    V_CAP = None                 # e.g. 1.3: lower β until the plan's peak speed ≤ V_CAP · v_des (or the current speed)
+    # Choice among the M hypotheses: 'snap' (paper: c*/c_k ≥ 0.95, then the least snap) or 'consistent'
+    # (c*/c_k ≥ 0.8, then the one nearest to the previous choice: no switching sides around a tree unless
+    # the predicted cost says so)
+    SELECT = 'snap'
 
     def __init__(self, env, cfg, pilot='gbl', policy=None, label=False, expert_kw=None, gref=None, mission=None):
         self.env, self.cfg, self.pilot, self.policy, self.label = env, cfg, pilot, policy, label
@@ -158,8 +168,22 @@ class Rollout:
         if self.PROJ == 'raw':
             coef = TR.poly5_fit(P, p, v, a)
             return coef, TR.time_scale(coef, v_des)
-        beta = float(np.clip(v_des / max(float(np.linalg.norm(np.asarray(P)[-1] - p)) / TR.T_I[-1], 1e-3), 0.25, 4.0))
-        return TR.poly5_fit(P, p, np.asarray(v) / beta, np.asarray(a) / beta ** 2), beta
+        P = np.asarray(P, float)
+        if self.TSCALE == 'arc':
+            length = float(np.linalg.norm(np.diff(np.vstack([p, P]), axis=0), axis=1).sum())
+        else:
+            length = float(np.linalg.norm(P[-1] - p))
+        beta = float(np.clip(v_des / max(length / TR.T_I[-1], 1e-3), 0.25, 4.0))
+        coef = TR.poly5_fit(P, p, np.asarray(v) / beta, np.asarray(a) / beta ** 2)
+        if self.V_CAP:
+            cap = max(self.V_CAP * v_des, float(np.linalg.norm(v)) + 0.1)
+            for _ in range(3):
+                peak = beta * float(np.linalg.norm(TR.poly_eval(coef, np.linspace(0, 1, 21), 1), axis=1).max())
+                if peak <= cap * 1.02:
+                    break
+                beta = max(beta * cap / peak, 0.25)
+                coef = TR.poly5_fit(P, p, np.asarray(v) / beta, np.asarray(a) / beta ** 2)
+        return coef, beta
 
     def _plan_points(self, P, p, v, a, t, source, v_des=None):
         coef, beta = self._fit(P, p, v, a, v_des or self._v_des)
@@ -188,7 +212,14 @@ class Rollout:
         trajs, costs = self.policy(depth, TR.rotate_to_heading(v, yaw), R.ravel(), TR.rotate_to_heading(omega, yaw))
         W = TR.from_heading_frame(trajs, p, yaw)
         fits = [self._fit(W[k], p, v, a, self._v_des) for k in range(len(W))]
-        k = TR.select([c for c, _ in fits], costs)
+        prev = getattr(self, '_prev_W', None)
+        if self.SELECT == 'consistent' and prev is not None:
+            c = np.asarray(costs, float) + 1e-3
+            ok = np.where(c.min() / c >= 0.8)[0]
+            k = int(ok[np.argmin([np.linalg.norm(W[j][3:] - prev[3:], axis=1).mean() for j in ok])])
+        else:
+            k = TR.select([c for c, _ in fits], costs)
+        self._prev_W = W[k]
         self._last_sel = (k, fits)
         return TR.Plan(fits[k][0], t, fits[k][1], source='student'), W, costs
 

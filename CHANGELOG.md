@@ -3,6 +3,21 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.17.2] — 2026-10-05
+
+Sin cambios en los resultados: las opciones nuevas están apagadas por defecto.
+
+### Añadido
+- `Rollout.TSCALE` (`--tscale chord|arc`): β por la distancia recta (como antes) o por la longitud
+  del camino predicho. Con la recta, una predicción curva se vuela más rápido que v_des: los choques
+  del estudiante a 10 m/s fueron a 12–19 m/s.
+- `Rollout.V_CAP` (`--vcap`): pico de velocidad de cada plan ≤ vcap · v_des.
+- `Rollout.SELECT` (`--select snap|consistent`): mantener el lado de la elección anterior mientras su
+  costo predicho esté dentro del 25 % del mejor.
+- `r18 eval|diagnose|video` aceptan esas opciones, y los archivos de resultado llevan su sufijo.
+- `diagnose`: la clase se decide 0.35–1 s antes del choque. Hay una clase nueva, `cambio_de_plan`,
+  y una marca `sobrevelocidad`.
+
 ## [0.17.1] — 2026-10-05
 
 Sin cambios en los resultados.

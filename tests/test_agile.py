@@ -173,11 +173,32 @@ def test_diagnose_classifies_a_crash():
     p = np.array([tree.cx - tree.r - 0.1, tree.cy, 1.5])
     log = [(1.0, *p, 3.0, 0.0, 0.0, 'student')]
     base = {'p': p.tolist(), 'v': [3, 0, 0], 'costs': [0.1, 0.2, 0.3], 'lat': [1.0, -1.0, 0.0], 'beta': 0.7, 'W': []}
-    tr = [dict(base, t=0.8, k=0, clear=[0.05, 0.6, 0.1]), dict(base, t=0.9, k=1, clear=[0.05, 0.6, 0.1])]
-    d = classify(env, tr, log)
-    assert d['class'] == 'eligio_mal' and d['flips_2s'] == 1 and d['obstacle'] == 'Cylinder'
-    tr = [dict(base, t=0.9, k=1, clear=[0.05, 0.1, 0.1])]
-    assert classify(env, tr, log)['class'] == 'todas_chocan'
+    late = dict(base, t=0.9, k=1, clear=[0.05, 0.1, 0.1])                       # unavoidable at the end
+    tr = [dict(base, t=0.4, k=0, clear=[0.05, 0.6, 0.1]), late]                    # 0.6 s before: chose a colliding one
+    d = classify(env, tr, log, 3.0)
+    assert d['class'] == 'eligio_mal' and d['flips_2s'] == 1 and d['obstacle'] == 'Cylinder' and not d['overspeed']
+    tr = [dict(base, t=0.4, k=1, clear=[0.05, 0.6, 0.1]), late]                    # chose the free one, then changed
+    assert classify(env, tr, log, 3.0)['class'] == 'cambio_de_plan'
+    tr = [dict(base, t=0.4, k=1, clear=[0.05, 0.1, 0.1]), late]                    # nothing free already
+    assert classify(env, tr, log, 3.0)['class'] == 'todas_chocan'
+    assert classify(env, tr, log, 2.0)['overspeed']                                # 3 m/s > 1.25 · 2 m/s
+
+
+def test_arc_time_scale_and_speed_cap():
+    from nanouav.agile import trajectory as TR
+    from nanouav.agile.envs import TEST
+    from nanouav.agile.rollout import Config, Rollout
+    R = Rollout(TEST['forest'](0), Config(v_des=10.0), 'gbl')
+    p, v, a = np.zeros(3), np.array([10.0, 0, 0]), np.zeros(3)
+    ang = np.linspace(0, np.pi, 10)                    # a hooked prediction: half circle of radius 2 m
+    P = np.stack([2 * np.sin(ang) + np.linspace(0.5, 1, 10), 2 - 2 * np.cos(ang), np.zeros(10)], 1)
+    peak = lambda pl: pl.beta * np.linalg.norm(TR.poly_eval(pl.coef, np.linspace(0, 1, 41), 1), axis=1).max()
+    chord = peak(R._plan_points(P, p, v, a, 0.0, 'student', 10.0))
+    R.TSCALE = 'arc'
+    arc = peak(R._plan_points(P, p, v, a, 0.0, 'student', 10.0))
+    R.V_CAP = 1.3
+    cap = peak(R._plan_points(P, p, v, a, 0.0, 'student', 10.0))
+    assert chord > 1.5 * arc and cap <= 13.0 * 1.03
 
 
 def test_episode_video_is_written(tmp_path):

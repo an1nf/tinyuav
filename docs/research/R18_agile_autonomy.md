@@ -180,6 +180,24 @@ Guarda una vista cenital de cada choque en `results/r18/diag_<modelo>_<proyecci�
 
 `--pilot expert` da el mismo episodio volado por el experto, para comparar.
 
+**Diagnóstico de `student_polish`** (`diagnose --v 3,10 --n 10`, 12 choques):
+- **Sobrevelocidad.** A v_des = 10 m/s, cuatro de los seis choques fueron a 12–19 m/s. La mediana de
+  β fue 1.15–1.54 y las hipótesis tenían ganchos y curvas. Causa: β se calculaba con la distancia
+  recta al último punto, así que una predicción curva se volaba mucho más rápido que v_des. Esa
+  velocidad, además, queda fuera de lo que la red vio al entrenar (3–10 m/s).
+  - `--tscale arc` toma β de la longitud del camino.
+  - `--vcap 1.3` limita el pico de velocidad de cada plan a 1.3 · v_des.
+  - A 3 m/s, dos de los seis choques fueron a 4–6 m/s.
+- **Cambio de plan.**
+  - 0.4–0.5 s antes del choque, el plan elegido tenía margen en 7 de los 12 casos (0.5–1.8 m).
+    Después la elección cambiaba a planes que chocaban.
+  - A 3 m/s hubo de 1 a 9 cambios de lado en los últimos 2 s (mediana 3).
+  - Es indecisión entre rodear el árbol por la izquierda o por la derecha.
+  - `--select consistent` mantiene el lado mientras el costo predicho no empeore más de un 25 %.
+- La primera versión del diagnóstico daba `todas_chocan` en 11 de 12 choques porque miraba los
+  últimos 0.5 s, cuando el choque ya no se puede evitar. Ahora la clase se decide con las decisiones
+  de 0.35–1 s antes y `cambio_de_plan` es una clase propia.
+
 **Qué decide el siguiente cambio** (según la clase que domine en `diagnose`):
 
 | domina | cambio |

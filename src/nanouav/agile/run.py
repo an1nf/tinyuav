@@ -26,6 +26,22 @@ def _out(a):
     return d
 
 
+def opts_of(a):
+    """Rollout options from the command line → (dict, file-name suffix of the non-default ones)."""
+    o = {'proj': getattr(a, 'proj', 'scaled'), 'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select}
+    suf = ''.join([f"_{o['proj']}" if o['proj'] != 'scaled' else '', f"_{o['tscale']}" if o['tscale'] != 'chord' else '',
+                   f"_cap{o['vcap']:g}" if o['vcap'] else '', f"_{o['select']}" if o['select'] != 'snap' else ''])
+    return o, suf
+
+
+def apply_opts(R, o):
+    R.PROJ = o.get('proj', 'scaled')
+    R.TSCALE = o.get('tscale', 'chord')
+    R.V_CAP = o.get('vcap') or None
+    R.SELECT = o.get('select', 'snap')
+    return R
+
+
 def _eval_job(job):
     from nanouav.agile import dagger, envs as EV
     from nanouav.agile.rollout import Config, Rollout
@@ -35,7 +51,7 @@ def _eval_job(job):
     pol = dagger._policy(job.get('model')) if job['pilot'] == 'student' else None
     try:
         R = Rollout(env, cfg, job['pilot'], pol)
-        R.PROJ = job.get('proj', 'scaled')
+        apply_opts(R, job)
         r, _, log = R.run()
     except RuntimeError as e:
         r, log = {'success': False, 'crashed': False, 'timeout': False, 'error': str(e)}, []
@@ -52,13 +68,12 @@ def _sweep(a, pilots, model=None):
     seeds = list(range(a.seed0, a.seed0 + a.n))
     tdir = os.path.join(out, 'traj')
     os.makedirs(tdir, exist_ok=True)
-    tag = os.path.splitext(os.path.basename(model))[0] if model else 'pilots'
-    if a.proj != 'scaled':
-        tag += f'_{a.proj}'
+    o, suf = opts_of(a)
+    tag = (os.path.splitext(os.path.basename(model))[0] if model else 'pilots') + suf
     if a.tag:
         tag += f'_{a.tag}'
-    jobs = [dict(world=a.world, pilot=p, v=v, seed=s, cam_hz=a.cam_hz, model=model, traj_dir=tdir, proj=a.proj,
-                 tag=f'_{tag}' if model else '') for p in pilots for v in speeds for s in seeds]
+    jobs = [dict(world=a.world, pilot=p, v=v, seed=s, cam_hz=a.cam_hz, model=model, traj_dir=tdir,
+                 tag=f'_{tag}' if model else '', **o) for p in pilots for v in speeds for s in seeds]
     t0 = time.time()
     for k in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):   # one core per worker
         os.environ.setdefault(k, '1')
@@ -131,10 +146,17 @@ def main():
             p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl', 'blind'])
             p.add_argument('--no-chase', dest='chase', action='store_false', help='skip the chase camera (faster)')
             p.add_argument('--proj', default='scaled', choices=['scaled', 'raw'])
-        if name in ('pilots', 'eval', 'diagnose'):
-            p.add_argument('--proj', default='scaled', choices=['scaled', 'raw'],
-                           help='projection of the predicted points onto the flown polynomial (raw: ≤ 0.16.1)')
             p.add_argument('--tag', default='')
+        if name in ('pilots', 'eval', 'diagnose', 'video'):
+            if name != 'video':
+                p.add_argument('--proj', default='scaled', choices=['scaled', 'raw'],
+                               help='projection of the predicted points onto the flown polynomial (raw: ≤ 0.16.1)')
+                p.add_argument('--tag', default='')
+            p.add_argument('--tscale', default='chord', choices=['chord', 'arc'],
+                           help='time scale from the straight distance (chord, ≤ 0.17.1) or the path length (arc)')
+            p.add_argument('--vcap', type=float, default=0.0, help='peak speed of a plan ≤ vcap · v (0: no cap)')
+            p.add_argument('--select', default='snap', choices=['snap', 'consistent'],
+                           help='choice among the hypotheses (consistent: keep the side unless the cost says so)')
         if name in ('dagger', 'train'):
             p.add_argument('--kind', default='train', choices=['train', 'gap'])
             p.add_argument('--envs', type=int, default=850)
@@ -162,12 +184,15 @@ def main():
         return _sweep(a, a.pilots.split(','), model=os.path.abspath(a.model))
     if a.cmd == 'video':
         from nanouav.agile import video
+        o, suf = opts_of(a)
         return video.run(a.model, _out(a), world=a.world, v=a.v, seed=a.seed, pilot=a.pilot, cam_hz=a.cam_hz,
-                         proj=a.proj, chase=a.chase)
+                         opts=o, chase=a.chase, suffix=suf + (f'_{a.tag}' if a.tag else ''))
     if a.cmd == 'diagnose':
         from nanouav.agile import diagnose
+        o, suf = opts_of(a)
         return diagnose.run(a.model, _out(a), world=a.world, speeds=[float(x) for x in a.v.split(',')], n=a.n,
-                            seed0=a.seed0, workers=a.workers, cam_hz=a.cam_hz, proj=a.proj, tag=a.tag)
+                            seed0=a.seed0, workers=a.workers, cam_hz=a.cam_hz, opts=o,
+                            tag=a.tag or f"{os.path.splitext(os.path.basename(a.model))[0]}_{o['proj']}{suf.replace('_raw', '')}")
     net = tuple(int(x) for x in a.net_size.lower().split('x'))
     if a.cmd == 'train':
         from nanouav.agile.policy import train

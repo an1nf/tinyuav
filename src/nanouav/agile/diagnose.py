@@ -1,22 +1,26 @@
 """Why does the student crash? (`nanouav run r18 diagnose`)
 
 Re-runs evaluation episodes with a trace of every student decision (the M hypotheses, their predicted
-costs, the chosen one and the *true* clearance of each executed polynomial, from the privileged map) and
-classifies each crash by the decisions of its last 0.5 s:
+costs, the chosen one and the *true* clearance of each executed polynomial, from the privileged map).
 
-* `todas_chocan` — every hypothesis collides: the network did not see / did not propose a way out
+Each crash is classified by the decisions **0.35–1 s before** it. At the very last decisions every
+plan collides because the crash can no longer be avoided, so those say nothing about the cause.
+
+* `todas_chocan` — already then, no hypothesis was free: the network did not propose a way out
   (perception, imitation);
-* `eligio_mal` — a free hypothesis existed but the selection (predicted cost, then snap) took one that
-  collides: the cost head;
-* `plan_justo` — the chosen plan was free but passed within 15 cm of the limit: too tight for the
-  tracking error;
-* `seguimiento` — the chosen plan had margin, the drone still hit: tracking, latency, re-planning
-  (control).
+* `cambio_de_plan` — it had chosen free plans, then changed to plans that collide: indecision or no
+  commitment (see `cambios`, side switches of the chosen hypothesis in the last 2 s);
+* `eligio_mal` — a free hypothesis existed but the chosen one collided: the cost head;
+* `plan_justo` — every plan chosen in the last 0.5 s was free, but within 15 cm of the limit;
+* `seguimiento` — every chosen plan had margin and the drone still hit: tracking, latency (control).
 
-Also counts how often the chosen hypothesis switches side (left/right of the course) in the last 2 s
-(indecision between two modes), and whether the obstacle that was hit was inside the camera's field of
-view (±45°) in the last 0.5 s (`fuera_vista`: a tree beside the drone while passing it; the policy has
-no memory). One top-down PNG per crash in results/r18/diag_<model>_<proj>/.
+Flags:
+* `sobrevelocidad` — at the crash the drone flew > 1.25 · v_des (time scale of curved predictions,
+  see `Rollout.TSCALE`);
+* `fuera_vista` — the obstacle was outside the camera's field of view (±45°) in the last 0.5 s (a tree
+  beside the drone while passing it; the policy has no memory).
+
+One top-down PNG per crash in results/r18/diag_<model>_<options>/.
 """
 import json
 import multiprocessing as mp
@@ -35,13 +39,14 @@ def _job(job):
     env = EV.TEST[job['world']](job['seed'])
     R = Rollout(env, Config(v_des=job['v'], cam_hz=job['cam_hz'], seed=job['seed']), 'student',
                 dagger._policy(job['model']))
-    R.PROJ = job['proj']
+    from nanouav.agile.run import apply_opts
+    apply_opts(R, job)
     R.trace = []
     r, _, log = R.run()
     r.update(seed=job['seed'], world=job['world'], v=job['v'])
     out = {'result': r, 'diag': None}
     if r['crashed']:
-        out['diag'] = classify(env, R.trace, log)
+        out['diag'] = classify(env, R.trace, log, job['v'])
         if job.get('png_dir'):
             plot(env, R.trace, log, out['diag'], os.path.join(
                 job['png_dir'], f"{job['world']}_v{job['v']:g}_s{job['seed']}.png"))
@@ -69,31 +74,35 @@ def _bearing(d, c):
     return float((ang + 180) % 360 - 180)
 
 
-def classify(env, trace, log):
+def classify(env, trace, log, v_des=None):
     tc = log[-1][0]
     p_c = np.array(log[-1][1:4])
     last = [d for d in trace if tc - 0.5 <= d['t'] <= tc]
-    cls = 'seguimiento'
-    if any(d['clear'][d['k']] < R_DRONE + 0.15 for d in last):
-        cls = 'plan_justo'
-    for d in last:
-        if d['clear'][d['k']] < R_DRONE:
-            cls = 'eligio_mal' if max(d['clear']) >= R_DRONE + 0.1 else 'todas_chocan'
-            if cls == 'todas_chocan':
-                break
+    early = [d for d in trace if tc - 1.0 <= d['t'] <= tc - 0.35] or last[:2]
+    if all(d['clear'][d['k']] >= R_DRONE for d in last):
+        cls = 'plan_justo' if any(d['clear'][d['k']] < R_DRONE + 0.15 for d in last) else 'seguimiento'
+    elif not any(max(d['clear']) >= R_DRONE + 0.15 for d in early):
+        cls = 'todas_chocan'
+    elif np.mean([d['clear'][d['k']] >= R_DRONE + 0.1 for d in early]) >= 0.5:
+        cls = 'cambio_de_plan'
+    else:
+        cls = 'eligio_mal'
     recent = [d for d in trace if tc - 2.0 <= d['t'] <= tc]
     sides = [np.sign(d['lat'][d['k']]) for d in recent if abs(d['lat'][d['k']]) > 0.3]
     flips = int(np.sum(np.diff(sides) != 0)) if len(sides) > 1 else 0
     dist, kind, radius, c = _nearest(env.world, p_c)
     speed = float(np.linalg.norm(log[-1][4:7]))
+    v_max1 = max(float(np.linalg.norm(row[4:7])) for row in log if row[0] >= tc - 1.0)
     # was the obstacle it hit inside the camera's view (±45°) in the last 0.5 s? A tree beside the drone
     # is outside the image while passing it, and the policy has no memory of it
     bear = [_bearing(d, c) for d in last]
     bear = [b for b in bear if b is not None]
     seen = float(np.mean([abs(b) < 45.0 for b in bear])) if bear else None
     return {'class': cls, 'flips_2s': flips, 't': tc, 'p': np.round(p_c, 2).tolist(), 'speed': round(speed, 2),
+            'v_max_1s': round(v_max1, 2), 'overspeed': bool(v_des and v_max1 > 1.25 * v_des),
             'obstacle': kind, 'obstacle_r': radius, 'n_decisions_0.5s': len(last),
             'bearing_deg': round(bear[-1], 1) if bear else None, 'in_view_0.5s': seen,
+            'sel_clear_early': [d['clear'][d['k']] for d in early], 'best_clear_early': [max(d['clear']) for d in early],
             'sel_clear_0.5s': [d['clear'][d['k']] for d in last], 'best_clear_0.5s': [max(d['clear']) for d in last]}
 
 
@@ -130,29 +139,32 @@ def plot(env, trace, log, diag, fn):
     plt.close(fig)
 
 
-def run(model, out, world='forest', speeds=(3.0,), n=10, seed0=1000, workers=4, cam_hz=15.0, proj='scaled',
+def run(model, out, world='forest', speeds=(3.0,), n=10, seed0=1000, workers=4, cam_hz=15.0, opts=None,
         tag='', png=True):
-    tag = tag or f"{os.path.splitext(os.path.basename(model))[0]}_{proj}"
+    opts = opts or {'proj': 'scaled'}
+    tag = tag or f"{os.path.splitext(os.path.basename(model))[0]}_{opts.get('proj', 'scaled')}"
     d = os.path.join(out, f'diag_{tag}')
     os.makedirs(d, exist_ok=True)
-    jobs = [dict(world=world, v=float(v), seed=s, cam_hz=cam_hz, model=os.path.abspath(model), proj=proj,
-                 png_dir=d if png else None) for v in speeds for s in range(seed0, seed0 + n)]
+    jobs = [dict(world=world, v=float(v), seed=s, cam_hz=cam_hz, model=os.path.abspath(model),
+                 png_dir=d if png else None, **opts) for v in speeds for s in range(seed0, seed0 + n)]
     for k in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
         os.environ.setdefault(k, '1')
     t0 = time.time()
     with mp.get_context('spawn').Pool(workers) as pool:
         res = pool.map(_job, jobs, chunksize=1)
     json.dump(res, open(os.path.join(d, 'diag.json'), 'w'), indent=1)
-    print(f'{"v":>5s} {"éxito":>6s} {"choques":>7s} {"todas_chocan":>12s} {"eligio_mal":>10s} {"plan_justo":>10s} '
-          f'{"seguimiento":>11s} {"fuera_vista":>11s} {"cambios":>7s} {"β med":>6s}')
+    K = ('todas_chocan', 'cambio_de_plan', 'eligio_mal', 'plan_justo', 'seguimiento')
+    print(f'{"v":>5s} {"éxito":>6s} {"choques":>7s} ' + ' '.join(f'{k:>14s}' for k in K) +
+          f' {"sobrevelocidad":>14s} {"fuera_vista":>11s} {"cambios":>7s} {"β med":>6s}')
     for v in speeds:
         L = [x for x in res if x['result']['v'] == v]
         D = [x['diag'] for x in L if x['diag']]
-        c = {k: sum(x['class'] == k for x in D) for k in ('todas_chocan', 'eligio_mal', 'plan_justo', 'seguimiento')}
+        c = {k: sum(x['class'] == k for x in D) for k in K}
         fl = np.median([x['flips_2s'] for x in D]) if D else float('nan')
         unseen = sum(1 for x in D if x.get('in_view_0.5s') is not None and x['in_view_0.5s'] < 0.5)
+        over = sum(1 for x in D if x.get('overspeed'))
         beta = np.median([x['beta_med'] for x in L if x['beta_med'] is not None])
-        print(f'{v:5.1f} {sum(x["result"]["success"] for x in L):3d}/{len(L):<2d} {len(D):7d} {c["todas_chocan"]:12d} '
-              f'{c["eligio_mal"]:10d} {c["plan_justo"]:10d} {c["seguimiento"]:11d} {unseen:11d} {fl:7.1f} {beta:6.2f}')
+        print(f'{v:5.1f} {sum(x["result"]["success"] for x in L):3d}/{len(L):<2d} {len(D):7d} ' +
+              ' '.join(f'{c[k]:14d}' for k in K) + f' {over:14d} {unseen:11d} {fl:7.1f} {beta:6.2f}')
     print(f'→ {d}  ({time.time() - t0:.0f} s): diag.json and one PNG per crash')
     return res

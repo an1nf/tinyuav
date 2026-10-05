@@ -162,19 +162,21 @@ def render_episode(env, log, trace, rig, net_size, fn, fps=15.0, chase=True, res
     return _to_h264(fn)
 
 
-def run(model, out, world='forest', v=3.0, seed=1000, pilot='student', cam_hz=15.0, proj='scaled', chase=True):
+def run(model, out, world='forest', v=3.0, seed=1000, pilot='student', cam_hz=15.0, opts=None, chase=True, suffix=''):
     from nanouav.agile import dagger, envs as EV
     from nanouav.agile.rollout import Config, Rollout
     env = EV.TEST[world](seed)
     cfg = Config(v_des=v, cam_hz=cam_hz, seed=seed)
     R = Rollout(env, cfg, pilot, dagger._policy(os.path.abspath(model)) if pilot == 'student' else None)
-    R.PROJ, R.trace, R.trace_depth = proj, [], True
+    from nanouav.agile.run import apply_opts
+    apply_opts(R, opts or {})
+    R.trace, R.trace_depth = [], True
     r, _, log = R.run()
     res = 'EXITO' if r['success'] else ('CHOQUE' if r['crashed'] else 'SIN LLEGAR')
     d = os.path.join(out, 'video')
     os.makedirs(d, exist_ok=True)
     tag = os.path.splitext(os.path.basename(model))[0] if pilot == 'student' else pilot
-    fn = os.path.join(d, f'{tag}_{world}_v{v:g}_s{seed}.mp4')
+    fn = os.path.join(d, f'{tag}{suffix}_{world}_v{v:g}_s{seed}.mp4')
     render_episode(env, log, R.trace, cfg.rig, cfg.net_size, fn, fps=cam_hz, chase=chase,
                    result=f'{res} ({r["time_s"]:.1f} s)', title=f'{tag} | {world} | {v:g} m/s | semilla {seed}')
     print(f'{res} · {r["time_s"]} s · → {fn}')
