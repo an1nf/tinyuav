@@ -13,8 +13,10 @@ classifies each crash by the decisions of its last 0.5 s:
 * `seguimiento` — the chosen plan had margin, the drone still hit: tracking, latency, re-planning
   (control).
 
-Also counts how often the chosen hypothesis switches side (left/right of the course) in the last 2 s:
-many switches at low speed mean indecision between two modes. One top-down PNG per crash.
+Also counts how often the chosen hypothesis switches side (left/right of the course) in the last 2 s
+(indecision between two modes), and whether the obstacle that was hit was inside the camera's field of
+view (±45°) in the last 0.5 s (`fuera_vista`: a tree beside the drone while passing it; the policy has
+no memory). One top-down PNG per crash in results/r18/diag_<model>_<proj>/.
 """
 import json
 import multiprocessing as mp
@@ -54,8 +56,17 @@ def _nearest(world, p):
         if d < best:
             best, o_best = d, o
     if p[2] - 0.0 < best:
-        return float(p[2]), 'suelo', None
-    return float(best), type(o_best).__name__, float(getattr(o_best, 'r', 0.0) or 0.0)
+        return float(p[2]), 'suelo', None, None
+    c = np.array([o_best.cx, o_best.cy]) if hasattr(o_best, 'cx') else np.asarray(getattr(o_best, 'center', p), float)[:2]
+    return float(best), type(o_best).__name__, float(getattr(o_best, 'r', 0.0) or 0.0), c
+
+
+def _bearing(d, c):
+    """Angle (deg) of the point c (x, y) from the camera axis at decision d (needs the yaw in the trace)."""
+    if c is None or 'att' not in d:
+        return None
+    ang = np.degrees(np.arctan2(c[1] - d['p'][1], c[0] - d['p'][0]) - d['att'][0])
+    return float((ang + 180) % 360 - 180)
 
 
 def classify(env, trace, log):
@@ -73,10 +84,16 @@ def classify(env, trace, log):
     recent = [d for d in trace if tc - 2.0 <= d['t'] <= tc]
     sides = [np.sign(d['lat'][d['k']]) for d in recent if abs(d['lat'][d['k']]) > 0.3]
     flips = int(np.sum(np.diff(sides) != 0)) if len(sides) > 1 else 0
-    dist, kind, radius = _nearest(env.world, p_c)
+    dist, kind, radius, c = _nearest(env.world, p_c)
     speed = float(np.linalg.norm(log[-1][4:7]))
+    # was the obstacle it hit inside the camera's view (±45°) in the last 0.5 s? A tree beside the drone
+    # is outside the image while passing it, and the policy has no memory of it
+    bear = [_bearing(d, c) for d in last]
+    bear = [b for b in bear if b is not None]
+    seen = float(np.mean([abs(b) < 45.0 for b in bear])) if bear else None
     return {'class': cls, 'flips_2s': flips, 't': tc, 'p': np.round(p_c, 2).tolist(), 'speed': round(speed, 2),
             'obstacle': kind, 'obstacle_r': radius, 'n_decisions_0.5s': len(last),
+            'bearing_deg': round(bear[-1], 1) if bear else None, 'in_view_0.5s': seen,
             'sel_clear_0.5s': [d['clear'][d['k']] for d in last], 'best_clear_0.5s': [max(d['clear']) for d in last]}
 
 
@@ -104,7 +121,8 @@ def plot(env, trace, log, diag, fn):
     ax.set_xlim(p_c[0] - 7, p_c[0] + 7)
     ax.set_ylim(p_c[1] - 7, p_c[1] + 7)
     ax.set_aspect('equal')
-    ax.set_title(f"{os.path.basename(fn)[:-4]} · {diag['class']} · {diag['speed']:.1f} m/s · cambios de lado {diag['flips_2s']}",
+    ax.set_title(f"{os.path.basename(fn)[:-4]} · {diag['class']} · {diag['speed']:.1f} m/s · cambios de lado "
+                 f"{diag['flips_2s']} · obstáculo a {diag.get('bearing_deg')}° del eje",
                  fontsize=9)
     ax.text(0.01, 0.01, 'hipótesis: verde libre / rojo choca, gruesa = elegida (últimos 0.6 s)',
             transform=ax.transAxes, fontsize=7)
@@ -126,14 +144,15 @@ def run(model, out, world='forest', speeds=(3.0,), n=10, seed0=1000, workers=4, 
         res = pool.map(_job, jobs, chunksize=1)
     json.dump(res, open(os.path.join(d, 'diag.json'), 'w'), indent=1)
     print(f'{"v":>5s} {"éxito":>6s} {"choques":>7s} {"todas_chocan":>12s} {"eligio_mal":>10s} {"plan_justo":>10s} '
-          f'{"seguimiento":>11s} {"cambios":>7s} {"β med":>6s}')
+          f'{"seguimiento":>11s} {"fuera_vista":>11s} {"cambios":>7s} {"β med":>6s}')
     for v in speeds:
         L = [x for x in res if x['result']['v'] == v]
         D = [x['diag'] for x in L if x['diag']]
         c = {k: sum(x['class'] == k for x in D) for k in ('todas_chocan', 'eligio_mal', 'plan_justo', 'seguimiento')}
         fl = np.median([x['flips_2s'] for x in D]) if D else float('nan')
+        unseen = sum(1 for x in D if x.get('in_view_0.5s') is not None and x['in_view_0.5s'] < 0.5)
         beta = np.median([x['beta_med'] for x in L if x['beta_med'] is not None])
         print(f'{v:5.1f} {sum(x["result"]["success"] for x in L):3d}/{len(L):<2d} {len(D):7d} {c["todas_chocan"]:12d} '
-              f'{c["eligio_mal"]:10d} {c["plan_justo"]:10d} {c["seguimiento"]:11d} {fl:7.1f} {beta:6.2f}')
-    print(f'→ {d}  ({time.time() - t0:.0f} s)')
+              f'{c["eligio_mal"]:10d} {c["plan_justo"]:10d} {c["seguimiento"]:11d} {unseen:11d} {fl:7.1f} {beta:6.2f}')
+    print(f'→ {d}  ({time.time() - t0:.0f} s): diag.json and one PNG per crash')
     return res

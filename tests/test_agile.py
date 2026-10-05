@@ -178,3 +178,23 @@ def test_diagnose_classifies_a_crash():
     assert d['class'] == 'eligio_mal' and d['flips_2s'] == 1 and d['obstacle'] == 'Cylinder'
     tr = [dict(base, t=0.9, k=1, clear=[0.05, 0.1, 0.1])]
     assert classify(env, tr, log)['class'] == 'todas_chocan'
+
+
+def test_episode_video_is_written(tmp_path):
+    import cv2
+
+    from nanouav.agile.envs import TEST
+    from nanouav.agile.rollout import Config
+    from nanouav.agile.video import render_episode
+    env, cfg = TEST['forest'](0), Config()
+    log = [(0.1 * i, 0.3 * i, 0.0, 1.5, 3.0, 0.0, 0.0, 'student') for i in range(5)]
+    W = [[[0.3 * j, 0.1 * k * j, 1.5] for j in range(1, 11)] for k in (-1, 0, 1)]
+    trace = [{'t': 0.1 * i, 'p': [0.3 * i, 0.0, 1.5], 'k': 1, 'costs': [0.2, 0.1, 0.3], 'clear': [0.5, 0.1, 0.6],
+              'beta': 1.0, 'W': W, 'att': [0.0, 0.0, 0.0], 'depth': np.full((120, 160), 4000, np.uint16)}
+             for i in range(5)]
+    fn = render_episode(env, log, trace, cfg.rig, cfg.net_size, str(tmp_path / 'ep.mp4'), fps=15, chase=False,
+                        result='CHOQUE (0.4 s)')
+    cap = cv2.VideoCapture(fn)
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    ok, frame = cap.read()
+    assert ok and frame.shape == (720, 1200, 3) and n >= 5

@@ -150,6 +150,7 @@ class Rollout:
         self.rng = np.random.default_rng(cfg.seed)
         self._v_des = self._v_ref = cfg.v_des
         self.trace = None            # a list → per student decision: hypotheses, costs, choice, true clearance
+        self.trace_depth = False     # also keep the network's depth input in the trace (videos)
 
     # ── plans ─────────────────────────────────────────────────────────────
     def _fit(self, P, p, v, a, v_des):
@@ -261,7 +262,10 @@ class Rollout:
                                            'k': int(k_sel), 'costs': np.round(costs, 4).tolist(),
                                            'clear': np.round(clear, 3).tolist(), 'lat': np.round(lat, 2).tolist(),
                                            'beta': round(float(fits[k_sel][1]), 3),
-                                           'W': np.round(W, 2).tolist()})
+                                           'W': np.round(W, 2).tolist(),
+                                           'att': [round(float(yaw), 4), round(float(pitch), 4), round(float(roll), 4)]})
+                        if self.trace_depth:
+                            self.trace[-1]['depth'] = np.round(depth * 1000).astype(np.uint16)
                 else:
                     new = self.plan_ref(ref, p, v, a0, t)
                 pending.append((t + cfg.latency, new, yaw_hold))   # computed from the state at capture time t

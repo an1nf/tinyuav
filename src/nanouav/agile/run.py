@@ -106,7 +106,7 @@ def cmd_sgm(a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
-    for name in ('sgm', 'pilots', 'dagger', 'eval', 'train', 'diagnose'):
+    for name in ('sgm', 'pilots', 'dagger', 'eval', 'train', 'diagnose', 'video'):
         p = sub.add_parser(name)
         p.add_argument('--out', default='')
         p.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 2) - 1))
@@ -123,6 +123,14 @@ def main():
             p.add_argument('--pilots', default='expert,gbl,blind' if name == 'pilots' else 'student')
         if name in ('eval', 'diagnose'):
             p.add_argument('--model', required=True)
+        if name == 'video':
+            p.add_argument('--model', default='', help='student model (not needed for --pilot expert|gbl)')
+            p.add_argument('--world', default='forest', choices=['forest', 'gap'])
+            p.add_argument('--v', type=float, default=3.0)
+            p.add_argument('--seed', type=int, default=1000)
+            p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl', 'blind'])
+            p.add_argument('--no-chase', dest='chase', action='store_false', help='skip the chase camera (faster)')
+            p.add_argument('--proj', default='scaled', choices=['scaled', 'raw'])
         if name in ('pilots', 'eval', 'diagnose'):
             p.add_argument('--proj', default='scaled', choices=['scaled', 'raw'],
                            help='projection of the predicted points onto the flown polynomial (raw: ≤ 0.16.1)')
@@ -152,6 +160,10 @@ def main():
         return _sweep(a, a.pilots.split(','))
     if a.cmd == 'eval':
         return _sweep(a, a.pilots.split(','), model=os.path.abspath(a.model))
+    if a.cmd == 'video':
+        from nanouav.agile import video
+        return video.run(a.model, _out(a), world=a.world, v=a.v, seed=a.seed, pilot=a.pilot, cam_hz=a.cam_hz,
+                         proj=a.proj, chase=a.chase)
     if a.cmd == 'diagnose':
         from nanouav.agile import diagnose
         return diagnose.run(a.model, _out(a), world=a.world, speeds=[float(x) for x in a.v.split(',')], n=a.n,

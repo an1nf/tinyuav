@@ -3,6 +3,19 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.17.1] — 2026-10-05
+
+Sin cambios en los resultados.
+
+### Añadido
+- `nanouav run r18 video`: vídeo de un episodio (vista cenital con las hipótesis, profundidad que ve
+  la red, cámara de seguimiento), en H.264 si hay ffmpeg. `--pilot expert|gbl|blind` para comparar.
+  `Rollout.trace` guarda también la actitud y, con `trace_depth`, la profundidad de entrada.
+- `r18 diagnose`: comprueba si el obstáculo del choque estaba en el campo de visión (`fuera_vista`) y
+  el ángulo al que estaba.
+- R18: evaluación con la proyección corregida (22/40 y 16/40). La corrección no explica los choques a
+  3 m/s. También se documentan qué cambio corresponde a cada clase de choque y la meta.
+
 ## [0.17.0] — 2026-10-05
 
 ### Corregido

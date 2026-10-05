@@ -126,6 +126,8 @@ student_polish`) pule los pesos sin recolectar nada nuevo.
 | experto (referencia) | 10/10 | 10/10 | 10/10 | 10/10 | 40/40 |
 | `student_train` (última ronda de DAgger) | 2/10 | 8/10 | 7/10 | 5/10 | 22/40 |
 | `student_polish` (10 épocas más, lr 3e-4 → 1e-5, mejor época = 6) | 4/10 | 4/10 | 8/10 | 7/10 | 23/40 |
+| `student_train`, proyección corregida (0.17.0) | 3/10 | 6/10 | 7/10 | 6/10 | 22/40 |
+| `student_polish`, proyección corregida (0.17.0) | 4/10 | 5/10 | 3/10 | 4/10 | 16/40 |
 | sin percepción (`blind`) | | | | | 16/40 |
 
 - **Los dos modelos son equivalentes.** Con 10 episodios por casilla el intervalo es de ±15 puntos. El
@@ -148,6 +150,11 @@ student_polish`) pule los pesos sin recolectar nada nuevo.
 - τ_gbl y el experto no cambian (β ≈ 1): 6/6 a 3 y 10 m/s.
 - El modelo no hay que reentrenarlo: la proyección solo se aplica al volar.
 
+**Resultado de la corrección:** `student_train` queda igual (22/40) y `student_polish` baja (16/40;
+la diferencia con 23/40 está en el borde del ruido). Las caídas de velocidad no eran la causa
+principal de los choques a 3 m/s. La corrección se queda porque es la proyección correcta, pero la
+causa hay que buscarla con el diagnóstico. El mejor modelo por ahora es `student_train`.
+
 **Para saber el resto:** `nanouav run r18 diagnose` repite los episodios guardando cada decisión del
 estudiante y clasifica cada choque según sus últimos 0.5 s:
 
@@ -158,8 +165,36 @@ estudiante y clasifica cada choque según sus últimos 0.5 s:
 | `plan_justo` | el plan elegido pasaba a menos de 15 cm del límite | margen insuficiente |
 | `seguimiento` | el plan tenía margen y aun así chocó | control o latencia |
 
-También cuenta los cambios de lado de la hipótesis elegida en los últimos 2 s (indecisión) y guarda
-una vista cenital de cada choque.
+También cuenta:
+- los cambios de lado de la hipótesis elegida en los últimos 2 s (indecisión);
+- si el obstáculo con que chocó estaba dentro del campo de visión (±45°) en los últimos 0.5 s
+  (`fuera_vista`). La política no tiene memoria: un árbol que queda al lado al pasarlo ya no existe
+  para ella, y a baja velocidad el dron pasa más tiempo junto a cada árbol.
+
+Guarda una vista cenital de cada choque en `results/r18/diag_<modelo>_<proyección>/`.
+
+`nanouav run r18 video --model ... --v 3 --seed 1000` hace un vídeo del episodio con tres vistas:
+- la vista cenital, con las hipótesis de cada decisión coloreadas según el mapa real;
+- la profundidad SGM que recibe la red, con las hipótesis proyectadas;
+- una cámara de seguimiento.
+
+`--pilot expert` da el mismo episodio volado por el experto, para comparar.
+
+**Qué decide el siguiente cambio** (según la clase que domine en `diagnose`):
+
+| domina | cambio |
+|---|---|
+| `todas_chocan` | más capacidad de percepción: profundidad a 240×320 en vez de 120×160 (`--net-size`), MobileNet preentrenada (`--imagenet`), más rondas a baja velocidad |
+| `fuera_vista` | memoria: apilar 2–3 cuadros de profundidad o dar el plan anterior como entrada; o adelantar el yaw hacia donde va a girar |
+| `eligio_mal` | la cabeza de costo: más peso (λ₂) o etiquetas de costo del mapa real |
+| `plan_justo` | más margen en las etiquetas del experto (r_q 0.2 → 0.3 m) |
+| `seguimiento` | control: latencia, ganancias, o seguir el plan con un MPC como el paper |
+
+**Meta**:
+- en el bosque de prueba: ≥ 90 % a 3–5 m/s, ≥ 70 % a 7 m/s y ≥ 50 % a 10 m/s, el orden de lo que el
+  paper reporta en simulación;
+- después, ≥ 80 % en el hueco estrecho;
+- y la misma política siguiendo el globo de R20.
 
 ## Siguiente paso: seguimiento de objetivos
 
