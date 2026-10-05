@@ -34,12 +34,14 @@ def _eval_job(job):
     cfg = Config(v_des=job['v'], cam_hz=job['cam_hz'], seed=job['seed'])
     pol = dagger._policy(job.get('model')) if job['pilot'] == 'student' else None
     try:
-        r, _, log = Rollout(env, cfg, job['pilot'], pol).run()
+        R = Rollout(env, cfg, job['pilot'], pol)
+        R.PROJ = job.get('proj', 'scaled')
+        r, _, log = R.run()
     except RuntimeError as e:
         r, log = {'success': False, 'crashed': False, 'timeout': False, 'error': str(e)}, []
     r.update(seed=job['seed'], world=job['world'])
     if job.get('traj_dir'):
-        np.save(os.path.join(job['traj_dir'], f"{job['world']}_{job['pilot']}_v{job['v']:g}_s{job['seed']}.npy"),
+        np.save(os.path.join(job['traj_dir'], f"{job['world']}_{job['pilot']}{job.get('tag', '')}_v{job['v']:g}_s{job['seed']}.npy"),
                 np.array([row[:7] for row in log], float))
     return r
 
@@ -50,8 +52,13 @@ def _sweep(a, pilots, model=None):
     seeds = list(range(a.seed0, a.seed0 + a.n))
     tdir = os.path.join(out, 'traj')
     os.makedirs(tdir, exist_ok=True)
-    jobs = [dict(world=a.world, pilot=p, v=v, seed=s, cam_hz=a.cam_hz, model=model, traj_dir=tdir)
-            for p in pilots for v in speeds for s in seeds]
+    tag = os.path.splitext(os.path.basename(model))[0] if model else 'pilots'
+    if a.proj != 'scaled':
+        tag += f'_{a.proj}'
+    if a.tag:
+        tag += f'_{a.tag}'
+    jobs = [dict(world=a.world, pilot=p, v=v, seed=s, cam_hz=a.cam_hz, model=model, traj_dir=tdir, proj=a.proj,
+                 tag=f'_{tag}' if model else '') for p in pilots for v in speeds for s in seeds]
     t0 = time.time()
     for k in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):   # one core per worker
         os.environ.setdefault(k, '1')
@@ -61,7 +68,6 @@ def _sweep(a, pilots, model=None):
     table = {}
     for j, r in zip(jobs, res):
         table.setdefault(f"{j['pilot']}_v{j['v']:g}", []).append(r)
-    tag = os.path.splitext(os.path.basename(model))[0] if model else 'pilots'
     fn = os.path.join(out, f'eval_{a.world}_{tag}.json')
     old = json.load(open(fn)) if os.path.exists(fn) else {}
     old.update(table)
@@ -100,7 +106,7 @@ def cmd_sgm(a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
-    for name in ('sgm', 'pilots', 'dagger', 'eval', 'train'):
+    for name in ('sgm', 'pilots', 'dagger', 'eval', 'train', 'diagnose'):
         p = sub.add_parser(name)
         p.add_argument('--out', default='')
         p.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 2) - 1))
@@ -109,14 +115,18 @@ def main():
             p.add_argument('--n', type=int, default=5)
             p.add_argument('--width', type=int, default=320)
             p.add_argument('--height', type=int, default=240)
-        if name in ('pilots', 'eval'):
+        if name in ('pilots', 'eval', 'diagnose'):
             p.add_argument('--world', default='forest', choices=['forest', 'gap'])
             p.add_argument('--v', default='3,5,7,10')
             p.add_argument('--n', type=int, default=10)
             p.add_argument('--seed0', type=int, default=1000)
             p.add_argument('--pilots', default='expert,gbl,blind' if name == 'pilots' else 'student')
-        if name == 'eval':
+        if name in ('eval', 'diagnose'):
             p.add_argument('--model', required=True)
+        if name in ('pilots', 'eval', 'diagnose'):
+            p.add_argument('--proj', default='scaled', choices=['scaled', 'raw'],
+                           help='projection of the predicted points onto the flown polynomial (raw: ≤ 0.16.1)')
+            p.add_argument('--tag', default='')
         if name in ('dagger', 'train'):
             p.add_argument('--kind', default='train', choices=['train', 'gap'])
             p.add_argument('--envs', type=int, default=850)
@@ -142,6 +152,10 @@ def main():
         return _sweep(a, a.pilots.split(','))
     if a.cmd == 'eval':
         return _sweep(a, a.pilots.split(','), model=os.path.abspath(a.model))
+    if a.cmd == 'diagnose':
+        from nanouav.agile import diagnose
+        return diagnose.run(a.model, _out(a), world=a.world, speeds=[float(x) for x in a.v.split(',')], n=a.n,
+                            seed0=a.seed0, workers=a.workers, cam_hz=a.cam_hz, proj=a.proj, tag=a.tag)
     net = tuple(int(x) for x in a.net_size.lower().split('x'))
     if a.cmd == 'train':
         from nanouav.agile.policy import train

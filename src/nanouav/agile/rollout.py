@@ -132,6 +132,12 @@ class GoalMission:
 
 class Rollout:
     A0_MODE = 'plan'             # initial acceleration of each plan: previous plan | zero | measured
+    # Projection of the predicted points onto the polynomial that is flown (Eq. 8 + time scale β):
+    # 'scaled' fits the polynomial with v/β and a/β², so that after the time scaling the plan starts at the
+    # current velocity and acceleration; 'raw' (≤ 0.16.1) fitted with v and a, so the commanded velocity
+    # jumped to β·v at every new plan. The student's predictions regress toward the mean training speed
+    # (at 3 m/s it predicts ~4.3 m per second: β ≈ 0.7, a 30 % velocity drop 15 times per second).
+    PROJ = 'scaled'
 
     def __init__(self, env, cfg, pilot='gbl', policy=None, label=False, expert_kw=None, gref=None, mission=None):
         self.env, self.cfg, self.pilot, self.policy, self.label = env, cfg, pilot, policy, label
@@ -143,11 +149,20 @@ class Rollout:
         self.expert = Expert(env.world, seed=cfg.seed, **(expert_kw or {})) if (label or pilot == 'expert') else None
         self.rng = np.random.default_rng(cfg.seed)
         self._v_des = self._v_ref = cfg.v_des
+        self.trace = None            # a list → per student decision: hypotheses, costs, choice, true clearance
 
     # ── plans ─────────────────────────────────────────────────────────────
+    def _fit(self, P, p, v, a, v_des):
+        """→ (coef, β) of the plan through the points P at speed v_des (see PROJ)."""
+        if self.PROJ == 'raw':
+            coef = TR.poly5_fit(P, p, v, a)
+            return coef, TR.time_scale(coef, v_des)
+        beta = float(np.clip(v_des / max(float(np.linalg.norm(np.asarray(P)[-1] - p)) / TR.T_I[-1], 1e-3), 0.25, 4.0))
+        return TR.poly5_fit(P, p, np.asarray(v) / beta, np.asarray(a) / beta ** 2), beta
+
     def _plan_points(self, P, p, v, a, t, source, v_des=None):
-        coef = TR.poly5_fit(P, p, v, a)
-        return TR.Plan(coef, t, TR.time_scale(coef, v_des or self._v_des), source=source)
+        coef, beta = self._fit(P, p, v, a, v_des or self._v_des)
+        return TR.Plan(coef, t, beta, source=source)
 
     def plan_ref(self, ref, p, v, a, t, source='gbl'):
         return self._plan_points(ref, p, v, a, t, source, self._v_ref)
@@ -171,9 +186,10 @@ class Rollout:
     def plan_student(self, depth, p, v, a, R, yaw, omega, t):
         trajs, costs = self.policy(depth, TR.rotate_to_heading(v, yaw), R.ravel(), TR.rotate_to_heading(omega, yaw))
         W = TR.from_heading_frame(trajs, p, yaw)
-        coefs = [TR.poly5_fit(W[k], p, v, a) for k in range(len(W))]
-        k = TR.select(coefs, costs)
-        return TR.Plan(coefs[k], t, TR.time_scale(coefs[k], self._v_des), source='student'), W, costs
+        fits = [self._fit(W[k], p, v, a, self._v_des) for k in range(len(W))]
+        k = TR.select([c for c, _ in fits], costs)
+        self._last_sel = (k, fits)
+        return TR.Plan(fits[k][0], t, fits[k][1], source='student'), W, costs
 
     # ── episode ───────────────────────────────────────────────────────────
     def run(self):
@@ -234,8 +250,18 @@ class Rollout:
                 elif self.pilot in ('blind', 'direct'):        # straight toward the goal, no perception
                     new = self._plan_points(F['blind'], p, v, a0, t, self.pilot)
                 elif use_student:
-                    new, _, _ = self.plan_student(depth, p, v, a0, R, yaw, omega, t)
+                    new, W, costs = self.plan_student(depth, p, v, a0, R, yaw, omega, t)
                     n_student += 1
+                    if self.trace is not None:
+                        k_sel, fits = self._last_sel
+                        tt = np.linspace(0, 1, 21)
+                        clear = [float(self.field(TR.poly_eval(c, tt)).min()) for c, _ in fits]
+                        lat = TR.to_heading_frame(W[:, -1], p, yaw)[:, 1]
+                        self.trace.append({'t': round(t, 3), 'p': np.round(p, 3).tolist(), 'v': np.round(v, 3).tolist(),
+                                           'k': int(k_sel), 'costs': np.round(costs, 4).tolist(),
+                                           'clear': np.round(clear, 3).tolist(), 'lat': np.round(lat, 2).tolist(),
+                                           'beta': round(float(fits[k_sel][1]), 3),
+                                           'W': np.round(W, 2).tolist()})
                 else:
                     new = self.plan_ref(ref, p, v, a0, t)
                 pending.append((t + cfg.latency, new, yaw_hold))   # computed from the state at capture time t

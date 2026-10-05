@@ -3,6 +3,26 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.17.0] — 2026-10-05
+
+### Corregido
+- **Proyección de la predicción al polinomio que se vuela** (`Rollout.PROJ = 'scaled'`, ahora el valor
+  por defecto). El polinomio se ajusta con v/β y a/β², así que tras el escalado de tiempo cada plan
+  arranca en la velocidad actual. Antes la velocidad mandada saltaba a β·v en cada plan.
+  - Para el estudiante, β ≈ 0.7 a 3 m/s: caídas del 30 % de la velocidad 15 veces por segundo.
+  - τ_gbl y el experto no cambian (β ≈ 1; 6/6 a 3 y 10 m/s).
+  - `--proj raw` reproduce lo anterior en `r18 pilots|eval|diagnose`.
+  - Seguimiento (R19): con la cámara a 10 Hz el bloqueo no cambia. El test corto pasa de 5 a 10 Hz:
+    a 5 Hz el bloqueo variaba con cambios mínimos de la trayectoria.
+
+### Añadido
+- `nanouav run r18 diagnose`: clasifica los choques del estudiante en `todas_chocan`, `eligio_mal`,
+  `plan_justo` y `seguimiento`. Cuenta los cambios de lado y la β mediana, y guarda una vista cenital
+  por choque. `Rollout.trace` guarda cada decisión.
+- `r18 eval|pilots --tag`. Las trayectorias en `traj/` llevan el nombre del modelo, para no pisarse
+  entre evaluaciones.
+- R18: evaluación de `student_train` y `student_polish` en el PC de entrenamiento.
+
 ## [0.16.1] — 2026-10-05
 
 Sin cambios en los resultados: las opciones nuevas están apagadas por defecto en `r18`. En `r20

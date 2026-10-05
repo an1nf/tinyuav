@@ -100,7 +100,7 @@ def test_follow_mission_short_closed_loop():
     from nanouav.follow.mission import FollowMission
     e = people_env(0, n_distractors=0, density=0.0)
     M = FollowMission(e, seed=0)
-    r, _, log = Rollout(e, Config(v_des=2.0, cam_hz=5.0, seed=0, t_max=8.0), 'gbl', mission=M).run()
-    assert not r['crashed'] and r['locked_frac'] > 0.35 and r['true_frac'] > 0.95       # 5 Hz, includes acquisition
+    r, _, log = Rollout(e, Config(v_des=2.0, cam_hz=10.0, seed=0, t_max=8.0), 'gbl', mission=M).run()
+    assert not r['crashed'] and r['locked_frac'] > 0.6 and r['true_frac'] > 0.95        # includes acquisition
     p = np.array(log[-1][1:3])
     assert math.hypot(*(p - e.walkers[0].pos(log[-1][0])[:2])) == pytest.approx(4.0, abs=1.5)

@@ -119,6 +119,48 @@ Por eso 0.16.1 añade a `train` y `dagger`:
 Con eso, un repaso del modelo final sobre las 78 000 muestras (`r18 train --init ... --name
 student_polish`) pule los pesos sin recolectar nada nuevo.
 
+## Evaluación del estudiante (bosque de prueba 1/25 m⁻², 10 semillas por velocidad)
+
+| modelo | 3 m/s | 5 m/s | 7 m/s | 10 m/s | total |
+|---|---|---|---|---|---|
+| experto (referencia) | 10/10 | 10/10 | 10/10 | 10/10 | 40/40 |
+| `student_train` (última ronda de DAgger) | 2/10 | 8/10 | 7/10 | 5/10 | 22/40 |
+| `student_polish` (10 épocas más, lr 3e-4 → 1e-5, mejor época = 6) | 4/10 | 4/10 | 8/10 | 7/10 | 23/40 |
+| sin percepción (`blind`) | | | | | 16/40 |
+
+- **Los dos modelos son equivalentes.** Con 10 episodios por casilla el intervalo es de ±15 puntos. El
+  repaso bajó la R-WTA de validación (10.8, ahora con entornos enteros) pero no cambió el vuelo, así que
+  el cuello de botella no es la pérdida de imitación.
+- **Lo anómalo es 3 m/s.** Es lo más fácil para el experto (10/10) y lo peor para el estudiante.
+
+**Una causa encontrada: la proyección al polinomio (corregida en 0.17.0).**
+- El estudiante predice 10 puntos para 1 s. Esos puntos se ajustan a un polinomio de orden 5 que
+  arranca en la posición, velocidad y aceleración actuales (Eq. 8). Después el tiempo se escala por
+  β = v_des / v_μ, para que el plan se vuele a la velocidad pedida.
+- Hasta 0.16.1, la velocidad inicial se imponía *antes* de escalar. Así, cada plan nuevo empezaba a
+  β·v, no a v.
+- Las predicciones regresan hacia la velocidad media del entrenamiento (U(3, 10) → 6.5 m/s). A 3 m/s
+  el estudiante predice ~4.3 m en el segundo, así que β ≈ 0.7. Medido con la política de prueba: la
+  velocidad mandada caía ~0.9 m/s (30 %) quince veces por segundo. A 10 m/s, β ≈ 0.95 y el salto
+  es del 5 %.
+- Ahora el ajuste usa v/β y a/β², y el plan escalado empieza exactamente en el estado actual
+  (`Rollout.PROJ = 'scaled'`; `'raw'` reproduce lo anterior).
+- τ_gbl y el experto no cambian (β ≈ 1): 6/6 a 3 y 10 m/s.
+- El modelo no hay que reentrenarlo: la proyección solo se aplica al volar.
+
+**Para saber el resto:** `nanouav run r18 diagnose` repite los episodios guardando cada decisión del
+estudiante y clasifica cada choque según sus últimos 0.5 s:
+
+| clase | qué pasó | qué apunta |
+|---|---|---|
+| `todas_chocan` | todas las hipótesis chocan según el mapa real | percepción o imitación |
+| `eligio_mal` | había una hipótesis libre y se eligió una que choca | la cabeza de costo |
+| `plan_justo` | el plan elegido pasaba a menos de 15 cm del límite | margen insuficiente |
+| `seguimiento` | el plan tenía margen y aun así chocó | control o latencia |
+
+También cuenta los cambios de lado de la hipótesis elegida en los últimos 2 s (indecisión) y guarda
+una vista cenital de cada choque.
+
 ## Siguiente paso: seguimiento de objetivos
 
 La política está condicionada por la dirección deseada ω. Para el proyecto paralelo: detector de 1–3

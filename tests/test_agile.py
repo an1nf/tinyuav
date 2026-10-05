@@ -148,3 +148,33 @@ def test_train_best_epoch_cosine_and_env_split(tmp_path):
     assert meta['n_val'] == 16                           # 2 whole environments
     best = int(np.argmin([h['val'][1] for h in hist]))
     assert meta['kept_epoch'] == best
+
+
+def test_projection_keeps_velocity_continuous():
+    from nanouav.agile import trajectory as TR
+    from nanouav.agile.envs import TEST
+    from nanouav.agile.rollout import Config, Rollout
+    R = Rollout(TEST['forest'](0), Config(v_des=3.0), 'gbl')
+    p, v, a = np.zeros(3), np.array([3.0, 0, 0]), np.array([0.0, 0.5, 0])
+    P = p + np.outer(TR.T_I, [4.3, 0.3, 0])          # a prediction too long for 3 m/s (β ≈ 0.7)
+    pl = R._plan_points(P, p, v, a, 0.0, 'student', 3.0)
+    p0, v0, a0 = pl.ref(0.0)
+    assert pl.beta == pytest.approx(3.0 / np.hypot(4.3, 0.3), rel=1e-6)
+    assert p0 == pytest.approx(p, abs=1e-9) and v0 == pytest.approx(v, abs=1e-9) and a0 == pytest.approx(a, abs=1e-9)
+    R.PROJ = 'raw'                                   # ≤ 0.16.1: the commanded velocity jumped to β·v
+    assert np.linalg.norm(R._plan_points(P, p, v, a, 0.0, 'student', 3.0).ref(0.0)[1] - v) > 0.5
+
+
+def test_diagnose_classifies_a_crash():
+    from nanouav.agile.diagnose import classify
+    from nanouav.agile.envs import TEST
+    env = TEST['forest'](0)
+    tree = env.world.objects[0]
+    p = np.array([tree.cx - tree.r - 0.1, tree.cy, 1.5])
+    log = [(1.0, *p, 3.0, 0.0, 0.0, 'student')]
+    base = {'p': p.tolist(), 'v': [3, 0, 0], 'costs': [0.1, 0.2, 0.3], 'lat': [1.0, -1.0, 0.0], 'beta': 0.7, 'W': []}
+    tr = [dict(base, t=0.8, k=0, clear=[0.05, 0.6, 0.1]), dict(base, t=0.9, k=1, clear=[0.05, 0.6, 0.1])]
+    d = classify(env, tr, log)
+    assert d['class'] == 'eligio_mal' and d['flips_2s'] == 1 and d['obstacle'] == 'Cylinder'
+    tr = [dict(base, t=0.9, k=1, clear=[0.05, 0.1, 0.1])]
+    assert classify(env, tr, log)['class'] == 'todas_chocan'
