@@ -181,3 +181,28 @@ def run(model, out, world='forest', v=3.0, seed=1000, pilot='student', cam_hz=15
                    result=f'{res} ({r["time_s"]:.1f} s)', title=f'{tag} | {world} | {v:g} m/s | semilla {seed}')
     print(f'{res} · {r["time_s"]} s · → {fn}')
     return fn
+
+
+def from_gz(json_path, out, chase=True):
+    """Video of a Gazebo flight of `gazebo/nodes/agile_node.py` (same panels; the chase camera and the top
+    view use our renderer of the same world; the depth panel needs AGILE_KEEP_DEPTH=true)."""
+    import json
+    from nanouav.agile import envs as EV
+    from nanouav.agile.stereo import StereoRig
+    D = json.load(open(json_path))
+    r = D['result']
+    env = EV.TEST[r['world']](int(r['seed']))
+    trace = D['trace']
+    dz = json_path[:-5] + '_depth.npz'
+    if os.path.exists(dz):
+        for d, dep in zip(trace, np.load(dz)['depth']):
+            d['depth'] = dep
+    d = os.path.join(out, 'video')
+    os.makedirs(d, exist_ok=True)
+    fn = os.path.join(d, 'gz_' + os.path.basename(json_path)[:-5] + '.mp4')
+    res = {'success': 'EXITO', 'crash': 'CHOQUE'}.get(r['status'], r['status'].upper())
+    render_episode(env, D['log'], trace, StereoRig(), (120, 160), fn, chase=chase,
+                   result=f"{res} ({r['time_s']:.1f} s)", title=f"Gazebo | {r['model']} | {r['world']} | "
+                                                              f"{r['v_des']:g} m/s | semilla {r['seed']}")
+    print(f"{res} · {r['time_s']} s · → {fn}")
+    return fn

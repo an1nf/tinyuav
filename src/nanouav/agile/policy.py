@@ -207,3 +207,45 @@ class StudentPolicy:
         s = prep_state(v_h, R, omega_h)[None]
         tn, c = self._f(d, s)
         return tn.numpy()[0].astype(float), c.numpy()[0].astype(float)
+
+
+def export_tflite(model_path, out_path=None):
+    """Keras student → float32 TFLite (for the Gazebo container, which has LiteRT but not TensorFlow, and
+    for the hardware). → path of the .tflite."""
+    import tensorflow as tf
+    model = tf.keras.models.load_model(model_path, compile=False, safe_mode=False)
+    # from_keras_model freezes the weights; a concrete function with the model as trackable object keeps
+    # them as resource variables, which LiteRT reads as NaN
+    conv = tf.lite.TFLiteConverter.from_keras_model(model)
+    out_path = out_path or os.path.splitext(model_path)[0] + '.tflite'
+    open(out_path, 'wb').write(conv.convert())
+    return out_path
+
+
+class TFLitePolicy:
+    """Same call as `StudentPolicy`, on a .tflite (ai-edge-litert, or TensorFlow's interpreter)."""
+
+    def __init__(self, path):
+        try:
+            from ai_edge_litert.interpreter import Interpreter
+        except ImportError:                       # pragma: no cover - depends on the installation
+            from tensorflow.lite import Interpreter
+        self.it = Interpreter(model_path=path, num_threads=2)
+        self.it.allocate_tensors()
+        ins = self.it.get_input_details()
+        self.i_depth = next(d['index'] for d in ins if len(d['shape']) == 4)
+        self.i_state = next(d['index'] for d in ins if len(d['shape']) == 2)
+        outs = self.it.get_output_details()
+        self.o_traj = next(d['index'] for d in outs if len(d['shape']) == 4)
+        self.o_cost = next(d['index'] for d in outs if len(d['shape']) == 2)
+
+    def __call__(self, depth, v_h, R, omega_h):
+        self.it.set_tensor(self.i_depth, prep_depth(depth)[None].astype(np.float32))
+        self.it.set_tensor(self.i_state, prep_state(v_h, R, omega_h)[None].astype(np.float32))
+        self.it.invoke()
+        return (self.it.get_tensor(self.o_traj)[0].astype(float), self.it.get_tensor(self.o_cost)[0].astype(float))
+
+
+def load_policy(path):
+    """.keras → StudentPolicy (TensorFlow); .tflite → TFLitePolicy."""
+    return TFLitePolicy(path) if str(path).endswith('.tflite') else StudentPolicy(path)

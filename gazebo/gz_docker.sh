@@ -5,6 +5,7 @@
 #   WORLD=bosque SEED=2 bash gazebo/gz_docker.sh     → any run_sim.sh variable is passed to the container
 #   bash gazebo/gz_docker.sh diag                    → GPU/EGL diagnostics inside the container
 #   bash gazebo/gz_docker.sh bash                    → interactive shell
+#   AGILE_MODEL=results/r18/student_train.tflite bash gazebo/gz_docker.sh agile   → R18 student (run_agile.sh)
 #   DOCKER="sudo docker" bash gazebo/gz_docker.sh    → if your user is not in the docker group
 #   NO_GPU=1 ...                                     → software rendering (slow)
 #
@@ -26,7 +27,8 @@ fi
 ENVS=""
 for v in WORLD SEED WORLD_KW REGEN VARIANT PROFILE PLANNER CONSISTENT RF_DYN V_CRUISE GOAL GOAL_X GOAL_Y LOOP \
          T_MAX EXIT_ON_DONE HEADLESS RUN_TAG CONTROL_MODE YAW_SIGN MH_GRID_RES PLANNER_CFG \
-         NANOUAV_MH_GRID_RES NANOUAV_FUSE2 NANOUAV_FAKE_CNN; do
+         NANOUAV_MH_GRID_RES NANOUAV_FUSE2 NANOUAV_FAKE_CNN \
+         AGILE_MODEL AGILE_WORLD AGILE_SEEDS AGILE_V AGILE_TSCALE AGILE_VCAP AGILE_SELECT AGILE_GAIN AGILE_KEEP_DEPTH; do
     [ -n "${!v}" ] && ENVS="$ENVS -e $v=${!v}"
 done
 TTY=""; [ -t 0 ] && TTY="-it"
@@ -42,6 +44,7 @@ timeout 25 gz sim -s -r --headless-rendering --iterations 2500 /sim/nano_uav/gaz
 echo "(if there are no EGL errors, rendering uses the GPU)"'
     exec $DOCKER run --rm $TTY $GPU_ARGS -v "$ROOTDIR":/sim/nano_uav -w /sim/nano_uav $IMG bash -c "$CMD"
 fi
-if [ $# -gt 0 ]; then CMD=("$@"); else CMD=(bash gazebo/run_sim.sh); fi
+if [ "$1" = "agile" ]; then CMD=(bash gazebo/run_agile.sh)          # R21: the R18 student (see run_agile.sh)
+elif [ $# -gt 0 ]; then CMD=("$@"); else CMD=(bash gazebo/run_sim.sh); fi
 exec $DOCKER run --rm $TTY --ipc=host $GPU_ARGS $X_ARGS $ENVS $OWNER_ARGS \
     -v "$ROOTDIR":/sim/nano_uav -w /sim/nano_uav $IMG "${CMD[@]}"

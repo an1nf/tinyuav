@@ -142,3 +142,25 @@ Del plan original (sigue vigente): comprobar `ros2 topic hz /model/nano_uav/odom
 dron se desvía al girar en modo `velocity`, probar `twist_frame:=world`; en modo `motors`, primero en
 el suelo y con `YAW_SIGN=-1` si el yaw diverge; comparar la profundidad CNN del HUD con
 `/nano_uav/depth/image` para medir la brecha de dominio renderer → ogre2.
+
+## R18 en Gazebo (R21): el estudiante de Loquercio con estéreo
+
+```bash
+nanouav run r18 export --model results/r18/student_train.keras          # el contenedor usa .tflite (LiteRT)
+AGILE_MODEL=results/r18/student_train.tflite AGILE_SEEDS=1000 AGILE_V=3 bash gazebo/gz_docker.sh agile
+AGILE_MODEL=... AGILE_SEEDS=1000,1001,1002 AGILE_V=5 AGILE_TSCALE=arc AGILE_VCAP=1.3 HEADLESS=true bash gazebo/gz_docker.sh agile
+nanouav run r18 video --from-gz results/gz_runs/agile/student_train_forest_s1000_v3.json
+```
+
+Variables: `AGILE_WORLD=forest|gap`, `AGILE_SEEDS` (separadas por comas), `AGILE_V`, `AGILE_TSCALE`,
+`AGILE_VCAP`, `AGILE_SELECT` (las opciones de `r18 eval`), `AGILE_GAIN` (ganancia del controlador de
+velocidad del X3; por defecto 5, igual que el SDF generado) y `AGILE_KEEP_DEPTH=true`.
+
+- **El mundo** (`gen_world.py --agile forest --seed N`) es el bosque de prueba de `r18 eval`: mismos
+  troncos, texturas y sol.
+- **El dron** es `agile_x3`: el X3 con empuje/peso 3.6, colisión de 0.3 m y el par estéreo 320 × 240 a
+  15 Hz.
+- **El nodo** despega a 1.5 m y vuela hasta la línea de meta. Guarda el resultado y la traza en
+  `results/gz_runs/agile/`. No se reconstruye la imagen: el repositorio está montado y LiteRT ya está.
+
+Detalles y validación: `docs/research/R21_gazebo_agile.md`.

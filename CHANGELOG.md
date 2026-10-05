@@ -3,6 +3,22 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.18.0] — 2026-10-05
+
+Sin cambios en los resultados existentes.
+
+### Añadido
+- R21 · el estudiante de R18 en Gazebo:
+  - `gen_world.py --agile forest|gap` (el mundo de prueba de R18) y el modelo `agile_x3` (empuje/peso
+    3.6, colisión de 0.3 m, par estéreo de `StereoRig`);
+  - `gazebo/nodes/agile_node.py`, `gazebo/run_agile.sh` y `gz_docker.sh agile`;
+  - `nanouav.agile.gz_core` (la lógica sin ROS, más un dron de velocidad con retraso para probarla
+    sin Gazebo);
+  - `r18 export` (Keras → TFLite, `policy.TFLitePolicy`, `load_policy`) y `r18 video --from-gz`.
+  Informe: `docs/research/R21_gazebo_agile.md`.
+- `rollout.fit_plan` y `rollout.choose`: la proyección y la elección de `Rollout` como funciones, para
+  usarlas fuera del simulador.
+
 ## [0.17.2] — 2026-10-05
 
 Sin cambios en los resultados: las opciones nuevas están apagadas por defecto.

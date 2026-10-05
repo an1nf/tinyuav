@@ -130,6 +130,39 @@ class GoalMission:
         return {}
 
 
+def fit_plan(P, p, v, a, v_des, proj='scaled', tscale='chord', v_cap=None):
+    """Projection of predicted points onto the polynomial that is flown (Eq. 8) and its time scale β
+    (see the options of `Rollout`). → (coef, β)."""
+    if proj == 'raw':
+        coef = TR.poly5_fit(P, p, v, a)
+        return coef, TR.time_scale(coef, v_des)
+    P = np.asarray(P, float)
+    if tscale == 'arc':
+        length = float(np.linalg.norm(np.diff(np.vstack([p, P]), axis=0), axis=1).sum())
+    else:
+        length = float(np.linalg.norm(P[-1] - p))
+    beta = float(np.clip(v_des / max(length / TR.T_I[-1], 1e-3), 0.25, 4.0))
+    coef = TR.poly5_fit(P, p, np.asarray(v) / beta, np.asarray(a) / beta ** 2)
+    if v_cap:
+        cap = max(v_cap * v_des, float(np.linalg.norm(v)) + 0.1)
+        for _ in range(3):
+            peak = beta * float(np.linalg.norm(TR.poly_eval(coef, np.linspace(0, 1, 21), 1), axis=1).max())
+            if peak <= cap * 1.02:
+                break
+            beta = max(beta * cap / peak, 0.25)
+            coef = TR.poly5_fit(P, p, np.asarray(v) / beta, np.asarray(a) / beta ** 2)
+    return coef, beta
+
+
+def choose(fits, costs, W, prev=None, mode='snap'):
+    """Index of the hypothesis to fly (see `Rollout.SELECT`)."""
+    if mode == 'consistent' and prev is not None:
+        c = np.asarray(costs, float) + 1e-3
+        ok = np.where(c.min() / c >= 0.8)[0]
+        return int(ok[np.argmin([np.linalg.norm(W[j][3:] - prev[3:], axis=1).mean() for j in ok])])
+    return TR.select([c for c, _ in fits], costs)
+
+
 class Rollout:
     A0_MODE = 'plan'             # initial acceleration of each plan: previous plan | zero | measured
     # Projection of the predicted points onto the polynomial that is flown (Eq. 8 + time scale β):
@@ -164,26 +197,8 @@ class Rollout:
 
     # ── plans ─────────────────────────────────────────────────────────────
     def _fit(self, P, p, v, a, v_des):
-        """→ (coef, β) of the plan through the points P at speed v_des (see PROJ)."""
-        if self.PROJ == 'raw':
-            coef = TR.poly5_fit(P, p, v, a)
-            return coef, TR.time_scale(coef, v_des)
-        P = np.asarray(P, float)
-        if self.TSCALE == 'arc':
-            length = float(np.linalg.norm(np.diff(np.vstack([p, P]), axis=0), axis=1).sum())
-        else:
-            length = float(np.linalg.norm(P[-1] - p))
-        beta = float(np.clip(v_des / max(length / TR.T_I[-1], 1e-3), 0.25, 4.0))
-        coef = TR.poly5_fit(P, p, np.asarray(v) / beta, np.asarray(a) / beta ** 2)
-        if self.V_CAP:
-            cap = max(self.V_CAP * v_des, float(np.linalg.norm(v)) + 0.1)
-            for _ in range(3):
-                peak = beta * float(np.linalg.norm(TR.poly_eval(coef, np.linspace(0, 1, 21), 1), axis=1).max())
-                if peak <= cap * 1.02:
-                    break
-                beta = max(beta * cap / peak, 0.25)
-                coef = TR.poly5_fit(P, p, np.asarray(v) / beta, np.asarray(a) / beta ** 2)
-        return coef, beta
+        """→ (coef, β) of the plan through the points P at speed v_des (see PROJ, TSCALE, V_CAP)."""
+        return fit_plan(P, p, v, a, v_des, self.PROJ, self.TSCALE, self.V_CAP)
 
     def _plan_points(self, P, p, v, a, t, source, v_des=None):
         coef, beta = self._fit(P, p, v, a, v_des or self._v_des)
@@ -212,13 +227,7 @@ class Rollout:
         trajs, costs = self.policy(depth, TR.rotate_to_heading(v, yaw), R.ravel(), TR.rotate_to_heading(omega, yaw))
         W = TR.from_heading_frame(trajs, p, yaw)
         fits = [self._fit(W[k], p, v, a, self._v_des) for k in range(len(W))]
-        prev = getattr(self, '_prev_W', None)
-        if self.SELECT == 'consistent' and prev is not None:
-            c = np.asarray(costs, float) + 1e-3
-            ok = np.where(c.min() / c >= 0.8)[0]
-            k = int(ok[np.argmin([np.linalg.norm(W[j][3:] - prev[3:], axis=1).mean() for j in ok])])
-        else:
-            k = TR.select([c for c, _ in fits], costs)
+        k = choose(fits, costs, W, getattr(self, '_prev_W', None), self.SELECT)
         self._prev_W = W[k]
         self._last_sel = (k, fits)
         return TR.Plan(fits[k][0], t, fits[k][1], source='student'), W, costs

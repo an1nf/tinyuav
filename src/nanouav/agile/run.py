@@ -121,7 +121,7 @@ def cmd_sgm(a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
-    for name in ('sgm', 'pilots', 'dagger', 'eval', 'train', 'diagnose', 'video'):
+    for name in ('sgm', 'pilots', 'dagger', 'eval', 'train', 'diagnose', 'video', 'export'):
         p = sub.add_parser(name)
         p.add_argument('--out', default='')
         p.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 2) - 1))
@@ -138,7 +138,10 @@ def main():
             p.add_argument('--pilots', default='expert,gbl,blind' if name == 'pilots' else 'student')
         if name in ('eval', 'diagnose'):
             p.add_argument('--model', required=True)
+        if name == 'export':
+            p.add_argument('--model', required=True, help='.keras student → .tflite next to it (Gazebo, hardware)')
         if name == 'video':
+            p.add_argument('--from-gz', default='', help='a Gazebo flight (results/gz_runs/agile/*.json) instead of our simulator')
             p.add_argument('--model', default='', help='student model (not needed for --pilot expert|gbl)')
             p.add_argument('--world', default='forest', choices=['forest', 'gap'])
             p.add_argument('--v', type=float, default=3.0)
@@ -182,6 +185,18 @@ def main():
         return _sweep(a, a.pilots.split(','))
     if a.cmd == 'eval':
         return _sweep(a, a.pilots.split(','), model=os.path.abspath(a.model))
+    if a.cmd == 'export':
+        from nanouav.agile.policy import TFLitePolicy, export_tflite, load_policy
+        out = export_tflite(a.model)
+        rng = np.random.default_rng(0)                     # check: same output as the Keras model
+        d, v = rng.uniform(0, 10, (120, 160)).astype(np.float32), rng.normal(0, 3, 3)
+        A, B = load_policy(a.model)(d, v, np.eye(3).ravel(), [1, 0, 0]), TFLitePolicy(out)(d, v, np.eye(3).ravel(), [1, 0, 0])
+        err = max(float(np.abs(A[0] - B[0]).max()), float(np.abs(A[1] - B[1]).max()))
+        print(f'→ {out}  (max difference with the Keras model: {err:.2e})')
+        return
+    if a.cmd == 'video' and a.from_gz:
+        from nanouav.agile import video
+        return video.from_gz(a.from_gz, _out(a), chase=a.chase)
     if a.cmd == 'video':
         from nanouav.agile import video
         o, suf = opts_of(a)

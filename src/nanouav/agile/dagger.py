@@ -45,9 +45,9 @@ def _policy(path):
     if path is None:
         return None
     if path not in _POLICY:
-        from nanouav.agile.policy import StudentPolicy
+        from nanouav.agile.policy import load_policy
         _POLICY.clear()
-        _POLICY[path] = StudentPolicy(path)
+        _POLICY[path] = load_policy(path)
     return _POLICY[path]
 
 

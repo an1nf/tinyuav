@@ -22,6 +22,7 @@ Su equivalente actual está en [../migracion.md](../migracion.md); por ejemplo
 | [R18_agile_autonomy.md](R18_agile_autonomy.md) | R18: recreación completa de Loquercio et al. 2021 (estéreo + SGM, experto M-H privilegiado, estudiante multimodal, DAgger) | `r18 sgm/pilots/dagger/eval` |
 | [R19_seguimiento_personas.md](R19_seguimiento_personas.md) | R19: detectar y seguir a una persona (YOLO + ByteTrack + bloqueo del objetivo + política R18) | `r19 prep-visdrone/train-det/eval-det/video/sim/dagger` |
 | [R20_seguimiento_globo.md](R20_seguimiento_globo.md) | R20: seguir un globo de color por un bosque (detector de color, distancia por tamaño, filtro 3D, compensación del giro) | `r20 frames/sim/dagger/pick-color/video` |
+| [R21_gazebo_agile.md](R21_gazebo_agile.md) | R21: el estudiante de R18 en Gazebo (mundo de prueba, X3 ágil con estéreo, nodo ROS 2, export a TFLite) | `gazebo/gz_docker.sh agile`, `r18 export`, `r18 video --from-gz` |
 
 Plantilla para un informe nuevo (`RNN_tema.md`): pregunta · qué se toma de la fuente · cambios en el
 código (archivo y bandera, apagada por defecto) · montaje y **comando exacto** (`nanouav run …` o
