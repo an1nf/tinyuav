@@ -31,7 +31,11 @@ RQ = 0.2
 DT = 0.1
 
 
-def build_model(net_size=(120, 160), weights=None, m=M):
+def build_model(net_size=(120, 160), weights=None, m=M, head='gap'):
+    """head: how the backbone's feature map (4 × 5 × 576 at 120 × 160) reaches the trajectory heads.
+    'gap' (≤ 0.18.0): global average pooling — keeps *what* is in the image but discards *where* (left or
+    right of the course: exactly what the choice of side around a tree needs). 'spatial': a 1 × 1
+    convolution to 32 channels per cell, flattened, so the position of every obstacle is kept."""
     import tensorflow as tf
     L = tf.keras.layers
     H, W = net_size
@@ -40,8 +44,12 @@ def build_model(net_size=(120, 160), weights=None, m=M):
     x = L.Concatenate()([d_in, d_in, d_in])
     bb = tf.keras.applications.MobileNetV3Small(input_shape=(H, W, 3), include_top=False, weights=weights,
                                                 include_preprocessing=False)
-    f = L.GlobalAveragePooling2D()(bb(x))
-    f = L.Reshape((1, -1))(f)
+    if head == 'spatial':
+        f = L.LeakyReLU(0.2)(L.Conv2D(32, 1)(bb(x)))
+        f = L.Reshape((1, -1))(L.Flatten()(f))
+    else:
+        f = L.GlobalAveragePooling2D()(bb(x))
+        f = L.Reshape((1, -1))(f)
     f = L.Conv1D(m * 32, 1)(f)
     f = L.Reshape((m, 32))(f)
     s = s_in
@@ -121,7 +129,7 @@ def load_shards(dirs, max_samples=None):
 
 def train(data_dirs, out_path, epochs=3, batch=8, lr=1e-3, init_from=None, net_size=(120, 160),
           weights=None, val_frac=0.05, lam1=10.0, lam2=0.1, seed=0, lr_end=None, keep_best=False,
-          val_by_env=False, log=print):
+          val_by_env=False, head='gap', log=print):
     """lr_end: cosine decay of the learning rate from lr to lr_end over all the steps (None: constant).
     keep_best: save the weights of the epoch with the lowest validation R-WTA instead of the last ones.
     val_by_env: validation = whole environments (val_frac of the shards), not random samples of every
@@ -142,7 +150,7 @@ def train(data_dirs, out_path, epochs=3, batch=8, lr=1e-3, init_from=None, net_s
     if init_from and os.path.exists(init_from):
         model = tf.keras.models.load_model(init_from, compile=False, safe_mode=False)
     else:
-        model = build_model(net_size, weights)
+        model = build_model(net_size, weights, head=head)
     steps = max(epochs * (len(tr) // batch), 1)
     sched = tf.keras.optimizers.schedules.CosineDecay(lr, steps, alpha=lr_end / lr) if lr_end else lr
     opt = tf.keras.optimizers.Adam(sched)

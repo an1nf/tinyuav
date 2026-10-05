@@ -3,6 +3,17 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.18.1] — 2026-10-05
+
+Sin cambios en los resultados: los modelos guardados conservan su arquitectura.
+
+### Añadido
+- `policy.build_model(head='spatial')` (`r18 train|dagger --head spatial`): conserva la posición de las
+  características de profundidad (convolución 1 × 1 + aplanado) en vez del promedio global, que
+  pierde dónde está cada obstáculo. Por defecto sigue `gap`.
+- R18: resultados de `--tscale arc --vcap 1.3` (16/40) y `--select consistent` (13/40) frente a 22/40.
+  Ninguna ayuda.
+
 ## [0.18.0] — 2026-10-05
 
 Sin cambios en los resultados existentes.

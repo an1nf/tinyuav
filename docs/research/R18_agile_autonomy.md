@@ -198,6 +198,31 @@ Guarda una vista cenital de cada choque en `results/r18/diag_<modelo>_<proyecci�
   últimos 0.5 s, cuando el choque ya no se puede evitar. Ahora la clase se decide con las decisiones
   de 0.35–1 s antes y `cambio_de_plan` es una clase propia.
 
+**Prueba de esas opciones** (`student_train`, mismas semillas; referencia 3/10, 6/10, 7/10, 6/10 = 22/40):
+
+| opciones | 3 m/s | 5 m/s | 7 m/s | 10 m/s | total | velocidad media (3 / 10 m/s) |
+|---|---|---|---|---|---|---|
+| `--tscale arc --vcap 1.3` | 2/10 | 5/10 | 4/10 | 5/10 | 16/40 | 2.4 / 5.7 m/s |
+| `+ --select consistent` | 2/10 | 2/10 | 4/10 | 5/10 | 13/40 | 2.5 / 5.8 m/s |
+
+Ninguna ayuda y las dos quedan apagadas.
+- **El límite de velocidad.** Hace volar mucho más lento (5.7 m/s de media con v_des = 10), pero los
+  choques no bajan. La sobrevelocidad acompaña a los choques; no es su causa.
+- **La elección consistente.** Empeora: mantener el lado de un plan malo no arregla nada.
+- **Lo que queda es la calidad de las predicciones.** Todo apunta a la red.
+
+**Un defecto de la arquitectura.**
+- La red reducía el mapa de características de la MobileNet (4 × 5 celdas × 576 canales) con un
+  promedio global. Eso conserva *qué* hay en la imagen, pero pierde *dónde* está: a la izquierda o a
+  la derecha del rumbo. Es justo lo que hace falta para decidir por qué lado rodear un árbol, y encaja
+  con la indecisión que se ve en el diagnóstico.
+- `--head spatial` reduce cada celda a 32 canales con una convolución 1 × 1 y aplana el mapa, así que
+  la posición se conserva.
+- Sondeo local con los 4 000 datos de la corrida pequeña (15 épocas, validación por entornos): mejor
+  R-WTA de validación 31.5 contra 34.6 con el promedio. Es una señal débil, con pocos datos y mucho
+  sobreajuste.
+- La prueba real es reentrenar desde cero sobre las 78 000 muestras y evaluar.
+
 **Qué decide el siguiente cambio** (según la clase que domine en `diagnose`):
 
 | domina | cambio |

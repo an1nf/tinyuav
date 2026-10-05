@@ -1,2 +1,2 @@
 """nanouav — monocular-depth + ToF obstacle avoidance for nano-UAVs (simulation, training, Gazebo)."""
-__version__ = '0.18.0'
+__version__ = '0.18.1'
