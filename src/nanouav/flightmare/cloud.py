@@ -1,0 +1,165 @@
+"""The Unity scene as the privileged map: point cloud → distance field, ground height, start/goal lines.
+
+The paper gives the expert the environment as a point cloud exported from Unity (Flightmare's
+`PointCloud` request). Here `CloudWorld` wraps those points so that every place that builds a
+`geometry.Field(world)` — the collision check, the global path, the M-H expert, the DAgger labels — works
+unchanged (distance = to the nearest point − resolution / 2, with a k-d tree).
+
+The frame of the .ply written by Unity is not documented (ROS z-up or Unity y-up; relative to the request
+origin or not). `load_cloud` finds it from the request: the box is asked with three different extents, so
+the up axis is the one whose spread matches the requested height, and the offset is the one that puts the
+points' box on the requested box.
+"""
+import json
+import os
+
+import numpy as np
+
+
+def read_ply(fn):
+    """Vertices (N, 3) of an ascii or binary (little/big endian) .ply."""
+    with open(fn, 'rb') as f:
+        header, props, n, fmt = [], [], 0, 'ascii'
+        while True:
+            line = f.readline().decode('ascii', 'ignore').strip()
+            header.append(line)
+            if line.startswith('format'):
+                fmt = line.split()[1]
+            elif line.startswith('element vertex'):
+                n = int(line.split()[2])
+                props = []
+                in_vertex = True
+            elif line.startswith('element'):
+                in_vertex = False
+            elif line.startswith('property') and in_vertex:
+                props.append(line.split()[1:])
+            if line == 'end_header':
+                break
+        names = [p[-1] for p in props]
+        if fmt == 'ascii':
+            data = np.loadtxt(f, max_rows=n, ndmin=2)
+            return data[:, [names.index(a) for a in 'xyz']].astype(np.float64)
+        tmap = {'float': 'f4', 'float32': 'f4', 'double': 'f8', 'float64': 'f8', 'uchar': 'u1', 'uint8': 'u1',
+                'char': 'i1', 'int8': 'i1', 'ushort': 'u2', 'short': 'i2', 'int': 'i4', 'uint': 'u4', 'int32': 'i4'}
+        end = '<' if 'little' in fmt else '>'
+        dt = np.dtype([(p[-1], end + tmap[p[0]]) for p in props])
+        arr = np.frombuffer(f.read(n * dt.itemsize), dt, count=n)
+        return np.stack([arr['x'], arr['y'], arr['z']], 1).astype(np.float64)
+
+
+def to_ros(P, origin, size):
+    """Points as written by Unity → ROS world frame, by matching the requested box. → (points, info)."""
+    P = np.asarray(P, float)
+    origin, size = np.asarray(origin, float), np.asarray(size, float)
+    spread = np.percentile(P, 99.5, axis=0) - np.percentile(P, 0.5, axis=0)
+    # which column is up (ROS z): the one whose spread best matches size[2], the vertical extent asked for
+    up = int(np.argmin(np.abs(spread - size[2]) / size[2]))
+    if up == 1:                                            # Unity order (x, y_up, z) → ROS (x, z, y)
+        Q, frame = P[:, [0, 2, 1]], 'unity'
+    else:
+        Q, frame = P.copy(), 'ros'
+    lo, hi = Q.min(0), Q.max(0)
+    want_lo = origin - size / 2
+    shift = np.zeros(3)
+    for k in range(3):                                     # relative to the request origin? → shift it back
+        if not (want_lo[k] - 1.0 <= lo[k] and hi[k] <= want_lo[k] + size[k] + 1.0):
+            shift[k] = (origin[k] - (lo[k] + hi[k]) / 2) if k < 2 else (want_lo[k] - lo[k])
+    Q = Q + shift
+    return Q, {'frame': frame, 'up_column': up, 'shift': shift.round(3).tolist(), 'spread': spread.round(2).tolist()}
+
+
+class CloudWorld:
+    """Stand-in for a renderer World: no primitives, a point cloud (geometry.Field reads `points`)."""
+
+    def __init__(self, points, resolution=0.15, name='flightmare'):
+        from scipy.spatial import cKDTree
+        self.points = np.asarray(points, float)
+        self.res, self.name = float(resolution), name
+        self.tree = cKDTree(self.points)
+        # outside the mapped box nothing is known: treat its vertical sides as walls (no plan leaves the map)
+        self.lo, self.hi = self.points[:, :2].min(0), self.points[:, :2].max(0)
+        self.objects, self.ground = [], None
+        self.sun, self.ambient, self.diffuse, self.sky = (0.5, -0.1, 0.9), 0.35, 0.75, (0.72, 0.6)
+        self._ground = None
+
+    def distance(self, P):
+        P = np.asarray(P, float).reshape(-1, 3)
+        d, _ = self.tree.query(P, k=1, distance_upper_bound=30.0)
+        d = np.where(np.isfinite(d), d, 30.0) - self.res / 2
+        wall = np.minimum(P[:, :2] - self.lo, self.hi - P[:, :2]).min(1)
+        return np.minimum(d, wall)
+
+    def clearance(self, p):
+        return float(self.distance(np.asarray(p, float)[None])[0])
+
+    # ground height (lowest points per cell), to fly at a fixed height above the terrain
+    def ground_map(self, cell=1.0):
+        if self._ground is None:
+            P = self.points
+            x0, y0 = P[:, 0].min(), P[:, 1].min()
+            ix, iy = ((P[:, 0] - x0) / cell).astype(int), ((P[:, 1] - y0) / cell).astype(int)
+            G = np.full((ix.max() + 1, iy.max() + 1), np.nan)
+            order = np.argsort(P[:, 2])[::-1]                   # lowest written last
+            G[ix[order], iy[order]] = P[order, 2]
+            self._ground = (x0, y0, cell, G)
+        return self._ground
+
+    def ground_z(self, x, y):
+        x0, y0, cell, G = self.ground_map()
+        i = np.clip(((np.asarray(x) - x0) / cell).astype(int), 0, G.shape[0] - 1)
+        j = np.clip(((np.asarray(y) - y0) / cell).astype(int), 0, G.shape[1] - 1)
+        return G[i, j]
+
+    def save(self, fn, meta=None):
+        np.savez_compressed(fn, points=self.points.astype(np.float32), res=self.res, meta=json.dumps(meta or {}))
+
+    @staticmethod
+    def load(fn):
+        z = np.load(fn)
+        w = CloudWorld(z['points'], float(z['res']), os.path.splitext(os.path.basename(fn))[0])
+        w.meta = json.loads(str(z['meta']))
+        return w
+
+
+def find_lines(world, n=10, length=40.0, z_above=1.5, clear=1.2, max_terrain=1.0, seed=0, heading=0.0,
+               margin=5.0):
+    """Start → goal segments of `length` m along `heading` inside the cloud: clear start, terrain variation
+    along the line ≤ max_terrain, and a collision-free global path (our planner on the cloud). → list of
+    dicts (start, goal, ground)."""
+    from nanouav.agile.envs import Env
+    from nanouav.agile.expert import global_plan
+    rng = np.random.default_rng(seed)
+    P = world.points
+    lo, hi = P.min(0) + margin, P.max(0) - margin
+    d = np.array([np.cos(heading), np.sin(heading)])
+    out, tries = [], 0
+    while len(out) < n and tries < 400 * n:
+        tries += 1
+        a = rng.uniform(lo[:2], hi[:2])
+        b = a + d * length
+        if not (lo[0] <= b[0] <= hi[0] and lo[1] <= b[1] <= hi[1]):
+            continue
+        s = np.linspace(0, 1, 41)[:, None]
+        xy = a + s * (b - a)
+        g = world.ground_z(xy[:, 0], xy[:, 1])
+        if np.isnan(g).any() or np.ptp(g) > max_terrain:
+            continue
+        z = float(np.median(g) + z_above)
+        A, B = np.r_[a, z], np.r_[b, z]
+        if world.clearance(A) < clear:
+            continue
+        env = Env(f'{world.name}_l{len(out)}', world, A, B, {'ground': float(np.median(g))}, True)
+        try:
+            global_plan(env, 3.0, straight=False)
+        except RuntimeError:
+            continue
+        if any(np.linalg.norm(np.asarray(o['start'][:2]) - a) < 4.0 for o in out):
+            continue
+        out.append({'start': A.round(3).tolist(), 'goal': B.round(3).tolist(), 'ground': round(float(np.median(g)), 3)})
+    return out
+
+
+def line_env(world, line, i=0):
+    from nanouav.agile.envs import Env
+    return Env(f'{world.name}_l{i}', world, np.asarray(line['start'], float), np.asarray(line['goal'], float),
+               {'ground': line.get('ground', 0.0)}, True)

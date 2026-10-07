@@ -194,6 +194,9 @@ class Rollout:
         self._v_des = self._v_ref = cfg.v_des
         self.trace = None            # a list → per student decision: hypotheses, costs, choice, true clearance
         self.trace_depth = False     # also keep the network's depth input in the trace (videos)
+        # an external renderer instead of ours: f(p, yaw, pitch, roll) → (gray, SGM depth, true depth[, rgb]),
+        # e.g. Flightmare (nanouav.flightmare.run.FlightmareObserver)
+        self.observer = None
 
     # ── plans ─────────────────────────────────────────────────────────────
     def _fit(self, P, p, v, a, v_des):
@@ -262,8 +265,11 @@ class Rollout:
                 depth = cam = None
                 need_depth = self.label or self.pilot in ('student', 'dagger')
                 if need_depth or M.needs_camera:
-                    obs = observe_full(M.render_world(), cfg.rig, p, yaw, pitch, roll, self.rng,
-                                       rgb=getattr(M, 'needs_rgb', False))
+                    if self.observer is not None:
+                        obs = self.observer(p, yaw, pitch, roll)
+                    else:
+                        obs = observe_full(M.render_world(), cfg.rig, p, yaw, pitch, roll, self.rng,
+                                           rgb=getattr(M, 'needs_rgb', False))
                     gray, depth_full, depth_gt = obs[:3]
                     depth = downsample_depth(depth_full, cfg.net_size)
                     cam = {'gray': gray, 'depth': depth_full, 'depth_gt': depth_gt, 'pose': (p, yaw, pitch, roll),
@@ -306,6 +312,8 @@ class Rollout:
                                            'att': [round(float(yaw), 4), round(float(pitch), 4), round(float(roll), 4)]})
                         if self.trace_depth:
                             self.trace[-1]['depth'] = np.round(depth * 1000).astype(np.uint16)
+                            if self.observer is not None:
+                                self.trace[-1]['gray'] = gray     # the external renderer's left image
                 else:
                     new = self.plan_ref(ref, p, v, a0, t)
                 pending.append((t + cfg.latency, new, yaw_hold))   # computed from the state at capture time t

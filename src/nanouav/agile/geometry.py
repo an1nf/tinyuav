@@ -31,6 +31,8 @@ class Field:
     """Precomputed primitive arrays for fast batched queries (cylinders and boxes dominate the worlds)."""
 
     def __init__(self, world, ground=True):
+        # a Flightmare scene (nanouav.flightmare.cloud.CloudWorld): distances to its point cloud
+        self.cloud = world if hasattr(world, 'points') and hasattr(world, 'distance') else None
         self.ground = ground and world.ground is not None
         cyl = [o for o in world.objects if isinstance(o, Cylinder)]
         self.cyl = np.array([[o.cx, o.cy, o.r, o.z0, o.z1] for o in cyl], float).reshape(-1, 5)
@@ -40,8 +42,11 @@ class Field:
 
     def local(self, center, radius):
         """Copy restricted to the primitives that can be within `radius` of `center` (faster queries)."""
+        if self.cloud is not None:
+            return self
         c = np.asarray(center, float)
         f = object.__new__(Field)
+        f.cloud = None
         f.ground = self.ground
         if len(self.cyl):
             near = np.hypot(self.cyl[:, 0] - c[0], self.cyl[:, 1] - c[1]) - self.cyl[:, 2] < radius
@@ -61,6 +66,8 @@ class Field:
         return out
 
     def _query(self, P):
+        if self.cloud is not None:
+            return self.cloud.distance(P)
         d = P[:, 2].copy() if self.ground else np.full(len(P), np.inf)
         if len(self.cyl):
             C = self.cyl

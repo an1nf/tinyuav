@@ -57,6 +57,16 @@ def _topdown(env, log_xy, d, p, yaw, size=720, span=20.0, result=None):
         cv2.line(img, px(cx - span, g), px(cx + span, g), (230, 230, 230), 1)
     gx = env.goal[0]
     cv2.line(img, px(gx, cy - span), px(gx, cy + span), CYAN, 2)
+    if hasattr(env.world, 'points'):                       # Flightmare scene: its point cloud near the flight height
+        P = env.world.points
+        k = (np.abs(P[:, 0] - cx) < span / 2) & (np.abs(P[:, 1] - cy) < span / 2) & (np.abs(P[:, 2] - p[2]) < 0.8)
+        Q = P[k][::max(1, int(k.sum() // 30000)), :2]
+        U = np.round((Q[:, 0] - cx) * s + size / 2).astype(int)
+        V = np.round(size / 2 - (Q[:, 1] - cy) * s).astype(int)
+        for du in (0, 1):
+            for dv in (0, 1):
+                m = (U + du >= 0) & (U + du < size) & (V + dv >= 0) & (V + dv < size)
+                img[V[m] + dv, U[m] + du] = (70, 70, 70)
     for o in env.world.objects:
         if hasattr(o, 'cx') and abs(o.cx - cx) < span and abs(o.cy - cy) < span:
             cv2.circle(img, px(o.cx, o.cy), max(int(o.r * s), 1), (90, 90, 90), -1, cv2.LINE_AA)
@@ -148,7 +158,12 @@ def render_episode(env, log, trace, rig, net_size, fn, fps=15.0, chase=True, res
         yaw = d['att'][0] if d is not None else math.atan2(v[1], v[0])
         last = i == len(times) - 1
         top = _topdown(env, L[:j + 1:2, 1:3], d, p, yaw, result=result if last else None)
-        right = np.vstack([_onboard(d, rig, net_size), _chase(env, p, yaw) if chase else np.full((360, 480, 3), 60, np.uint8)])
+        if d is not None and 'gray' in d:                  # external renderer (Flightmare): its left image
+            low = cv2.cvtColor(cv2.resize(d['gray'], (480, 360)), cv2.COLOR_GRAY2BGR)
+            cv2.putText(low, 'camara izquierda (Flightmare)', (8, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        else:
+            low = _chase(env, p, yaw) if chase else np.full((360, 480, 3), 60, np.uint8)
+        right = np.vstack([_onboard(d, rig, net_size), low])
         frame = np.hstack([top, right])
         info = f'{title}  t={t:5.2f} s  |v|={np.linalg.norm(v):4.1f} m/s'
         if d is not None:

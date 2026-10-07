@@ -3,6 +3,22 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.19.0] — 2026-10-07
+
+Sin cambios en los resultados existentes.
+
+### Añadido
+- R22 · Flightmare como renderizador (`nanouav.flightmare`, `nanouav run r22`):
+  - puente ZMQ en Python con el ejecutable de Unity (binarios 2020 y 2022);
+  - par estéreo de `StereoRig`;
+  - nube de puntos de la escena como mapa privilegiado (`CloudWorld`, que acepta `geometry.Field`);
+  - líneas de vuelo encontradas en la nube;
+  - `probe`, que comprueba las convenciones y escribe `calib.json`;
+  - `eval`, `video` y un reproductor de Unity falso (`fake`) para probarlo todo sin Unity.
+  Extra `flightmare` (pyzmq). Informe: `docs/research/R22_flightmare.md`.
+- `Rollout.observer`: un renderizador externo en lugar del nuestro. `r18 video` dibuja la nube y la
+  imagen del renderizador externo.
+
 ## [0.18.1] — 2026-10-05
 
 Sin cambios en los resultados: los modelos guardados conservan su arquitectura.
