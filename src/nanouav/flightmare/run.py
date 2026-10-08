@@ -41,8 +41,62 @@ def _calib(a):
     return json.load(open(fn)) if os.path.exists(fn) else {}
 
 
+_UNITY = None
+
+
+def _kill_players(name):
+    """Terminate running players: processes whose argv[0] ends with `name` (not ours: our own command line
+    contains the path too, so no `pkill -f`)."""
+    import signal
+    killed = False
+    for d in os.listdir('/proc'):
+        if not d.isdigit() or int(d) in (os.getpid(), os.getppid()):
+            continue
+        try:
+            argv0 = open(f'/proc/{d}/cmdline', 'rb').read().split(b'\0')[0].decode(errors='ignore')
+        except OSError:
+            continue
+        if argv0.endswith(name):
+            try:
+                os.kill(int(d), signal.SIGTERM)
+                killed = True
+            except OSError:
+                pass
+    if killed:
+        time.sleep(2.0)
+
+
+def _launch_unity(a):
+    """Start the Unity player for this command (--unity or $NANOUAV_FLIGHTMARE): after a client leaves, the
+    player waits 10 s, reloads its menu scene and has to reconnect; a fresh player per command avoids that."""
+    global _UNITY
+    exe = a.unity or os.environ.get('NANOUAV_FLIGHTMARE', '')
+    if not exe or _UNITY is not None:
+        return
+    import atexit
+    import subprocess
+    exe = os.path.expanduser(exe)
+    if not os.path.exists(exe):
+        raise SystemExit(f'Unity player not found: {exe}')
+    _kill_players(os.path.basename(exe))                                        # a stale player holds the ports
+    logf = open(os.path.join(_out(a), 'unity.log'), 'w')
+    _UNITY = subprocess.Popen([exe, '-input-port', str(a.pub_port), '-output-port', str(a.sub_port),
+                               '-client-ip', '127.0.0.1'], stdout=logf, stderr=subprocess.STDOUT)
+    print(f'started {exe} (pid {_UNITY.pid}, log {logf.name})')
+
+    def _stop():
+        if _UNITY.poll() is None:
+            _UNITY.terminate()
+            try:
+                _UNITY.wait(10)
+            except Exception:
+                _UNITY.kill()
+    atexit.register(_stop)
+
+
 def make_client(a, calib=None, stereo=True):
     from nanouav.flightmare.bridge import FlightmareClient
+    _launch_unity(a)
     sid, off = SCENES[a.binary][a.scene]
     c = calib or {}
     cl = FlightmareClient(scene_id=sid, render_offset=off, fov_deg=c.get('fov_deg', 73.74),
@@ -263,7 +317,8 @@ def cmd_lines(a):
     from nanouav.flightmare.cloud import find_lines
     out = _out(a)
     w = _world(a)
-    L = find_lines(w, n=a.n, length=a.length, z_above=a.z_above, seed=a.seed, heading=math.radians(a.heading))
+    L = find_lines(w, n=a.n, length=a.length, z_above=a.z_above, seed=a.seed, heading=math.radians(a.heading),
+                   max_terrain=a.max_terrain, check_v=a.check_v, log=lambda m: print(m, flush=True))
     json.dump(L, open(os.path.join(out, f'lines_{a.scene}.json'), 'w'), indent=1)
     # top view: points 0.5–3 m above the ground, and the lines
     P = w.points
@@ -389,7 +444,10 @@ def main(argv=None):
     p.add_argument('--n', type=int, default=10)
     p.add_argument('--length', type=float, default=40.0)
     p.add_argument('--z-above', type=float, default=1.5)
-    p.add_argument('--heading', type=float, default=0.0, help='deg')
+    p.add_argument('--heading', type=float, default=0.0, help='deg (keep 0: the planner goal is x ≥ goal.x)')
+    p.add_argument('--max-terrain', type=float, default=1.0, help='max ground height change along a line (m)')
+    p.add_argument('--check-v', type=float, default=3.0, help='keep a line only if τ_gbl flies it at this speed '
+                   '(0: no check)')
     p.add_argument('--seed', type=int, default=0)
     for name in ('eval', 'video'):
         p = sub.add_parser(name)
@@ -418,6 +476,8 @@ def main(argv=None):
         q.add_argument('--vehicle-size', type=float, default=0.01,
                        help='scale of the drone mesh (1 = full size, in view of the cameras)')
         q.add_argument('--depth-far', type=float, default=100.0, help='far clip plane of the depth layer (m)')
+        q.add_argument('--unity', default='', help='path of RPG_Flightmare.x86_64: start (and stop) the player '
+                       'for this command (default $NANOUAV_FLIGHTMARE; empty: start it yourself)')
     a = ap.parse_args(argv)
     if a.scene not in SCENES[a.binary]:
         raise SystemExit(f'scene {a.scene!r} is not in the {a.binary} binary: {sorted(SCENES[a.binary])}')

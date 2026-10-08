@@ -136,7 +136,9 @@ class FlightmareClient:
                 if isinstance(m, dict) and len(m) <= 1 and m.get('ready'):
                     self.ready = True
                     return True
-        raise TimeoutError('Flightmare did not answer: is the Unity standalone (RPG_Flightmare.x86_64) running?')
+        raise TimeoutError('Flightmare did not answer. Is the Unity player (RPG_Flightmare.x86_64) running? After a '
+                           'previous command it returns to its menu and may not reconnect: restart it, or pass '
+                           '--unity <path> (or set NANOUAV_FLIGHTMARE) so each command starts its own')
 
     def render(self, p, R):
         """Body position p (3,) and rotation R (3 × 3, body → world, ROS) → dict(left, right uint8 (H, W, C),

@@ -3,6 +3,19 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.19.3] — 2026-10-08
+
+Sin cambios en los resultados de R18–R21.
+
+### Corregido
+- `find_lines` aceptaba rutas globales de la búsqueda de respaldo, a 2 cm del mapa: τ_gbl chocó en la única
+  línea del bosque real. Ahora exige inflado completo, salida y meta libres y que τ_gbl la vuele
+  (`lines --check-v`, `--max-terrain`), e informa los rechazos.
+
+### Añadido
+- `--unity <ruta>` / `$NANOUAV_FLIGHTMARE`: cada comando de r22 abre su propio reproductor de Unity y lo
+  cierra al terminar (el reproductor no siempre se reconecta después de volver al menú).
+
 ## [0.19.2] — 2026-10-08
 
 Sin cambios en los resultados de R18–R21.

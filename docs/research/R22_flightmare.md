@@ -1,6 +1,6 @@
 # R22 · El estudiante de R18 en Flightmare
 
-*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1; mapa por escaneo en 0.19.2) · sobre R18.*
+*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1; mapa por escaneo en 0.19.2; líneas verificadas en 0.19.3) · sobre R18.*
 
 ## La idea
 
@@ -66,6 +66,21 @@ Hay dos límites:
 - lo que ninguna pose ve falta en el mapa;
 - la pasada de profundidad dibuja las hojas como triángulos sólidos (se ven en `probe.png`), así que las
   copas salen más grandes de lo que son y el experto las esquiva de más.
+
+## Líneas verificadas y Unity por comando (0.19.3)
+
+Con el mapa escaneado del bosque real, `lines` encontró una línea (a lo largo del río) y τ_gbl chocó en
+ella a 3 m/s, a los 14.8 s. `find_lines` aceptaba la ruta global con la búsqueda de respaldo, que baja el
+inflado hasta 2 cm del mapa. Ahora una línea se acepta solo si:
+- la salida y la meta tienen 1.2 m libres;
+- hay ruta con el inflado completo;
+- **τ_gbl la vuela sin chocar** (`--check-v 3`; 0 lo desactiva).
+
+`lines` informa por qué rechazó cada candidata.
+
+El reproductor de Unity vuelve a su menú 10 s después de que un cliente se va, y no siempre se reconecta. Con
+`--unity ~/flightmare_unity/RPG_Flightmare.x86_64` (o `export NANOUAV_FLIGHTMARE=…`), cada comando abre
+su propio reproductor y lo cierra al terminar. El registro queda en `results/r22/unity.log`.
 
 ## Cómo correrlo
 

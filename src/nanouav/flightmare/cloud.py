@@ -146,44 +146,68 @@ class CloudWorld:
 
 
 def find_lines(world, n=10, length=40.0, z_above=1.5, clear=1.2, max_terrain=1.0, seed=0, heading=0.0,
-               margin=5.0):
-    """Start → goal segments of `length` m along `heading` inside the cloud: clear start, terrain variation
-    along the line ≤ max_terrain, and a collision-free global path (our planner on the cloud). → list of
-    dicts (start, goal, ground)."""
+               margin=5.0, check_v=3.0, max_tries=None, log=None):
+    """Start → goal segments of `length` m inside the cloud: clear start and goal, terrain variation along
+    the line ≤ max_terrain, a global path with the full inflation (no fine-grid fallback, which accepted
+    paths 2 cm from the cloud), and (check_v > 0) the privileged global pilot τ_gbl flying it at check_v
+    without crashing. Only heading ≈ 0 is safe: the global planner's goal is the plane x ≥ goal.x.
+    → list of dicts (start, goal, ground, heading)."""
     from nanouav.agile.envs import Env
-    from nanouav.agile.expert import global_plan
+    from nanouav.agile.expert import _global_plan, RQ
     rng = np.random.default_rng(seed)
     P = world.points
     lo, hi = P.min(0) + margin, P.max(0) - margin
-    d = np.array([np.cos(heading), np.sin(heading)])
-    out, tries = [], 0
-    while len(out) < n and tries < 400 * n:
+    out, tries, stats = [], 0, {'terrain': 0, 'clear': 0, 'plan': 0, 'gbl': 0}
+    max_tries = max_tries or 400 * n
+    while len(out) < n and tries < max_tries:
         tries += 1
+        h = heading
+        d = np.array([np.cos(h), np.sin(h)])
         a = rng.uniform(lo[:2], hi[:2])
         b = a + d * length
         if not (lo[0] <= b[0] <= hi[0] and lo[1] <= b[1] <= hi[1]):
+            continue
+        if any(np.linalg.norm(np.asarray(o['start'][:2]) - a) < 4.0 for o in out):
             continue
         s = np.linspace(0, 1, 41)[:, None]
         xy = a + s * (b - a)
         g = world.ground_z(xy[:, 0], xy[:, 1])
         if np.isnan(g).any() or np.ptp(g) > max_terrain:
+            stats['terrain'] += 1
             continue
         z = float(np.median(g) + z_above)
         A, B = np.r_[a, z], np.r_[b, z]
-        if world.clearance(A) < clear:
+        if world.clearance(A) < clear or world.clearance(B) < clear:
+            stats['clear'] += 1
             continue
-        env = Env(f'{world.name}_l{len(out)}', world, A, B, {'ground': float(np.median(g))}, True)
-        try:
-            global_plan(env, 3.0, straight=False)
+        line = {'start': A.round(3).tolist(), 'goal': B.round(3).tolist(), 'ground': round(float(np.median(g)), 3),
+                'heading': round(float(h), 4)}
+        env = line_env(world, line, len(out))
+        try:                                           # the full inflation only (no fine-grid fallback)
+            _global_plan(env, 3.0, RQ, 0.2, 0.15, 4.0)
         except RuntimeError:
+            stats['plan'] += 1
             continue
-        if any(np.linalg.norm(np.asarray(o['start'][:2]) - a) < 4.0 for o in out):
-            continue
-        out.append({'start': A.round(3).tolist(), 'goal': B.round(3).tolist(), 'ground': round(float(np.median(g)), 3)})
+        if check_v:
+            from nanouav.agile.rollout import Config, Rollout
+            r = Rollout(env, Config(v_des=check_v, seed=0), 'gbl').run()[0]
+            if not r['success']:
+                stats['gbl'] += 1
+                if log:
+                    log(f"line candidate rejected: gbl {'crash' if r['crashed'] else 'fail'} at {r['time_s']} s")
+                continue
+            line['gbl_min_clearance'] = r['min_clearance_m']
+        out.append(line)
+        if log:
+            log(f'line {len(out)}/{n} after {tries} tries')
+    if log:
+        log(f'rejected: {stats} ({tries} tries)')
     return out
 
 
 def line_env(world, line, i=0):
+    """Env of a start → goal line. Its goal 'line' is the plane through the goal normal to the segment
+    (Env measures progress along x: lines with another heading are flown in a frame turned by it)."""
     from nanouav.agile.envs import Env
     return Env(f'{world.name}_l{i}', world, np.asarray(line['start'], float), np.asarray(line['goal'], float),
                {'ground': line.get('ground', 0.0)}, True)
