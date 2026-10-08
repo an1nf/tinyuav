@@ -3,6 +3,20 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.19.2] — 2026-10-08
+
+Sin cambios en los resultados de R18–R21.
+
+### Añadido
+- `r22 scan`: el mapa privilegiado a partir de las imágenes de profundidad de Unity en una malla de poses
+  (`nanouav.flightmare.scan`). El bosque de 2022 casi no tiene colliders: la petición de nube solo devolvió
+  una lámina bajo el río. Escribe el mismo `cloud_<escena>.npz` y comprueba el mapa con una vista nueva.
+- `FlightmareClient(stereo=False)`: una sola cámara (para escanear). `CloudWorld(inflate=)`, que se guarda
+  en el `.npz`.
+
+### Cambiado
+- `probe` recomienda `scan` cuando la nube sale plana o vacía.
+
 ## [0.19.1] — 2026-10-08
 
 Sin cambios en los resultados de R18–R21. R22: corrige las convenciones de Unity a partir del código del

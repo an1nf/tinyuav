@@ -4,6 +4,7 @@ Start the Unity standalone first (it connects to us), then:
 
   nanouav run r22 probe                      # one stereo pair + depth + point cloud: checks the conventions → calib.json
   nanouav run r22 cloud --origin 30,0,4 --size 80,40,10      # the privileged map of the flight area → cloud.npz
+  nanouav run r22 scan  --origin 30,0,4 --size 80,40,10      # the same map from Unity depth images (no colliders)
   nanouav run r22 lines --n 10               # start → goal lines (40 m) with a collision-free global path → lines.json
   nanouav run r22 eval --model results/r18/student_train.keras --pilots gbl,student --v 3,5,7
   nanouav run r22 video --model results/r18/student_train.keras --v 3 --line 0
@@ -40,12 +41,13 @@ def _calib(a):
     return json.load(open(fn)) if os.path.exists(fn) else {}
 
 
-def make_client(a, calib=None):
+def make_client(a, calib=None, stereo=True):
     from nanouav.flightmare.bridge import FlightmareClient
     sid, off = SCENES[a.binary][a.scene]
     c = calib or {}
     cl = FlightmareClient(scene_id=sid, render_offset=off, fov_deg=c.get('fov_deg', 73.74),
                           depth_mult=c.get('depth_mult'), depth_far=a.depth_far, vehicle_size=a.vehicle_size,
+                          stereo=stereo,
                           pub_port=a.pub_port, sub_port=a.sub_port)
     print(f'waiting for Flightmare ({a.scene}, scene {sid}, {a.binary} binary) on ports {a.pub_port}/{a.sub_port} …')
     cl.connect()
@@ -152,9 +154,10 @@ def cmd_probe(a):
         z_lo, z_hi = np.percentile(P[:, 2], [1, 99])
         calib['cloud'].update(z_range=[round(float(z_lo), 2), round(float(z_hi), 2)])
         if z_hi - z_lo < 1.0:
-            warn.append('the point cloud is a flat sheet (no trees in the box?)')
+            warn.append('the point cloud is a flat sheet: the scene has (almost) no colliders here, '
+                        'build the map with `r22 scan` instead of `r22 cloud`')
     else:
-        warn.append('the point cloud is empty')
+        warn.append('the point cloud is empty: build the map with `r22 scan`')
     pose = (p, math.radians(yaw), 0.0, 0.0)
     res, preds = {}, {}
     for mirror in (False, True):
@@ -212,6 +215,41 @@ def cmd_cloud(a):
     dst = os.path.join(out, f'cloud_{a.scene}.npz')
     w.save(dst, dict(info, origin=origin.tolist(), size=size.tolist(), scene=a.scene, binary=a.binary))
     print(f'{len(P)} points ({info}) → {dst}')
+    cl.close()
+
+
+def cmd_scan(a):
+    """The map from Unity's depth images on a grid of poses (for scenes without colliders) → cloud_<scene>.npz,
+    the same file as `cloud`, so lines / eval / video use it unchanged."""
+    from nanouav.agile.stereo import StereoRig
+    from nanouav.flightmare.cloud import CloudWorld
+    from nanouav.flightmare.scan import scan
+    from nanouav.scene.renderer import body_rot
+    out = _out(a)
+    calib = _calib(a)
+    cl = make_client(a, calib, stereo=False)
+    origin = np.array([float(v) for v in a.origin.split(',')])
+    size = np.array([float(v) for v in a.size.split(',')])
+    heights = [float(v) for v in a.heights.split(',')]
+    pitches = [float(v) for v in a.pitches.split(',')]
+    P, st = scan(cl, origin, size, a.res, a.step, heights, a.yaws, pitches, a.max_range, a.stride)
+    # check: a pose off the grid, its Unity depth against the depth the map predicts
+    p = np.array([origin[0] + a.step / 4, origin[1] + a.step / 4, float(np.mean(heights))])
+    yaw = math.radians(17.0)
+    d = cl.render(p, body_rot(yaw, 0.0, 0.0))['depth_left']
+    rig = StereoRig()
+    pred = predicted_depth(P, rig, (p, yaw, 0.0, 0.0), rig.focal)
+    err, n = compare(pred, d, max_d=15.0)
+    st.update(check_rel_err=round(err, 3), check_n=n)
+    w = CloudWorld(P, a.res, f'{a.scene}', inflate=a.res / 2)
+    dst = os.path.join(out, f'cloud_{a.scene}.npz')
+    w.save(dst, dict(st, source='scan', origin=origin.tolist(), size=size.tolist(), scene=a.scene, binary=a.binary,
+                     step=a.step, heights=heights, yaws=a.yaws, pitches=pitches))
+    print(json.dumps(st))
+    print(f'{len(P)} voxels → {dst}')
+    if not err < 0.1:
+        print(f'WARNING: the map predicts the depth of a new view with {err:.0%} median error (n={n}): '
+              'try a smaller --step or more --heights')
     cl.close()
 
 
@@ -337,6 +375,16 @@ def main(argv=None):
     p.add_argument('--origin', default='30,0,4', help='center of the box (ROS frame)')
     p.add_argument('--size', default='80,40,10', help='extents x,y,z (m)')
     p.add_argument('--res', type=float, default=0.15)
+    p = sub.add_parser('scan')
+    p.add_argument('--origin', default='30,0,4', help='center of the box (ROS frame)')
+    p.add_argument('--size', default='80,40,10', help='extents x,y,z (m)')
+    p.add_argument('--res', type=float, default=0.15)
+    p.add_argument('--step', type=float, default=4.0, help='grid spacing of the camera poses (m)')
+    p.add_argument('--heights', default='1.5,3.0')
+    p.add_argument('--yaws', type=int, default=6)
+    p.add_argument('--pitches', default='-30,0,30', help='deg (positive = nose down)')
+    p.add_argument('--max-range', type=float, default=20.0)
+    p.add_argument('--stride', type=int, default=2, help='pixel stride of the back-projection')
     p = sub.add_parser('lines')
     p.add_argument('--n', type=int, default=10)
     p.add_argument('--length', type=float, default=40.0)
@@ -373,7 +421,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.scene not in SCENES[a.binary]:
         raise SystemExit(f'scene {a.scene!r} is not in the {a.binary} binary: {sorted(SCENES[a.binary])}')
-    return {'probe': cmd_probe, 'cloud': cmd_cloud, 'lines': cmd_lines, 'eval': cmd_eval, 'video': cmd_video,
+    return {'probe': cmd_probe, 'cloud': cmd_cloud, 'scan': cmd_scan, 'lines': cmd_lines, 'eval': cmd_eval, 'video': cmd_video,
             'fake': cmd_fake}[a.cmd](a)
 
 

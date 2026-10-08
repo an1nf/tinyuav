@@ -1,6 +1,6 @@
 # R22 · El estudiante de R18 en Flightmare
 
-*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1) · sobre R18.*
+*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1; mapa por escaneo en 0.19.2) · sobre R18.*
 
 ## La idea
 
@@ -47,6 +47,26 @@ si el terreno sale como lámina o como bloque.
 El reproductor falso imita ahora todo esto: profundidad dividida por el plano lejano, la caja de la nube
 absoluta y la ocupación por radio.
 
+## El mapa por escaneo de profundidad (0.19.2)
+
+El segundo probe con el Unity real confirmó la malla oculta (16 niveles de gris de diferencia
+izquierda–derecha, 44 % de píxeles con SGM) y la escala de la profundidad (SGM / Unity = 96 frente a 100
+esperado). Pero la nube, ya pedida en el sitio correcto, solo trae 3452 puntos: una lámina de 17 × 18 m a
+z ≈ −1.8 m, bajo el río, sin árboles ni orillas. **El bosque de 2022 casi no tiene colliders**: se hizo para
+agile_flight, donde los obstáculos son objetos que se agregan a la escena y los choques se calculan con la
+lista de esos objetos, no con la escena.
+
+`r22 scan` construye el mapa con lo que Unity dibuja. Pone la cámara en una malla de poses (cada 4 m, a 1.5
+y 3 m, 6 rumbos, cabeceo −30°, 0° y 30°) y retroproyecta cada imagen de profundidad, que es exacta, a puntos
+del mundo. Después agrupa los puntos en vóxeles de 15 cm. Escribe el mismo `cloud_<escena>.npz` que `r22 cloud`, así
+que `lines`, `eval` y `video` no cambian. Al final predice desde el mapa la profundidad de una vista fuera
+de la malla y la compara con la de Unity (con el falso: 4.9 %).
+
+Hay dos límites:
+- lo que ninguna pose ve falta en el mapa;
+- la pasada de profundidad dibuja las hojas como triángulos sólidos (se ven en `probe.png`), así que las
+  copas salen más grandes de lo que son y el experto las esquiva de más.
+
 ## Cómo correrlo
 
 ```bash
@@ -58,7 +78,8 @@ unzip RPG_Flightmare.zip -d ~/flightmare_unity && chmod +x ~/flightmare_unity/RP
 ~/flightmare_unity/RPG_Flightmare.x86_64 &        # se conecta a nosotros; dejarlo abierto
 
 nanouav run r22 probe                             # → results/r22/probe.png, calib.json
-nanouav run r22 cloud --origin 30,0,4 --size 80,30,10   # el mapa de la zona de vuelo
+nanouav run r22 scan --origin 30,0,4 --size 80,40,10    # el mapa de la zona de vuelo (bosque de 2022)
+# nanouav run r22 cloud ...                       # solo en escenas con colliders
 nanouav run r22 lines --n 10                      # → lines_forest.json, lines_forest.png
 nanouav run r22 eval --pilots gbl --v 3 --n 10    # control: con el mapa correcto, τ_gbl ≈ 100 %
 nanouav run r22 eval --model results/r18/student_train.keras --pilots student --v 3,5,7 --n 10

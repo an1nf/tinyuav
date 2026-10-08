@@ -72,10 +72,12 @@ def to_ros(P, origin, size):
 class CloudWorld:
     """Stand-in for a renderer World: no primitives, a point cloud (geometry.Field reads `points`)."""
 
-    def __init__(self, points, resolution=0.15, name='flightmare'):
+    def __init__(self, points, resolution=0.15, name='flightmare', inflate=0.0):
+        """inflate: subtracted from the nearest-point distance (0 for Unity's PointCloud, whose voxels are
+        already inflated one resolution; res / 2 for surface points voxelised by `scan`)."""
         from scipy.spatial import cKDTree
         self.points = np.asarray(points, float)
-        self.res, self.name = float(resolution), name
+        self.res, self.name, self.inflate = float(resolution), name, float(inflate)
         self.tree = cKDTree(self.points)
         # outside the mapped box nothing is known: treat its vertical sides as walls (no plan leaves the map)
         self.lo, self.hi = self.points[:, :2].min(0), self.points[:, :2].max(0)
@@ -86,7 +88,7 @@ class CloudWorld:
     def distance(self, P):
         P = np.asarray(P, float).reshape(-1, 3)
         d, _ = self.tree.query(P, k=1, distance_upper_bound=30.0)
-        d = np.where(np.isfinite(d), d, 30.0)
+        d = np.where(np.isfinite(d), d, 30.0) - self.inflate
         wall = np.minimum(P[:, :2] - self.lo, self.hi - P[:, :2]).min(1)
         return np.minimum(d, wall)
 
@@ -131,12 +133,14 @@ class CloudWorld:
         return G[i, j]
 
     def save(self, fn, meta=None):
-        np.savez_compressed(fn, points=self.points.astype(np.float32), res=self.res, meta=json.dumps(meta or {}))
+        np.savez_compressed(fn, points=self.points.astype(np.float32), res=self.res, inflate=self.inflate,
+                            meta=json.dumps(meta or {}))
 
     @staticmethod
     def load(fn):
         z = np.load(fn)
-        w = CloudWorld(z['points'], float(z['res']), os.path.splitext(os.path.basename(fn))[0])
+        w = CloudWorld(z['points'], float(z['res']), os.path.splitext(os.path.basename(fn))[0],
+                       float(z['inflate']) if 'inflate' in z.files else 0.0)
         w.meta = json.loads(str(z['meta']))
         return w
 

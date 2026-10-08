@@ -117,3 +117,43 @@ def test_probe_with_fake_player(tmp_path):
     assert c['depth_mult'] == 100.0 and c['fov_is'] == 'vertical' and not c['y_mirror']
     assert c['checks'][c['best']]['unity_rel_err'] < 0.1
     assert (tmp_path / 'probe.png').exists() and (tmp_path / 'probe.npz').exists()
+
+
+def test_backprojection_lands_on_the_surfaces(unity):
+    from nanouav.agile.geometry import Field
+    from nanouav.flightmare.scan import backproject
+    from nanouav.scene.renderer import body_rot
+    cl, env = unity
+    F = Field(env.world)
+    for yaw, pitch in ((0.0, 0.0), (0.7, 0.4), (-1.2, -0.3)):
+        p, R = np.array([2.0, -1.0, 1.6]), body_rot(yaw, pitch, 0.0)
+        P = backproject(cl.render(p, R)['depth_left'], R, p, cl.T_left, cl.fov, 15.0)
+        assert len(P) > 1000 and np.median(np.abs(F(P))) < 0.05
+
+
+def test_scan_map_and_lines(tmp_path):
+    from nanouav.agile.rollout import Config, Rollout
+    from nanouav.flightmare.cloud import line_env
+    from nanouav.flightmare.scan import scan
+    pub, sub = next(PORTS), next(PORTS)
+    env = EV.TEST['forest'](1000)
+    cl = B.FlightmareClient(scene_id=2, render_offset=(21.0, 217.0, 94.0), pub_port=pub, sub_port=sub,
+                            stereo=False, timeout_s=20)
+    fake = FakeUnity(env.world, pub, sub).start()
+    try:
+        cl.connect()
+        origin, size = np.array([16.0, 0.0, 3.0]), np.array([32.0, 16.0, 6.0])
+        P, st = scan(cl, origin, size, 0.15, step=4.0, heights=(1.5,), yaws=4, pitches=(0.0,), log=lambda *_: None)
+    finally:
+        cl.close()
+        fake.stop()
+    assert st['frames'] == 8 * 4 * 4
+    w = CloudWorld(P, 0.15, inflate=0.075)
+    rng = np.random.default_rng(0)
+    Q = np.c_[rng.uniform(4, 28, 400), rng.uniform(-6, 6, 400), rng.uniform(0.5, 3, 400)]
+    from nanouav.agile.geometry import Field
+    true = Field(env.world)(Q)
+    near = true < 3.0
+    assert np.median(np.abs(w.distance(Q[near]) - true[near])) < 0.15     # the map matches the world
+    L = find_lines(w, n=1, length=20.0, seed=0)
+    assert L and Rollout(line_env(w, L[0]), Config(v_des=4.0, seed=0), 'gbl').run()[0]['success']

@@ -83,7 +83,7 @@ class FlightmareClient:
     def __init__(self, scene_id=2, render_offset=(0.0, 0.0, 0.0), width=320, height=240, fov_deg=73.74,
                  baseline=0.10, cam_offset=(0.10, 0.0, 0.0), depth=True, channels=3, pub_port=10253,
                  sub_port=10254, address='tcp://*', object_csv=None, depth_mult=None, depth_far=100.0,
-                 vehicle_size=0.01, timeout_s=60.0):
+                 vehicle_size=0.01, stereo=True, timeout_s=60.0):
         import zmq
         self.zmq = zmq
         self.ctx = zmq.Context.instance()
@@ -104,7 +104,9 @@ class FlightmareClient:
         if object_csv is None:                                 # the 2022 binary reads this file: give it an empty one
             object_csv = os.path.abspath(os.path.join(os.path.expanduser('~'), '.nanouav_flightmare_empty.csv'))
             open(object_csv, 'a').close()
-        cams = [self._camera('quadrotor0_0', self.T_left, 0), self._camera('quadrotor0_1', self.T_right, 1)]
+        cams = [self._camera('quadrotor0_0', self.T_left, 0)]
+        if stereo:                                             # False: the left camera only (map scans)
+            cams.append(self._camera('quadrotor0_1', self.T_right, 1))
         self.vehicle = {'ID': 'quadrotor0', 'position': [0.0, 0.0, 0.0], 'rotation': [0.0, 0.0, 0.0, 1.0],
                         'size': [float(vehicle_size)] * 3, 'cameras': cams, 'lidars': [], 'hasCollisionCheck': False}
         self.settings = {'scene_id': int(scene_id), 'vehicles': [self.vehicle], 'objects': [], 'dynamic_objects': [],
@@ -160,7 +162,8 @@ class FlightmareClient:
                 i += 1
             imgs.append((rgb, dep))
         coll = bool(m.get('pub_vehicles', [{}])[0].get('collision', False)) if m.get('pub_vehicles') else False
-        return {'left': imgs[0][0], 'right': imgs[1][0], 'depth_left': imgs[0][1], 'depth_right': imgs[1][1],
+        right = imgs[1] if len(imgs) > 1 else (None, None)
+        return {'left': imgs[0][0], 'right': right[0], 'depth_left': imgs[0][1], 'depth_right': right[1],
                 'collision': coll}
 
     def point_cloud(self, origin, size, resolution=0.15, path=None, name='scene', timeout_s=600.0):
