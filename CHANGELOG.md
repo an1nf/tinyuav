@@ -3,6 +3,19 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.19.4] — 2026-10-08
+
+Sin cambios en los resultados de R18–R21. R18: cabeza espacial (ImageNet) 7/9/6/1 de 10 a 3/5/7/10 m/s = 23/40
+(22/30 entre 3 y 7 m/s, el mejor resultado hasta ahora en ese rango; 1/10 a 10 m/s).
+
+### Añadido
+- `Rollout.record_cam`: con traza, los pilotos privilegiados también observan y graban sus cuadros. `r22 video
+  --pilot gbl|expert` muestra la cámara de Flightmare, el SGM y el plan del piloto.
+- Choques en r22: punto del mapa golpeado, su altura sobre el suelo y cuántas vistas del escaneo lo vieron
+  (`eval`, `video`; cruz roja en el video).
+- `scan --min-hits` (2): descarta los vóxeles aislados; `CloudWorld.hits` se guarda en el `.npz`.
+- `r22 survey`: mosaico cenital de la escena (color y altura), para elegir la zona de escaneo.
+
 ## [0.19.3] — 2026-10-08
 
 Sin cambios en los resultados de R18–R21.

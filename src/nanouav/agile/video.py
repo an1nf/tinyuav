@@ -44,7 +44,7 @@ def _to_h264(fn):
     return fn
 
 
-def _topdown(env, log_xy, d, p, yaw, size=720, span=20.0, result=None):
+def _topdown(env, log_xy, d, p, yaw, size=720, span=20.0, result=None, mark=None):
     img = np.full((size, size, 3), 245, np.uint8)
     s = size / span
     cx, cy = p[0] + 0.3 * span * math.cos(yaw), p[1] + 0.3 * span * math.sin(yaw)
@@ -87,6 +87,9 @@ def _topdown(env, log_xy, d, p, yaw, size=720, span=20.0, result=None):
            px(p[0] + 0.35 * math.cos(yaw - 2.5), p[1] + 0.35 * math.sin(yaw - 2.5))]
     cv2.fillPoly(img, [np.array(tip, np.int32)], ORANGE, cv2.LINE_AA)
     cv2.putText(img, '5 m', (size - 60, size - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, GRAY, 1)
+    if mark is not None:                                   # the obstacle point the drone hit
+        q = px(mark[0], mark[1])
+        cv2.drawMarker(img, q, (0, 0, 220), cv2.MARKER_TILTED_CROSS, 22, 3, cv2.LINE_AA)
     if result:
         cv2.putText(img, result, (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 0, 200) if 'CHOQUE' in result else (0, 150, 0), 3)
     return img
@@ -113,7 +116,10 @@ def _onboard(d, rig, net_size, w=480, h=360):
             cv2.polylines(img, [np.array(pts, np.int32)], False, col, 3 if k == d['k'] else 1, cv2.LINE_AA)
         if pts:                                    # end of the hypothesis (1 s ahead): at the horizon when level
             cv2.circle(img, pts[-1], 7 if k == d['k'] else 4, col, -1 if k == d['k'] else 1, cv2.LINE_AA)
-    cv2.putText(img, 'lo que ve la red: profundidad SGM (negro = sin dato)', (8, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.5, WHITE, 1)
+    label = 'lo que ve la red: profundidad SGM (negro = sin dato)' if d.get('costs') else \
+        'profundidad SGM (negro = sin dato) | verde: plan'
+    cv2.putText(img, label, (8, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.5, WHITE, 1)
+    cv2.putText(img, '0 m rojo  -  10 m azul', (8, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.45, WHITE, 1)
     return img
 
 
@@ -143,7 +149,7 @@ def _chase(env, p, yaw, w=480, h=360):
     return img
 
 
-def render_episode(env, log, trace, rig, net_size, fn, fps=15.0, chase=True, result=None, title=''):
+def render_episode(env, log, trace, rig, net_size, fn, fps=15.0, chase=True, result=None, title='', mark=None):
     W, H = 720 + 480, 720
     wr = _writer(fn, fps, (W, H))
     times = [d['t'] for d in trace] if trace else list(np.arange(0, log[-1][0], 1 / fps))
@@ -157,7 +163,7 @@ def render_episode(env, log, trace, rig, net_size, fn, fps=15.0, chase=True, res
         d = trace[i] if trace else None
         yaw = d['att'][0] if d is not None else math.atan2(v[1], v[0])
         last = i == len(times) - 1
-        top = _topdown(env, L[:j + 1:2, 1:3], d, p, yaw, result=result if last else None)
+        top = _topdown(env, L[:j + 1:2, 1:3], d, p, yaw, result=result if last else None, mark=mark if last else None)
         if d is not None and 'gray' in d:                  # external renderer (Flightmare): its left image
             low = cv2.cvtColor(cv2.resize(d['gray'], (480, 360)), cv2.COLOR_GRAY2BGR)
             cv2.putText(low, 'camara izquierda (Flightmare)', (8, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
@@ -166,8 +172,10 @@ def render_episode(env, log, trace, rig, net_size, fn, fps=15.0, chase=True, res
         right = np.vstack([_onboard(d, rig, net_size), low])
         frame = np.hstack([top, right])
         info = f'{title}  t={t:5.2f} s  |v|={np.linalg.norm(v):4.1f} m/s'
-        if d is not None:
+        if d is not None and d.get('costs'):
             info += f"  elegida={d['k']}  costos={['%.2f' % c for c in d['costs']]}  beta={d['beta']:.2f}"
+        elif d is not None:
+            info += f"  plan de {d.get('pilot', 'privilegiado')} (1 s)"
         cv2.rectangle(frame, (0, 0), (W, 26), (255, 255, 255), -1)
         cv2.putText(frame, info, (8, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 1, cv2.LINE_AA)
         wr.write(frame)

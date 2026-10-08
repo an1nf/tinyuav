@@ -143,12 +143,12 @@ def test_scan_map_and_lines(tmp_path):
     try:
         cl.connect()
         origin, size = np.array([16.0, 0.0, 3.0]), np.array([32.0, 16.0, 6.0])
-        P, st = scan(cl, origin, size, 0.15, step=4.0, heights=(1.5,), yaws=4, pitches=(0.0,), log=lambda *_: None)
+        P, hits, st = scan(cl, origin, size, 0.15, step=4.0, heights=(1.5,), yaws=4, pitches=(0.0,), log=lambda *_: None)
     finally:
         cl.close()
         fake.stop()
-    assert st['frames'] == 8 * 4 * 4
-    w = CloudWorld(P, 0.15, inflate=0.075)
+    assert st['frames'] == 8 * 4 * 4 and len(hits) == len(P) and hits.min() >= 2
+    w = CloudWorld(P, 0.15, inflate=0.075, hits=hits)
     rng = np.random.default_rng(0)
     Q = np.c_[rng.uniform(4, 28, 400), rng.uniform(-6, 6, 400), rng.uniform(0.5, 3, 400)]
     from nanouav.agile.geometry import Field
@@ -157,3 +157,25 @@ def test_scan_map_and_lines(tmp_path):
     assert np.median(np.abs(w.distance(Q[near]) - true[near])) < 0.15     # the map matches the world
     L = find_lines(w, n=1, length=20.0, seed=0)
     assert L and Rollout(line_env(w, L[0]), Config(v_des=4.0, seed=0), 'gbl').run()[0]['success']
+
+
+def test_privileged_pilot_video_has_camera_frames_and_crash_info(unity, tmp_path):
+    """r22 video for gbl: the trace records the Flightmare frames; a crash names the map point hit."""
+    from nanouav.agile.rollout import Config, Rollout
+    from nanouav.flightmare.cloud import line_env
+    from nanouav.flightmare.run import FlightmareObserver, crash_info
+    cl, env = unity
+    origin, size = np.array([16.0, 0.0, 3.0]), np.array([32.0, 16.0, 6.0])
+    P, _ = cl.cloud_points(origin, size, 0.2, path=str(tmp_path), name='v', timeout_s=60)
+    w = CloudWorld(P, 0.2)
+    L = find_lines(w, n=1, length=20.0, seed=0)
+    R = Rollout(line_env(w, L[0]), Config(v_des=4.0, seed=0), 'gbl')
+    R.observer = FlightmareObserver(cl, R.cfg.rig)
+    R.trace, R.trace_depth, R.record_cam = [], True, True
+    r, _, log = R.run()
+    assert r['success'] and len(R.trace) > 20
+    d = R.trace[5]
+    assert d['gray'].shape == (240, 320) and d['depth'].dtype == np.uint16 and len(d['W']) == 1 and d['costs'] == []
+    tree = next(o for o in env.world.objects if 4 < o.cx < 28 and abs(o.cy) < 6)
+    c = crash_info(w, np.array([tree.cx + tree.r + 0.1, tree.cy, 1.5]))
+    assert c['dist'] < 0.4 and 0.5 < c['above_ground'] < 2.5

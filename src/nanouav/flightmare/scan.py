@@ -22,19 +22,21 @@ import numpy as np
 from nanouav.scene.renderer import body_rot
 
 
-def backproject(depth, R_WB, p, T_BC, fov_v_deg, max_range=20.0, stride=2):
+def backproject(depth, R_WB, p, T_BC, fov_v_deg, max_range=20.0, stride=2, colors=None):
     """Depth image (H, W, metres along the optical axis, top row first) of a Flightmare camera with
-    T_BC (camera → body) on a body at (p, R_WB) → world points (N, 3)."""
+    T_BC (camera → body) on a body at (p, R_WB) → world points (N, 3) [, their colours from `colors`]."""
     H, W = depth.shape
     f = H / 2 / math.tan(math.radians(fov_v_deg) / 2)
     v, u = np.mgrid[0:H:stride, 0:W:stride]
     z = depth[v, u]
     k = (z > 0.05) & (z < max_range)
     u, v, z = u[k], v[k], z[k]
+    col = colors[v, u] if colors is not None else None
     # Flightmare camera frame: x right, y optical axis, z up (see bridge.R_FWD)
     Pc = np.stack([(u + 0.5 - W / 2) / f * z, z, -(v + 0.5 - H / 2) / f * z], 1)
     T = np.asarray(T_BC, float)
-    return (Pc @ T[:3, :3].T + T[:3, 3]) @ np.asarray(R_WB, float).T + np.asarray(p, float)
+    P = (Pc @ T[:3, :3].T + T[:3, 3]) @ np.asarray(R_WB, float).T + np.asarray(p, float)
+    return (P, col) if colors is not None else P
 
 
 def voxel_keys(P, lo, res):
@@ -59,14 +61,23 @@ def poses(origin, size, step=4.0, heights=(1.5, 3.0), yaws=6, pitches=(-30.0, 0.
                         yield np.array([x, y, h]), 2 * math.pi * j / yaws, math.radians(pt)
 
 
+def _merge(keys, hits, new):
+    K = np.concatenate([keys] + new)
+    H = np.concatenate([hits] + [np.ones(len(x), np.int32) for x in new])
+    U, inv = np.unique(K, return_inverse=True)
+    return U, np.bincount(inv, weights=H, minlength=len(U)).astype(np.int32)
+
+
 def scan(client, origin, size, res=0.15, step=4.0, heights=(1.5, 3.0), yaws=6, pitches=(-30.0, 0.0, 30.0),
-         max_range=20.0, stride=2, margin=2.0, log=print):
-    """→ voxel centres (N, 3) of the surfaces seen inside the box (scene frame), stats."""
+         max_range=20.0, stride=2, margin=2.0, min_hits=2, log=print):
+    """→ voxel centres (N, 3) of the surfaces seen inside the box (scene frame), the number of frames that
+    saw each one, stats. Voxels seen by fewer than min_hits frames are dropped (isolated specks: a real
+    surface is seen from many poses of the grid)."""
     origin, size = np.asarray(origin, float), np.asarray(size, float)
     lo = origin - size / 2 - margin
     hi = origin + size / 2 + margin
     T = client.T_left
-    keys, buf, n, t0 = np.zeros(0, np.int64), [], 0, time.time()
+    keys, hits, buf, n, t0 = np.zeros(0, np.int64), np.zeros(0, np.int32), [], 0, time.time()
     todo = list(poses(origin, size, step, heights, yaws, pitches))
     for i, (p, yaw, pitch) in enumerate(todo):
         R = body_rot(yaw, pitch, 0.0)
@@ -76,10 +87,40 @@ def scan(client, origin, size, res=0.15, step=4.0, heights=(1.5, 3.0), yaws=6, p
         buf.append(np.unique(voxel_keys(P, lo, res)))
         n += 1
         if len(buf) >= 100 or i == len(todo) - 1:
-            keys = np.unique(np.concatenate([keys] + buf))
+            keys, hits = _merge(keys, hits, buf)
             buf = []
             el = time.time() - t0
             log(f'scan {i + 1}/{len(todo)} · {len(keys)} voxels · {el:.0f} s · ~{el / (i + 1) * (len(todo) - i - 1):.0f} s left')
     C = key_centres(keys, lo, res)
     inside = np.all((C[:, :2] >= origin[:2] - size[:2] / 2) & (C[:, :2] <= origin[:2] + size[:2] / 2), 1)
-    return C[inside], {'frames': n, 'voxels': int(inside.sum()), 'seconds': round(time.time() - t0, 1)}
+    keep = inside & (hits >= min_hits)
+    return C[keep], hits[keep], {'frames': n, 'voxels': int(keep.sum()), 'dropped_specks': int((inside & ~keep).sum()),
+                                 'seconds': round(time.time() - t0, 1)}
+
+
+def survey(client, center, size, alt=60.0, step=60.0, cell=1.0, log=print):
+    """Top-down views from `alt` m over a size × size m square → (RGB mosaic, height map) on a grid of
+    `cell` m (the colour and height of the highest surface per cell), to choose where to scan and fly."""
+    cx, cy = center
+    n = int(round(size / cell))
+    G = np.full((n, n), np.nan)
+    RGB = np.zeros((n, n, 3), np.uint8)
+    xs = np.arange(cx - size / 2 + step / 2, cx + size / 2, step)
+    ys = np.arange(cy - size / 2 + step / 2, cy + size / 2, step)
+    R = body_rot(0.0, math.pi / 2, 0.0)                     # nose down: the camera looks at the ground
+    for k, (x, y) in enumerate([(x, y) for x in xs for y in ys]):
+        p = np.array([x, y, alt])
+        o = client.render(p, R)
+        P, C = backproject(o['depth_left'], R, p, client.T_left, client.fov, 0.98 * client.depth_far, stride=1,
+                           colors=o['left'])
+        i = ((P[:, 0] - (cx - size / 2)) / cell).astype(int)
+        j = ((P[:, 1] - (cy - size / 2)) / cell).astype(int)
+        m = (i >= 0) & (i < n) & (j >= 0) & (j < n)
+        i, j, P, C = i[m], j[m], P[m], C[m]
+        up = ~(G[i, j] > P[:, 2])                          # only points above what other views already saw
+        i, j, P, C = i[up], j[up], P[up], C[up]
+        order = np.argsort(P[:, 2])                         # highest written last
+        G[i[order], j[order]] = np.fmax(G[i[order], j[order]], P[order, 2])
+        RGB[i[order], j[order]] = C[order]
+        log(f'survey {k + 1}/{len(xs) * len(ys)}')
+    return RGB, G

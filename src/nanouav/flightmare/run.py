@@ -5,6 +5,7 @@ Start the Unity standalone first (it connects to us), then:
   nanouav run r22 probe                      # one stereo pair + depth + point cloud: checks the conventions → calib.json
   nanouav run r22 cloud --origin 30,0,4 --size 80,40,10      # the privileged map of the flight area → cloud.npz
   nanouav run r22 scan  --origin 30,0,4 --size 80,40,10      # the same map from Unity depth images (no colliders)
+  nanouav run r22 survey --size 300          # top-down mosaic of the scene: where to scan and fly
   nanouav run r22 lines --n 10               # start → goal lines (40 m) with a collision-free global path → lines.json
   nanouav run r22 eval --model results/r18/student_train.keras --pilots gbl,student --v 3,5,7
   nanouav run r22 video --model results/r18/student_train.keras --v 3 --line 0
@@ -286,7 +287,8 @@ def cmd_scan(a):
     size = np.array([float(v) for v in a.size.split(',')])
     heights = [float(v) for v in a.heights.split(',')]
     pitches = [float(v) for v in a.pitches.split(',')]
-    P, st = scan(cl, origin, size, a.res, a.step, heights, a.yaws, pitches, a.max_range, a.stride)
+    P, hits, st = scan(cl, origin, size, a.res, a.step, heights, a.yaws, pitches, a.max_range, a.stride,
+                       min_hits=a.min_hits)
     # check: a pose off the grid, its Unity depth against the depth the map predicts
     p = np.array([origin[0] + a.step / 4, origin[1] + a.step / 4, float(np.mean(heights))])
     yaw = math.radians(17.0)
@@ -295,7 +297,7 @@ def cmd_scan(a):
     pred = predicted_depth(P, rig, (p, yaw, 0.0, 0.0), rig.focal)
     err, n = compare(pred, d, max_d=15.0)
     st.update(check_rel_err=round(err, 3), check_n=n)
-    w = CloudWorld(P, a.res, f'{a.scene}', inflate=a.res / 2)
+    w = CloudWorld(P, a.res, f'{a.scene}', inflate=a.res / 2, hits=hits)
     dst = os.path.join(out, f'cloud_{a.scene}.npz')
     w.save(dst, dict(st, source='scan', origin=origin.tolist(), size=size.tolist(), scene=a.scene, binary=a.binary,
                      step=a.step, heights=heights, yaws=a.yaws, pitches=pitches))
@@ -305,6 +307,56 @@ def cmd_scan(a):
         print(f'WARNING: the map predicts the depth of a new view with {err:.0%} median error (n={n}): '
               'try a smaller --step or more --heights')
     cl.close()
+
+
+def cmd_survey(a):
+    """Top-down mosaic of the scene (colour and height of the highest surface per metre) with a 10 m grid, the
+    scan box and the lines, to choose a forested, flat area → survey_<scene>.png."""
+    import cv2
+    from nanouav.flightmare.scan import survey
+    out = _out(a)
+    cl = make_client(a, _calib(a), stereo=False)
+    cx, cy = (float(v) for v in a.center.split(','))
+    RGB, G = survey(cl, (cx, cy), a.size, a.alt, a.step, 1.0, log=lambda m: print(m, flush=True))
+    cl.close()
+    np.savez_compressed(os.path.join(out, f'survey_{a.scene}.npz'), rgb=RGB, height=G, center=[cx, cy], size=a.size)
+    n, k = RGB.shape[0], a.scale
+    # image: x to the right, y up (row 0 = largest y)
+    img = cv2.resize(np.ascontiguousarray(RGB.transpose(1, 0, 2)[::-1, :, ::-1]), (n * k, n * k),
+                     interpolation=cv2.INTER_NEAREST)
+    g = G.T[::-1]
+    lo, hi = np.nanpercentile(G, [2, 98]) if np.isfinite(G).any() else (0, 1)
+    hm = cv2.applyColorMap((np.clip((np.nan_to_num(g, nan=lo) - lo) / max(hi - lo, 1e-3), 0, 1) * 255).astype(np.uint8),
+                           cv2.COLORMAP_VIRIDIS)
+    hm = cv2.resize(hm, (n * k, n * k), interpolation=cv2.INTER_NEAREST)
+    x0, y1 = cx - a.size / 2, cy + a.size / 2
+    px = lambda x, y: (int((x - x0) * k), int((y1 - y) * k))
+    for im in (img, hm):
+        for v in np.arange(math.ceil(x0 / 10) * 10, x0 + a.size, 10):
+            cv2.line(im, px(v, y1), px(v, y1 - a.size), (255, 255, 255) if v % 50 == 0 else (150, 150, 150), 1)
+            if v % 50 == 0:
+                cv2.putText(im, f'x={v:g}', (px(v, 0)[0] + 2, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+        for v in np.arange(math.ceil((cy - a.size / 2) / 10) * 10, y1, 10):
+            cv2.line(im, px(x0, v), px(x0 + a.size, v), (255, 255, 255) if v % 50 == 0 else (150, 150, 150), 1)
+            if v % 50 == 0:
+                cv2.putText(im, f'y={v:g}', (2, px(0, v)[1] - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+        cv2.drawMarker(im, px(0, 0), (0, 0, 255), cv2.MARKER_CROSS, 16, 2)
+        cw = os.path.join(out, f'cloud_{a.scene}.npz')
+        if os.path.exists(cw):
+            m = json.loads(str(np.load(cw)['meta']))
+            if 'origin' in m:
+                o, sz = m['origin'], m['size']
+                cv2.rectangle(im, px(o[0] - sz[0] / 2, o[1] + sz[1] / 2), px(o[0] + sz[0] / 2, o[1] - sz[1] / 2),
+                              (0, 200, 255), 2)
+        lf = os.path.join(out, f'lines_{a.scene}.json')
+        if os.path.exists(lf):
+            for l in json.load(open(lf)):
+                cv2.line(im, px(*l['start'][:2]), px(*l['goal'][:2]), (0, 255, 0), 2)
+    cv2.putText(hm, f'altura {lo:.1f} (oscuro) - {hi:.1f} m (claro)', (6, n * k - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                (255, 255, 255), 1)
+    fn = os.path.join(out, f'survey_{a.scene}.png')
+    cv2.imwrite(fn, np.hstack([img, hm]))
+    print(f'→ {fn}  (red cross: scene origin; orange: scanned box; green: lines)')
 
 
 def _world(a):
@@ -351,10 +403,25 @@ def _episode(a, w, line, i, pilot, v, client, calib, model, trace=False):
         obs = FlightmareObserver(client, cfg.rig, calib)
         R.observer = obs
     if trace:
-        R.trace, R.trace_depth = [], True
+        R.trace, R.trace_depth, R.record_cam = [], True, True
     r, _, log = R.run()
     r.update(line=i, pilot=pilot, v=v, render_ms=round(1000 * float(np.mean(obs.t_render)), 1) if obs and obs.t_render else None)
+    if r['crashed'] and log:
+        r['crash'] = crash_info(w, np.array(log[-1][1:4], float))
     return r, R, log, env
+
+
+def crash_info(w, p):
+    """What the drone hit: the nearest map point, its height above the ground there, and how many scan
+    frames saw it (if the map comes from `scan`)."""
+    d, j = w.tree.query(p)
+    q = w.points[j]
+    g = float(w.ground_z(np.array([q[0]]), np.array([q[1]]))[0])
+    out = {'at': np.round(p, 2).tolist(), 'obstacle': np.round(q, 2).tolist(), 'dist': round(float(d), 3),
+           'above_ground': round(float(q[2] - g), 2) if np.isfinite(g) else None}
+    if getattr(w, 'hits', None) is not None:
+        out['seen_by_frames'] = int(w.hits[j])
+    return out
 
 
 def cmd_eval(a):
@@ -374,7 +441,7 @@ def cmd_eval(a):
                 r, *_ = _episode(a, w, line, i, p, v, client, calib, model)
                 table.setdefault(f'{p}_v{v:g}', []).append(r)
                 print(f"{p:8s} v={v:g} line {i}: {'ok' if r['success'] else 'CRASH' if r['crashed'] else 'fail'} "
-                      f"{r['time_s']:.1f} s", flush=True)
+                      f"{r['time_s']:.1f} s" + (f"  hit {r['crash']}" if r.get('crash') else ''), flush=True)
     tag = (os.path.splitext(os.path.basename(model))[0] if model else 'pilots') + (f'_{a.tag}' if a.tag else '')
     fn = os.path.join(out, f'eval_{a.scene}_{tag}.json')
     json.dump(table, open(fn, 'w'), indent=1)
@@ -402,8 +469,13 @@ def cmd_video(a):
     fn = os.path.join(out, 'video', f'{tag}_{a.scene}_line{a.line}_v{a.v:g}.mp4')
     res = 'EXITO' if r['success'] else ('CHOQUE' if r['crashed'] else 'SIN LLEGAR')
     render_episode(env, log, R.trace, R.cfg.rig, R.cfg.net_size, fn, fps=a.cam_hz, chase=False,
-                   result=f"{res} ({r['time_s']:.1f} s)", title=f'Flightmare {a.scene} | {tag} | {a.v:g} m/s | linea {a.line}')
+                   result=f"{res} ({r['time_s']:.1f} s)", title=f'Flightmare {a.scene} | {tag} | {a.v:g} m/s | linea {a.line}',
+                   mark=r['crash']['obstacle'] if r.get('crash') else None)
     print(f'{res} · {r["time_s"]} s · → {fn}')
+    if r.get('crash'):
+        c = r['crash']
+        print(f"hit the map point {c['obstacle']} ({c['dist']} m from the drone, {c['above_ground']} m above the "
+              f"ground" + (f", seen by {c['seen_by_frames']} scan frames" if 'seen_by_frames' in c else '') + ')')
     client.close()
 
 
@@ -440,6 +512,13 @@ def main(argv=None):
     p.add_argument('--pitches', default='-30,0,30', help='deg (positive = nose down)')
     p.add_argument('--max-range', type=float, default=20.0)
     p.add_argument('--stride', type=int, default=2, help='pixel stride of the back-projection')
+    p.add_argument('--min-hits', type=int, default=2, help='drop voxels seen by fewer scan frames (specks)')
+    p = sub.add_parser('survey')
+    p.add_argument('--center', default='0,0', help='x,y of the centre of the square (scene frame)')
+    p.add_argument('--size', type=float, default=300.0, help='side of the square (m)')
+    p.add_argument('--alt', type=float, default=60.0, help='height of the top-down views (m)')
+    p.add_argument('--step', type=float, default=50.0, help='spacing of the top-down views (m)')
+    p.add_argument('--scale', type=int, default=2, help='pixels per metre of the image')
     p = sub.add_parser('lines')
     p.add_argument('--n', type=int, default=10)
     p.add_argument('--length', type=float, default=40.0)
@@ -481,7 +560,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.scene not in SCENES[a.binary]:
         raise SystemExit(f'scene {a.scene!r} is not in the {a.binary} binary: {sorted(SCENES[a.binary])}')
-    return {'probe': cmd_probe, 'cloud': cmd_cloud, 'scan': cmd_scan, 'lines': cmd_lines, 'eval': cmd_eval, 'video': cmd_video,
+    return {'probe': cmd_probe, 'cloud': cmd_cloud, 'scan': cmd_scan, 'survey': cmd_survey, 'lines': cmd_lines, 'eval': cmd_eval, 'video': cmd_video,
             'fake': cmd_fake}[a.cmd](a)
 
 

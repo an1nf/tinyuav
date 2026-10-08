@@ -1,6 +1,6 @@
 # R22 · El estudiante de R18 en Flightmare
 
-*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1; mapa por escaneo en 0.19.2; líneas verificadas en 0.19.3) · sobre R18.*
+*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1; mapa por escaneo en 0.19.2; líneas verificadas en 0.19.3; primera demo en 0.19.4) · sobre R18.*
 
 ## La idea
 
@@ -82,6 +82,26 @@ El reproductor de Unity vuelve a su menú 10 s después de que un cliente se va,
 `--unity ~/flightmare_unity/RPG_Flightmare.x86_64` (o `export NANOUAV_FLIGHTMARE=…`), cada comando abre
 su propio reproductor y lo cierra al terminar. El registro queda en `results/r22/unity.log`.
 
+## Primera demo en el bosque real (0.19.4)
+
+Con el mapa escaneado y la línea verificada:
+- **τ_gbl** llega a la meta (13 s a 3 m/s, siguiendo el río);
+- **el estudiante de R18** (`student_train`) choca a los ~4 s. Elige una hipótesis hacia la orilla: la red
+  le daba el costo más bajo (0.05), pero en el mapa choca. La profundidad SGM de esas imágenes casi no tiene
+  datos (agua, cielo y follaje oscuro sin textura que emparejar, y lo que está a más de 10 m queda fuera de
+  rango). La red nunca vio nada así: se entrenó con nuestro renderizador, donde el SGM es denso.
+
+Para la demo y el diagnóstico:
+- `r22 video` con un piloto privilegiado (gbl, expert) ahora también graba las imágenes de Flightmare y su
+  SGM, con el plan del piloto proyectado (`Rollout.record_cam`);
+- cuando hay choque, `eval` y `video` dicen qué punto del mapa se golpeó, a qué altura sobre el suelo
+  estaba y cuántas vistas del escaneo lo vieron. El video lo marca con una cruz roja;
+- `scan` descarta los vóxeles que vieron menos de 2 vistas (`--min-hits`): una superficie real se ve desde
+  muchas poses, y un punto aislado no;
+- `r22 survey` arma un mosaico cenital de la escena (color y altura de la superficie más alta por metro),
+  con una malla de 10 m, la caja escaneada y las líneas. Sirve para elegir una zona de bosque en tierra
+  firme, donde el SGM tiene textura con qué trabajar.
+
 ## Cómo correrlo
 
 ```bash
@@ -93,6 +113,7 @@ unzip RPG_Flightmare.zip -d ~/flightmare_unity && chmod +x ~/flightmare_unity/RP
 ~/flightmare_unity/RPG_Flightmare.x86_64 &        # se conecta a nosotros; dejarlo abierto
 
 nanouav run r22 probe                             # → results/r22/probe.png, calib.json
+nanouav run r22 survey --size 300                 # mosaico cenital: dónde hay bosque en tierra firme
 nanouav run r22 scan --origin 30,0,4 --size 80,40,10    # el mapa de la zona de vuelo (bosque de 2022)
 # nanouav run r22 cloud ...                       # solo en escenas con colliders
 nanouav run r22 lines --n 10                      # → lines_forest.json, lines_forest.png

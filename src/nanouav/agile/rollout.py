@@ -197,6 +197,7 @@ class Rollout:
         # an external renderer instead of ours: f(p, yaw, pitch, roll) → (gray, SGM depth, true depth[, rgb]),
         # e.g. Flightmare (nanouav.flightmare.run.FlightmareObserver)
         self.observer = None
+        self.record_cam = False      # with a trace: also observe and record frames for privileged pilots (videos)
 
     # ── plans ─────────────────────────────────────────────────────────────
     def _fit(self, P, p, v, a, v_des):
@@ -263,7 +264,8 @@ class Rollout:
                 a0 = {'plan': plan.ref(t)[2] if plan is not None else np.zeros(3), 'zero': np.zeros(3),
                       'meas': sim.acc}[self.A0_MODE]
                 depth = cam = None
-                need_depth = self.label or self.pilot in ('student', 'dagger')
+                need_depth = self.label or self.pilot in ('student', 'dagger') or \
+                    (self.record_cam and self.trace is not None)
                 if need_depth or M.needs_camera:
                     if self.observer is not None:
                         obs = self.observer(p, yaw, pitch, roll)
@@ -316,6 +318,17 @@ class Rollout:
                                 self.trace[-1]['gray'] = gray     # the external renderer's left image
                 else:
                     new = self.plan_ref(ref, p, v, a0, t)
+                if self.record_cam and self.trace is not None and not use_student and cam is not None:
+                    W1 = TR.poly_eval(new.coef, np.linspace(0.1, 1.0, 10))      # the plan being sent, 1 s
+                    self.trace.append({'t': round(t, 3), 'p': np.round(p, 3).tolist(), 'v': np.round(v, 3).tolist(),
+                                       'k': 0, 'costs': [], 'clear': [round(float(self.field(W1).min()), 3)],
+                                       'W': [np.round(W1, 2).tolist()], 'beta': round(float(new.beta), 3),
+                                       'att': [round(float(yaw), 4), round(float(pitch), 4), round(float(roll), 4)],
+                                       'pilot': self.pilot})
+                    if self.trace_depth:
+                        self.trace[-1]['depth'] = np.round(depth * 1000).astype(np.uint16)
+                        if self.observer is not None:
+                            self.trace[-1]['gray'] = gray
                 pending.append((t + cfg.latency, new, yaw_hold))   # computed from the state at capture time t
             while pending and pending[0][0] <= t:
                 _, plan, yaw_cmd = pending.pop(0)

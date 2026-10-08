@@ -72,12 +72,13 @@ def to_ros(P, origin, size):
 class CloudWorld:
     """Stand-in for a renderer World: no primitives, a point cloud (geometry.Field reads `points`)."""
 
-    def __init__(self, points, resolution=0.15, name='flightmare', inflate=0.0):
+    def __init__(self, points, resolution=0.15, name='flightmare', inflate=0.0, hits=None):
         """inflate: subtracted from the nearest-point distance (0 for Unity's PointCloud, whose voxels are
         already inflated one resolution; res / 2 for surface points voxelised by `scan`)."""
         from scipy.spatial import cKDTree
         self.points = np.asarray(points, float)
         self.res, self.name, self.inflate = float(resolution), name, float(inflate)
+        self.hits = None if hits is None else np.asarray(hits, np.int32)     # scan frames per voxel
         self.tree = cKDTree(self.points)
         # outside the mapped box nothing is known: treat its vertical sides as walls (no plan leaves the map)
         self.lo, self.hi = self.points[:, :2].min(0), self.points[:, :2].max(0)
@@ -133,14 +134,16 @@ class CloudWorld:
         return G[i, j]
 
     def save(self, fn, meta=None):
+        extra = {} if self.hits is None else {'hits': self.hits}
         np.savez_compressed(fn, points=self.points.astype(np.float32), res=self.res, inflate=self.inflate,
-                            meta=json.dumps(meta or {}))
+                            meta=json.dumps(meta or {}), **extra)
 
     @staticmethod
     def load(fn):
         z = np.load(fn)
         w = CloudWorld(z['points'], float(z['res']), os.path.splitext(os.path.basename(fn))[0],
-                       float(z['inflate']) if 'inflate' in z.files else 0.0)
+                       float(z['inflate']) if 'inflate' in z.files else 0.0,
+                       z['hits'] if 'hits' in z.files else None)
         w.meta = json.loads(str(z['meta']))
         return w
 
