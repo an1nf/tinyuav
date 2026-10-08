@@ -1,6 +1,6 @@
 # R22 · El estudiante de R18 en Flightmare
 
-*2026-10-07 · nanouav 0.19.0 · sobre R18.*
+*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1) · sobre R18.*
 
 ## La idea
 
@@ -22,8 +22,30 @@ Unity.
 | `flightmare.cloud.CloudWorld` | la escena como mapa privilegiado: distancia al punto más cercano de la nube (árbol k-d), con paredes en los bordes de la caja. `geometry.Field` la acepta, así que el choque, la ruta global, el experto M-H y las etiquetas de DAgger funcionan sin cambios |
 | `cloud.find_lines` | líneas de salida → meta de 40 m: salida despejada, terreno casi plano a lo largo de la línea (el estudiante vuela a altura fija) y una ruta global libre |
 | `run.FlightmareObserver` | `Rollout.observer`: en cada cuadro pide a Unity el par estéreo en la pose del dron y calcula el SGM igual que en el entrenamiento |
-| `nanouav run r22 probe` | comprueba las convenciones que no están documentadas, comparando la nube con la profundidad SGM y la de Unity en un mismo cuadro: los ejes y el origen del `.ply`, si el campo de visión de Unity es vertical u horizontal, la escala de la profundidad y la orientación del eje y. Escribe `calib.json` y `probe.png` |
+| `nanouav run r22 probe` | comprueba en un cuadro real las convenciones: que hay base estéreo, que la profundidad de Unity × plano lejano coincide con el SGM, que la nube explica la profundidad (campo de visión vertical u horizontal, eje y). Escribe `calib.json`, `probe.png` (izquierda, derecha / SGM, profundidad de Unity, profundidad predicha por la nube) y `probe.npz` (los datos crudos) |
 | `nanouav run r22 fake` | un reproductor de Unity falso: nuestro renderizador detrás del mismo protocolo, para probar todo sin Unity (lo usan los tests) |
+
+## Lo que hace el reproductor de Unity (0.19.1)
+
+El primer probe con el Unity real (bosque, binario 2022) falló en tres cosas. El código fuente del
+reproductor es público (github.com/uzh-rpg/flightmare_unity, rama `dev/agile_flight`), y explica las tres:
+
+| síntoma en el primer probe | causa (archivo de Unity) | corrección |
+|---|---|---|
+| los brazos del dron tapan la parte de arriba de las dos imágenes | el `size` del vehículo escala la malla del dron, y la cámara (a 0.1 m del centro) queda dentro de ella. Las cámaras se colocan con escala 1, así que el tamaño no cambia la base estéreo (`CameraController.cs`) | `size` 0.01, como en el puente del propio Loquercio (`agile_autonomy/flightmare_bridge.cpp`); `--vehicle-size` |
+| la profundidad de Unity sale toda casi 0 | la capa de profundidad es la distancia sobre el eje óptico dividida por su plano lejano (`Linear01Depth`, modo `DepthRaw` de `UberReplacement.shader`) | metros = valor × `farClipPlane[1]` (100 m); `probe` lo comprueba contra el SGM |
+| la nube es una lámina plana (15 cm de alto) | la petición de nube no suma el `render_offset`: la caja es absoluta. Pedimos (15, 0, 2) y Unity muestreó 94 m por debajo del dron, a la altura de una superficie plana (`SavePointCloud.cs`) | `cloud_points` pide la caja en origen + desplazamiento y resta el desplazamiento a los puntos |
+
+Además, `SavePointCloud.cs` marca un vóxel como ocupado si `Physics.OverlapSphere(centro, resolución)`
+toca un collider, y guarda los centros en orden ROS (x, y, z arriba), absolutos. Los árboles del bosque
+tienen collider de malla (`terrainTreeManager.cs` los instancia como prefabs), así que salen en la nube.
+Como el vóxel ya está inflado una resolución, la distancia al centro ocupado más cercano es una cota
+inferior del despeje real: `CloudWorld` ya no resta media resolución. El suelo de cada celda es el techo de
+la primera tira de vóxeles desde abajo, con una mediana 3 × 3 que quita las celdas con tronco; vale igual
+si el terreno sale como lámina o como bloque.
+
+El reproductor falso imita ahora todo esto: profundidad dividida por el plano lejano, la caja de la nube
+absoluta y la ocupación por radio.
 
 ## Cómo correrlo
 
@@ -49,14 +71,14 @@ bosque en la escena 3: `--binary 2020`.
 ## Validación (sin Unity)
 
 Con el reproductor falso:
-- **El probe** identifica la convención correcta: nube en ejes de Unity, campo de visión vertical y
-  profundidad en metros. Error SGM frente a la nube: 6 %; profundidad de Unity frente a la nube: 0.9 %.
+- **El probe** (0.19.1) no avisa de nada y elige campo de visión vertical, sin espejo y profundidad × 100.
+  Error frente a la nube: 8.6 % el SGM y 4.8 % la profundidad de Unity, con la escena desplazada
+  (21, 217, 94) como el bosque real.
 - **La nube** pone los troncos donde están.
 - **τ_gbl** llega a la meta en las líneas encontradas en la nube.
 - **El estudiante** vuela con el par estéreo que llega por el protocolo.
 
-No se ha probado con el Unity real desde este entorno. `probe` existe justamente para comprobar
-allí lo que aquí se supuso.
+El primer probe real (0.19.0) mostró los tres fallos de la tabla de arriba. Falta repetirlo con 0.19.1.
 
 ## Qué esperar
 

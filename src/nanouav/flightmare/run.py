@@ -45,7 +45,8 @@ def make_client(a, calib=None):
     sid, off = SCENES[a.binary][a.scene]
     c = calib or {}
     cl = FlightmareClient(scene_id=sid, render_offset=off, fov_deg=c.get('fov_deg', 73.74),
-                          depth_mult=c.get('depth_mult', 1.0), pub_port=a.pub_port, sub_port=a.sub_port)
+                          depth_mult=c.get('depth_mult'), depth_far=a.depth_far, vehicle_size=a.vehicle_size,
+                          pub_port=a.pub_port, sub_port=a.sub_port)
     print(f'waiting for Flightmare ({a.scene}, scene {sid}, {a.binary} binary) on ports {a.pub_port}/{a.sub_port} …')
     cl.connect()
     print('connected')
@@ -102,9 +103,10 @@ def compare(pred, meas, max_d=10.0):
 
 
 def cmd_probe(a):
+    """One stereo pair + Unity depth + the point cloud around it, at --pose; checks the conventions → calib.json,
+    probe.png (left | right | — / SGM | Unity depth | depth predicted from the cloud), probe.npz (raw data)."""
     import cv2
     from nanouav.agile.stereo import StereoRig, sgm_depth
-    from nanouav.flightmare.cloud import read_ply, to_ros
     from nanouav.scene.renderer import body_rot
     out = _out(a)
     cl = make_client(a)
@@ -115,51 +117,95 @@ def cmd_probe(a):
     gl = cv2.cvtColor(o['left'], cv2.COLOR_RGB2GRAY)
     gr = cv2.cvtColor(o['right'], cv2.COLOR_RGB2GRAY)
     sgm = sgm_depth(gl, gr, rig)
-    size = np.array([40.0, 24.0, 10.0])                    # three different extents: the up axis is recognisable
-    origin = p + np.array([15.0 * math.cos(math.radians(yaw)), 15.0 * math.sin(math.radians(yaw)), 0.0])
-    print('asking for the point cloud …')
-    fn = cl.point_cloud(origin, size, resolution=0.15, path=os.path.join(out, 'point_clouds'), name='probe')
-    P, info = to_ros(read_ply(fn), origin, size)
+    calib = {'scene': a.scene, 'binary': a.binary, 'pose': a.pose, 'vehicle_size': a.vehicle_size}
+    warn = []
+    # 1 · the two cameras see different images (a baseline), and SGM finds matches
+    lr = float(np.abs(gl.astype(int) - gr).mean())
+    calib['stereo'] = {'mean_abs_left_right': round(lr, 2), 'sgm_valid': round(float((sgm > 0).mean()), 3)}
+    if lr < 1.0:
+        warn.append('left and right images are (almost) the same: no stereo baseline')
+    # 2 · Unity depth: value × far clip plane = metres along the optical axis? (checked against SGM)
+    raw = o['depth_left'] / cl.depth_mult if o['depth_left'] is not None else None
+    if raw is not None:
+        m = (sgm > 1.0) & (sgm < 15.0) & (raw > 0)
+        ratio = float(np.median(sgm[m] / raw[m])) if m.sum() > 200 else float('nan')
+        calib['unity_depth'] = {'raw_median': float(np.median(raw)), 'raw_max': float(raw.max()),
+                                'sgm_over_raw': round(ratio, 2), 'far_clip': cl.depth_far, 'n': int(m.sum())}
+        if np.isfinite(ratio) and abs(math.log(ratio / cl.depth_far)) < math.log(1.3):
+            calib['depth_mult'] = cl.depth_far
+        elif np.isfinite(ratio):
+            calib['depth_mult'] = round(ratio, 3)
+            warn.append(f'Unity depth × {cl.depth_far:g} does not match SGM (SGM / raw = {ratio:.2f})')
+        else:
+            calib['depth_mult'] = cl.depth_far
+            warn.append('too few SGM pixels to check the Unity depth scale')
+    unity_d = raw * calib['depth_mult'] if raw is not None else None
+    # 3 · the point cloud of the box ahead (scene frame) seen from the pose
+    size = np.array([40.0, 24.0, 10.0])
+    c, s_ = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    origin = p + np.array([15.0 * c, 15.0 * s_, 1.0])
+    print(f'asking for the point cloud ({size[0]:g} × {size[1]:g} × {size[2]:g} m, res {a.res}) — Unity freezes '
+          'meanwhile …', flush=True)
+    P, info = cl.cloud_points(origin, size, resolution=a.res, path=os.path.join(out, 'point_clouds'), name='probe')
+    calib['cloud'] = info
+    if len(P):
+        z_lo, z_hi = np.percentile(P[:, 2], [1, 99])
+        calib['cloud'].update(z_range=[round(float(z_lo), 2), round(float(z_hi), 2)])
+        if z_hi - z_lo < 1.0:
+            warn.append('the point cloud is a flat sheet (no trees in the box?)')
+    else:
+        warn.append('the point cloud is empty')
     pose = (p, math.radians(yaw), 0.0, 0.0)
-    res = {}
-    raw = o['depth_left']
+    res, preds = {}, {}
     for mirror in (False, True):
         Q = P * np.array([1, -1, 1]) if mirror else P
-        for focal_name, f in (('vertical', rig.focal), ('horizontal', rig.width / 2 / math.tan(math.radians(73.74) / 2))):
-            pred = predicted_depth(Q, rig, pose, f)
-            e_sgm, n_sgm = compare(pred, sgm)
-            row = {'sgm_rel_err': e_sgm, 'n': n_sgm}
-            if raw is not None:
-                for mult in (1.0, 100.0):
-                    row[f'unity_x{mult:g}'] = compare(pred, raw * mult)[0]
-            res[f'mirror={mirror} fov={focal_name}'] = row
-    best = min(res, key=lambda k: min(v for kk, v in res[k].items() if kk != 'n'))
-    calib = {'cloud': info, 'y_mirror': 'mirror=True' in best, 'fov_is': best.split('fov=')[1],
-             'fov_deg': 73.74 if 'vertical' in best else 90.0, 'checks': res, 'scene': a.scene, 'binary': a.binary}
-    if raw is not None:
-        mults = {m: res[best][f'unity_x{m:g}'] for m in (1.0, 100.0)}
-        calib['depth_mult'] = min(mults, key=mults.get)
+        for fname, f in (('vertical', rig.focal), ('horizontal', rig.width / 2 / math.tan(math.radians(73.74) / 2))):
+            key = f'mirror={mirror} fov={fname}'
+            pred = predicted_depth(Q, rig, pose, f) if len(Q) else np.full(sgm.shape, np.inf, np.float32)
+            preds[key] = pred
+            e_s, n_s = compare(pred, sgm)
+            row = {'sgm_rel_err': round(e_s, 3), 'n_sgm': n_s}
+            if unity_d is not None:
+                e_u, n_u = compare(pred, unity_d)
+                row.update(unity_rel_err=round(e_u, 3), n_unity=n_u)
+            res[key] = row
+    score = lambda k: res[k].get('unity_rel_err', res[k]['sgm_rel_err'])
+    best = min(res, key=score)
+    calib.update(checks=res, best=best, y_mirror='mirror=True' in best, fov_is=best.split('fov=')[1],
+                 fov_deg=73.74 if 'vertical' in best else 90.0)
+    if score(best) > 0.15:
+        warn.append(f'the cloud does not explain the depth image ({best}: {score(best):.2f} median relative error)')
+    calib['warnings'] = warn
     json.dump(calib, open(os.path.join(out, 'calib.json'), 'w'), indent=1)
-    v = lambda d: cv2.applyColorMap((255 - np.clip(d / 10, 0, 1) * 255).astype(np.uint8), cv2.COLORMAP_JET) * (d[..., None] > 0)
-    unity_d = raw * calib.get('depth_mult', 1.0) if raw is not None else np.zeros_like(sgm)
-    panel = np.vstack([np.hstack([o['left'][..., ::-1], o['right'][..., ::-1]]), np.hstack([v(sgm), v(unity_d)])])
+    np.savez_compressed(os.path.join(out, 'probe.npz'), left=o['left'], right=o['right'], sgm=sgm,
+                        raw=raw if raw is not None else np.zeros(0), pose=np.r_[p, yaw],
+                        cloud=P[:: max(1, len(P) // 300000)].astype(np.float32))
+    v = lambda d: (cv2.applyColorMap((255 - np.clip(d / 20, 0, 1) * 255).astype(np.uint8), cv2.COLORMAP_JET)
+                   * ((d > 0) & np.isfinite(d))[..., None])
+    lab = lambda im, t: cv2.putText(im.copy(), t, (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+    blank = np.zeros_like(o['left'])
+    panel = np.vstack([np.hstack([lab(o['left'][..., ::-1], 'left'), lab(o['right'][..., ::-1], 'right'),
+                                  lab(blank, 'depth 0-20 m (red near)')]),
+                       np.hstack([lab(v(sgm), 'SGM'), lab(v(unity_d) if unity_d is not None else blank, 'Unity depth'),
+                                  lab(v(np.where(np.isfinite(preds[best]), preds[best], 0)), 'cloud')])])
     cv2.imwrite(os.path.join(out, 'probe.png'), panel)
-    print(json.dumps({k: (round(r['sgm_rel_err'], 3), r['n']) for k, r in res.items()}, indent=1))
-    print(f"cloud: {len(P)} points, frame {info['frame']}, shift {info['shift']} · best: {best} → {out}/calib.json, probe.png")
-    if res[best]['sgm_rel_err'] > 0.25:
-        print('WARNING: the SGM depth does not match the point cloud (> 25 %): check probe.png and send calib.json')
+    print(json.dumps({k: calib[k] for k in ('stereo', 'unity_depth', 'cloud', 'best') if k in calib}, indent=1))
+    print(json.dumps(res, indent=1))
+    for w_ in warn:
+        print('WARNING:', w_)
+    print(('OK: ' if not warn else '') + f'→ {out}/calib.json, probe.png, probe.npz')
     cl.close()
 
 
 def cmd_cloud(a):
-    from nanouav.flightmare.cloud import CloudWorld, read_ply, to_ros
+    from nanouav.flightmare.cloud import CloudWorld
     out = _out(a)
     calib = _calib(a)
     cl = make_client(a, calib)
     origin = np.array([float(v) for v in a.origin.split(',')])
     size = np.array([float(v) for v in a.size.split(',')])
-    fn = cl.point_cloud(origin, size, resolution=a.res, path=os.path.join(out, 'point_clouds'), name=f'{a.scene}_area')
-    P, info = to_ros(read_ply(fn), origin, size)
+    P, info = cl.cloud_points(origin, size, resolution=a.res, path=os.path.join(out, 'point_clouds'),
+                              name=f'{a.scene}_area')
     if calib.get('y_mirror'):
         P = P * np.array([1, -1, 1])
     w = CloudWorld(P, a.res, f'{a.scene}')
@@ -286,6 +332,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest='cmd', required=True)
     p = sub.add_parser('probe')
     p.add_argument('--pose', default='0,0,2,0', help='x,y,z,yaw_deg of the probe (ROS frame of the scene)')
+    p.add_argument('--res', type=float, default=0.15)
     p = sub.add_parser('cloud')
     p.add_argument('--origin', default='30,0,4', help='center of the box (ROS frame)')
     p.add_argument('--size', default='80,40,10', help='extents x,y,z (m)')
@@ -320,6 +367,9 @@ def main(argv=None):
         q.add_argument('--pub-port', type=int, default=10253)
         q.add_argument('--sub-port', type=int, default=10254)
         q.add_argument('--cam-hz', type=float, default=15.0)
+        q.add_argument('--vehicle-size', type=float, default=0.01,
+                       help='scale of the drone mesh (1 = full size, in view of the cameras)')
+        q.add_argument('--depth-far', type=float, default=100.0, help='far clip plane of the depth layer (m)')
     a = ap.parse_args(argv)
     if a.scene not in SCENES[a.binary]:
         raise SystemExit(f'scene {a.scene!r} is not in the {a.binary} binary: {sorted(SCENES[a.binary])}')

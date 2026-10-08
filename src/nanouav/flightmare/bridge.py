@@ -12,6 +12,18 @@ agile_flight. Unity is left-handed with y up; the conversions are flightlib's (c
 A camera is attached to the vehicle with T_BC (4 × 4, camera → body, ROS frames). In Flightmare's camera
 frame the optical axis is +y and up is +z (a Unity camera looks along its +z, which is ROS y): a forward
 camera has R_BC = Rz(−90°), as in agile_flight's config (r_BC = [0, 0, −90]).
+
+What the Unity player does (flightmare_unity, branch dev/agile_flight, CameraController.cs, SavePointCloud.cs,
+UberReplacement.shader), and what this client relies on:
+  · vehicle and camera poses get `render_offset` added; the cameras are placed from the pose and T_BC with
+    scale 1, so the vehicle `size` only scales the drone mesh. The mesh is in view of a camera near the body
+    centre: size 0.01, as in Loquercio et al.'s own bridge (agile_autonomy, flightmare_bridge.cpp), hides it;
+  · the depth layer is depth along the optical axis divided by that layer's far clip plane (Linear01Depth,
+    "DepthRaw" mode): metres = value × farClipPlane[1];
+  · the point cloud request is NOT offset: origin and range are absolute and in ROS order (x, y, z up), each
+    voxel centre is occupied when Physics.OverlapSphere(centre, resolution) touches a collider, and the .ply
+    holds the occupied centres in the same absolute ROS order. `cloud_points` adds the offset to the request
+    and removes it from the points.
 """
 import json
 import math
@@ -70,7 +82,8 @@ def camera_T(t, R=R_FWD, pitch_up_deg=0.0):
 class FlightmareClient:
     def __init__(self, scene_id=2, render_offset=(0.0, 0.0, 0.0), width=320, height=240, fov_deg=73.74,
                  baseline=0.10, cam_offset=(0.10, 0.0, 0.0), depth=True, channels=3, pub_port=10253,
-                 sub_port=10254, address='tcp://*', object_csv=None, depth_mult=1.0, timeout_s=60.0):
+                 sub_port=10254, address='tcp://*', object_csv=None, depth_mult=None, depth_far=100.0,
+                 vehicle_size=0.01, timeout_s=60.0):
         import zmq
         self.zmq = zmq
         self.ctx = zmq.Context.instance()
@@ -82,7 +95,9 @@ class FlightmareClient:
         self.sub.bind(f'{address}:{sub_port}')
         self.sub.setsockopt(zmq.SUBSCRIBE, b'')
         self.W, self.H, self.C, self.fov = int(width), int(height), int(channels), float(fov_deg)
-        self.depth, self.depth_mult, self.timeout = bool(depth), float(depth_mult), timeout_s
+        self.depth, self.depth_far, self.timeout = bool(depth), float(depth_far), timeout_s
+        self.depth_mult = float(depth_mult) if depth_mult else self.depth_far     # Unity sends depth / far
+        self.offset = np.asarray(render_offset, float)
         ox, oy, oz = cam_offset
         self.T_left = camera_T([ox, oy, oz])
         self.T_right = camera_T([ox, oy - baseline, oz])
@@ -91,7 +106,7 @@ class FlightmareClient:
             open(object_csv, 'a').close()
         cams = [self._camera('quadrotor0_0', self.T_left, 0), self._camera('quadrotor0_1', self.T_right, 1)]
         self.vehicle = {'ID': 'quadrotor0', 'position': [0.0, 0.0, 0.0], 'rotation': [0.0, 0.0, 0.0, 1.0],
-                        'size': [1.0, 1.0, 1.0], 'cameras': cams, 'lidars': [], 'hasCollisionCheck': False}
+                        'size': [float(vehicle_size)] * 3, 'cameras': cams, 'lidars': [], 'hasCollisionCheck': False}
         self.settings = {'scene_id': int(scene_id), 'vehicles': [self.vehicle], 'objects': [], 'dynamic_objects': [],
                          'static_objects': [], 'render_offset': pos_ros2unity(render_offset), 'object_csv': object_csv}
         self.frame = 0
@@ -99,7 +114,7 @@ class FlightmareClient:
 
     def _camera(self, ID, T, idx):
         return {'ID': ID, 'channels': self.C, 'width': self.W, 'height': self.H, 'fov': self.fov,
-                'nearClipPlane': [0.01] * 4, 'farClipPlane': [1000.0, 100.0, 1000.0, 1000.0], 'T_BC': tf_ros2unity(T),
+                'nearClipPlane': [0.01] * 4, 'farClipPlane': [1000.0, self.depth_far, 1000.0, 1000.0], 'T_BC': tf_ros2unity(T),
                 'isDepth': False, 'enabledLayers': [self.depth, False, False], 'depthScale': 0.2, 'outputIndex': idx}
 
     def _send(self, topic, obj):
@@ -149,8 +164,9 @@ class FlightmareClient:
                 'collision': coll}
 
     def point_cloud(self, origin, size, resolution=0.15, path=None, name='scene', timeout_s=600.0):
-        """Ask Unity to write the occupied points of a box (origin = center, size = [x, y, z] extents) to a .ply
-        file. → path of the file (the axes/frame of the file are checked by `cloud.load_cloud`)."""
+        """Ask Unity to write the occupied voxels of a box (origin = centre, size = [x, y, z] extents, both
+        ABSOLUTE: Unity does not add the render offset here) to a .ply file. → path of the file.
+        `cloud_points` is the scene-frame version."""
         path = os.path.abspath(path or 'results/r22/point_clouds') + '/'
         os.makedirs(path, exist_ok=True)
         fn = os.path.join(path, name + '.ply')
@@ -168,6 +184,20 @@ class FlightmareClient:
                 last = sz
             time.sleep(1.0)
         raise TimeoutError(f'Flightmare did not write {fn} in {timeout_s:.0f} s')
+
+    def cloud_points(self, origin, size, resolution=0.15, path=None, name='scene', timeout_s=600.0):
+        """Occupied voxels of a box given in the scene frame (the frame of the poses) → (points (N, 3) in the
+        scene frame, info). The box is requested at origin + render_offset and the points are moved back."""
+        from nanouav.flightmare.cloud import read_ply, to_ros
+        origin, size = np.asarray(origin, float), np.asarray(size, float)
+        absolute = origin + self.offset
+        fn = self.point_cloud(absolute, size, resolution, path, name, timeout_s)
+        P = read_ply(fn)
+        if len(P) == 0:
+            return np.zeros((0, 3)), {'n': 0, 'file': fn, 'requested_abs': absolute.round(3).tolist()}
+        P, info = to_ros(P, absolute, size)
+        info.update(n=len(P), file=fn, requested_abs=absolute.round(3).tolist(), offset=self.offset.tolist())
+        return P - self.offset, info
 
     def close(self):
         self.pub.close(0)

@@ -3,6 +3,24 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.19.1] — 2026-10-08
+
+Sin cambios en los resultados de R18–R21. R22: corrige las convenciones de Unity a partir del código del
+reproductor (flightmare_unity, `dev/agile_flight`) tras el primer probe real.
+
+### Corregido
+- La malla del dron tapaba las cámaras: `size` del vehículo 0.01 (como agile_autonomy), `--vehicle-size`.
+- Profundidad de Unity = valor × plano lejano de la capa (100 m); antes se tomaba en metros.
+- La petición de nube es absoluta (Unity no suma el `render_offset`): `FlightmareClient.cloud_points` pide
+  en origen + desplazamiento y devuelve los puntos en el marco de la escena. El `.ply` está en orden ROS.
+- `CloudWorld`: la distancia es la del centro ocupado más cercano (los vóxeles ya están inflados una
+  resolución); el suelo sirve para terreno como lámina o como bloque.
+
+### Cambiado
+- `probe`: comprueba la base estéreo, la escala de la profundidad contra el SGM y la nube contra la
+  profundidad de Unity. Escribe avisos en `calib.json`, un panel de 2 × 3 y `probe.npz`.
+- El reproductor falso imita al real (profundidad / plano lejano, nube absoluta, ocupación por radio).
+
 ## [0.19.0] — 2026-10-07
 
 Sin cambios en los resultados existentes.

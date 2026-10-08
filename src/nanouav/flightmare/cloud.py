@@ -3,12 +3,13 @@
 The paper gives the expert the environment as a point cloud exported from Unity (Flightmare's
 `PointCloud` request). Here `CloudWorld` wraps those points so that every place that builds a
 `geometry.Field(world)` — the collision check, the global path, the M-H expert, the DAgger labels — works
-unchanged (distance = to the nearest point − resolution / 2, with a k-d tree).
+unchanged (k-d tree distance to the nearest occupied voxel).
 
-The frame of the .ply written by Unity is not documented (ROS z-up or Unity y-up; relative to the request
-origin or not). `load_cloud` finds it from the request: the box is asked with three different extents, so
-the up axis is the one whose spread matches the requested height, and the offset is the one that puts the
-points' box on the requested box.
+What Unity writes (SavePointCloud.cs): the centres of the voxels of the requested box for which
+Physics.OverlapSphere(centre, resolution) touches a collider, absolute coordinates, ROS order (x, y, z up).
+A voxel is occupied up to one resolution away from a surface, so the distance to the nearest occupied
+centre is already a lower bound of the true clearance (it underestimates it by less than a resolution).
+`to_ros` still checks the up axis and the offset against the requested box (the file carries no frame).
 """
 import json
 import os
@@ -85,23 +86,42 @@ class CloudWorld:
     def distance(self, P):
         P = np.asarray(P, float).reshape(-1, 3)
         d, _ = self.tree.query(P, k=1, distance_upper_bound=30.0)
-        d = np.where(np.isfinite(d), d, 30.0) - self.res / 2
+        d = np.where(np.isfinite(d), d, 30.0)
         wall = np.minimum(P[:, :2] - self.lo, self.hi - P[:, :2]).min(1)
         return np.minimum(d, wall)
 
     def clearance(self, p):
         return float(self.distance(np.asarray(p, float)[None])[0])
 
-    # ground height (lowest points per cell), to fly at a fixed height above the terrain
+    # ground height per cell: the top of the run of voxels that starts at the lowest one (a surface-only terrain
+    # gives a thin sheet, a solid one a block: both end at the surface), minus the occupancy radius; a 3 × 3
+    # median removes the cells where a trunk continues the run upwards
     def ground_map(self, cell=1.0):
         if self._ground is None:
-            P = self.points
+            P, r = self.points, self.res
             x0, y0 = P[:, 0].min(), P[:, 1].min()
             ix, iy = ((P[:, 0] - x0) / cell).astype(int), ((P[:, 1] - y0) / cell).astype(int)
-            G = np.full((ix.max() + 1, iy.max() + 1), np.nan)
-            order = np.argsort(P[:, 2])[::-1]                   # lowest written last
-            G[ix[order], iy[order]] = P[order, 2]
-            self._ground = (x0, y0, cell, G)
+            nx, ny = ix.max() + 1, iy.max() + 1
+            c = ix * ny + iy
+            k = np.round((P[:, 2] - P[:, 2].min()) / r).astype(int)
+            o = np.lexsort((k, c))
+            c, k = c[o], k[o]
+            first = np.r_[True, c[1:] != c[:-1]]
+            gap = np.r_[False, (k[1:] - k[:-1] > 2) & ~first[1:]]
+            run = np.cumsum(first | gap)                       # run id; a cell's first run is its first id
+            start = np.flatnonzero(first)
+            first_run = np.repeat(run[start], np.diff(np.r_[start, len(c)]))
+            keep = run == first_run
+            top = np.full(nx * ny, -np.inf)
+            np.maximum.at(top, c[keep], k[keep])
+            G = np.where(np.isfinite(top), top * r + P[:, 2].min() - r, np.nan).reshape(nx, ny)
+            Gp = np.pad(G, 1, constant_values=np.nan)
+            stack = np.stack([Gp[i:i + nx, j:j + ny] for i in range(3) for j in range(3)])
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', RuntimeWarning)
+                M = np.nanmedian(stack, 0)
+            self._ground = (x0, y0, cell, np.where(np.isfinite(G), M, np.nan))
         return self._ground
 
     def ground_z(self, x, y):

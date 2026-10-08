@@ -2,9 +2,12 @@
 
 It speaks the player's side of the protocol (connects to the bridge's sockets, answers the settings with
 {"ready": true}, one image reply per pose, writes the point cloud on request) and renders with our own
-renderer from an `nanouav.agile.envs` world. It follows the conventions `bridge` assumes for Unity:
-left-handed y-up poses, vertical field of view, images bottom-up, RGB, depth in metres along the optical
-axis, the point cloud in Unity axes and absolute coordinates.
+renderer from an `nanouav.agile.envs` world. It copies what the real player does (flightmare_unity,
+dev/agile_flight): left-handed y-up poses, vertical field of view, images bottom-up, RGB, depth along the
+optical axis divided by the depth layer's far clip plane, and the point cloud request taken as absolute
+(the render offset is not added) in ROS order, a voxel being occupied when a surface is within one
+resolution of its centre (Physics.OverlapSphere), written as absolute ROS-order (x, y, z up) centres.
+The world is the scene frame: the absolute frame is the scene frame + render_offset.
 
   nanouav run r22 fake --world forest --seed 1000        # then, in another terminal, any r22 command
 """
@@ -16,7 +19,7 @@ import numpy as np
 
 from nanouav.control.quad_sim import euler_from_rot
 from nanouav.agile.stereo import cull
-from nanouav.scene.renderer import Cylinder, render_view
+from nanouav.scene.renderer import render_view
 
 S_OURS = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])   # Flightmare camera axes → ours (x fwd, y left)
 M_U = np.array([[1.0, 0, 0, 0], [0, 0, 1.0, 0], [0, 1.0, 0, 0], [0, 0, 0, 1.0]])
@@ -95,31 +98,30 @@ class FakeUnity:
             img = np.repeat(gray[..., None], int(c['channels']), -1)[::-1]
             parts.append(np.ascontiguousarray(img).tobytes())
             if c['enabledLayers'][0]:
-                parts.append(np.ascontiguousarray(depth.astype(np.float32)[::-1]).tobytes())
+                far = float(c['farClipPlane'][1])
+                parts.append(np.ascontiguousarray((depth / far).astype(np.float32)[::-1]).tobytes())
         self.frames += 1
         return parts
 
+    def offset(self):
+        ux, uy, uz = (self.settings or {}).get('render_offset', [0.0, 0.0, 0.0])
+        return np.array([ux, uz, uy], float)                                    # Unity → ROS order
+
     def point_cloud(self, m):
-        """Surface points of the cylinders and the ground inside the box, in Unity axes, binary .ply."""
-        o, s, r = np.array(m['origin'], float), np.array(m['range'], float), float(m['resolution'])
-        lo, hi = o - s / 2, o + s / 2
+        """SavePointCloud.cs: voxel centres of the (absolute, ROS-order) box with a surface within one
+        resolution, binary .ply of absolute ROS-order centres."""
+        from nanouav.agile.geometry import Field
+        off = self.offset()
+        o, s, r = np.array(m['origin'], float) - off, np.array(m['range'], float), float(m['resolution'])
+        ax = [np.arange(o[k] - s[k] / 2 + r / 2, o[k] + s[k] / 2 + 1e-5, r) for k in range(3)]
+        F = Field(self.world).local(o, float(np.linalg.norm(s)) / 2 + 1.0)
+        X, Y = np.meshgrid(ax[0], ax[1], indexing='ij')
         pts = []
-        gx, gy = np.meshgrid(np.arange(lo[0], hi[0], r), np.arange(lo[1], hi[1], r), indexing='ij')
-        if lo[2] <= 0 <= hi[2]:
-            pts.append(np.c_[gx.ravel(), gy.ravel(), np.zeros(gx.size)])
-        for c in self.world.objects:
-            if not isinstance(c, Cylinder):
-                continue
-            if not (lo[0] - c.r <= c.cx <= hi[0] + c.r and lo[1] - c.r <= c.cy <= hi[1] + c.r):
-                continue
-            n = max(int(2 * math.pi * c.r / r), 6)
-            a = np.linspace(0, 2 * math.pi, n, endpoint=False)
-            z = np.arange(max(c.z0, lo[2]), min(c.z1, hi[2]), r)
-            A, Z = np.meshgrid(a, z)
-            pts.append(np.c_[(c.cx + c.r * np.cos(A)).ravel(), (c.cy + c.r * np.sin(A)).ravel(), Z.ravel()])
+        for z in ax[2]:
+            P = np.c_[X.ravel(), Y.ravel(), np.full(X.size, z)]
+            pts.append(P[np.abs(F(P)) < r])
         P = np.concatenate(pts) if pts else np.zeros((0, 3))
-        P = P[np.all((P >= lo) & (P <= hi), 1)]
-        U = P[:, [0, 2, 1]].astype('<f4')                                       # ROS → Unity axes
+        U = (P + off).astype('<f4')
         fn = m['path'] + m['file_name'] + '.ply'
         with open(fn + '.tmp', 'wb') as f:
             f.write((f'ply\nformat binary_little_endian 1.0\nelement vertex {len(U)}\nproperty float x\n'
