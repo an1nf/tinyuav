@@ -6,6 +6,11 @@ Start the Unity standalone first (it connects to us), then:
   nanouav run r22 cloud --origin 30,0,4 --size 80,40,10      # the privileged map of the flight area → cloud.npz
   nanouav run r22 scan  --origin 30,0,4 --size 80,40,10      # the same map from Unity depth images (no colliders)
   nanouav run r22 survey --size 300          # top-down mosaic of the scene: where to scan and fly
+
+  # training in Flightmare (the paper's setup: exact spawned trunks in a scanned empty scene, VGA SGM)
+  nanouav run r22 arena --scene warehouse    # scan the empty scene, free area, spawned-box check
+  nanouav run r22 dagger --scene warehouse --init results/r18/student_spatial_in.keras
+  nanouav run r22 eval --arena --scene warehouse --model results/r22/student_fm_warehouse.keras --v 3,5,7,10
   nanouav run r22 lines --n 10               # start → goal lines (40 m) with a collision-free global path → lines.json
   nanouav run r22 eval --model results/r18/student_train.keras --pilots gbl,student --v 3,5,7
   nanouav run r22 video --model results/r18/student_train.keras --v 3 --line 0
@@ -95,14 +100,25 @@ def _launch_unity(a):
     atexit.register(_stop)
 
 
-def make_client(a, calib=None, stereo=True):
+def rig_of(a):
+    """The stereo rig of the r22 commands: VGA (the paper's camera) with --vga, else our half resolution."""
+    from nanouav.agile.stereo import StereoRig
+    if getattr(a, 'vga', False):
+        return StereoRig(width=640, height=480, num_disp=96, texture_win=11)
+    return StereoRig()
+
+
+def make_client(a, calib=None, stereo=True, n_objects=0, rig=None):
     from nanouav.flightmare.bridge import FlightmareClient
+    os.environ.setdefault('TF_FORCE_GPU_ALLOW_GROWTH', 'true')       # the GPU is shared with Unity
     _launch_unity(a)
     sid, off = SCENES[a.binary][a.scene]
     c = calib or {}
     cl = FlightmareClient(scene_id=sid, render_offset=off, fov_deg=c.get('fov_deg', 73.74),
                           depth_mult=c.get('depth_mult'), depth_far=a.depth_far, vehicle_size=a.vehicle_size,
-                          stereo=stereo,
+                          stereo=stereo, n_objects=n_objects,
+                          box_unit=c.get('box_unit', (0.8104, 0.8102, 0.8124)),
+                          width=(rig.width if rig else 320), height=(rig.height if rig else 240),
                           pub_port=a.pub_port, sub_port=a.sub_port)
     print(f'waiting for Flightmare ({a.scene}, scene {sid}, {a.binary} binary) on ports {a.pub_port}/{a.sub_port} …')
     cl.connect()
@@ -389,17 +405,17 @@ def cmd_lines(a):
     print(f'{len(L)} lines → {out}/lines_{a.scene}.json, lines_{a.scene}.png')
 
 
-def _episode(a, w, line, i, pilot, v, client, calib, model, trace=False):
+def _episode(a, env, i, pilot, v, client, calib, model, trace=False, rig=None):
     from nanouav.agile import dagger
     from nanouav.agile.rollout import Config, Rollout
     from nanouav.agile.run import apply_opts
-    from nanouav.flightmare.cloud import line_env
-    env = line_env(w, line, i)
-    cfg = Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i)
+    cfg = Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, **({'rig': rig} if rig is not None else {}))
     R = Rollout(env, cfg, pilot, dagger._policy(model) if pilot == 'student' else None)
     apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select})
     obs = None
     if pilot == 'student' or trace:
+        if client.n_objects:
+            client.place(env.world.objects)
         obs = FlightmareObserver(client, cfg.rig, calib)
         R.observer = obs
     if trace:
@@ -407,13 +423,41 @@ def _episode(a, w, line, i, pilot, v, client, calib, model, trace=False):
     r, _, log = R.run()
     r.update(line=i, pilot=pilot, v=v, render_ms=round(1000 * float(np.mean(obs.t_render)), 1) if obs and obs.t_render else None)
     if r['crashed'] and log:
-        r['crash'] = crash_info(w, np.array(log[-1][1:4], float))
+        r['crash'] = crash_info(env.world, np.array(log[-1][1:4], float))
     return r, R, log, env
+
+
+def _envs(a):
+    """The evaluation environments: the arena's test forests (--arena) or the lines found in the cloud."""
+    out = _out(a)
+    if getattr(a, 'arena', False):
+        from nanouav.flightmare import arena as A
+        ar = A.load(os.path.join(out, f'arena_{a.scene}.npz'))
+        return [(i, A.arena_env(ar, 1000 + i, kind='test')) for i in range(a.n)]
+    from nanouav.flightmare.cloud import line_env
+    w = _world(a)
+    L = json.load(open(os.path.join(out, f'lines_{a.scene}.json')))[:a.n]
+    return [(i, line_env(w, l, i)) for i, l in enumerate(L)]
 
 
 def crash_info(w, p):
     """What the drone hit: the nearest map point, its height above the ground there, and how many scan
     frames saw it (if the map comes from `scan`)."""
+    if hasattr(w, 'split_ground'):                     # arena: a spawned trunk, the floor or the static scene
+        from nanouav.flightmare.arena import box_distance
+        P = np.asarray(p, float)[None]
+        db = box_distance(P, w.C, w.H)[0] if len(w.C) else np.inf
+        ds, df = float(w.sdf(P)[0]), float(p[2] - w.floor)
+        k = int(np.argmin([db, ds, df]))
+        out = {'at': np.round(p, 2).tolist(), 'what': ['trunk', 'scene', 'floor'][k],
+               'dist': round(float(min(db, ds, df)), 3)}
+        if k == 0:
+            j = int(np.argmin(np.linalg.norm(np.maximum(np.abs(w.C - p) - w.H, 0), axis=1)))
+            out['obstacle'] = np.round(w.C[j], 2).tolist()
+        else:
+            out['obstacle'] = np.round(p, 2).tolist()
+        out['above_ground'] = round(float(p[2] - w.floor), 2)
+        return out
     d, j = w.tree.query(p)
     q = w.points[j]
     g = float(w.ground_z(np.array([q[0]]), np.array([q[1]]))[0])
@@ -427,23 +471,23 @@ def crash_info(w, p):
 def cmd_eval(a):
     out = _out(a)
     calib = _calib(a)
-    w = _world(a)
-    L = json.load(open(os.path.join(out, f'lines_{a.scene}.json')))[:a.n]
+    E = _envs(a)
     pilots = a.pilots.split(',')
     speeds = [float(x) for x in a.v.split(',')]
-    client = make_client(a, calib) if 'student' in pilots else None
+    rig = rig_of(a)
+    client = make_client(a, calib, n_objects=a.n_objects if a.arena else 0, rig=rig) if 'student' in pilots else None
     model = os.path.abspath(a.model) if a.model else None
     table = {}
     t0 = time.time()
     for p in pilots:
         for v in speeds:
-            for i, line in enumerate(L):
-                r, *_ = _episode(a, w, line, i, p, v, client, calib, model)
+            for i, env in E:
+                r, *_ = _episode(a, env, i, p, v, client, calib, model, rig=rig)
                 table.setdefault(f'{p}_v{v:g}', []).append(r)
-                print(f"{p:8s} v={v:g} line {i}: {'ok' if r['success'] else 'CRASH' if r['crashed'] else 'fail'} "
+                print(f"{p:8s} v={v:g} env {i}: {'ok' if r['success'] else 'CRASH' if r['crashed'] else 'fail'} "
                       f"{r['time_s']:.1f} s" + (f"  hit {r['crash']}" if r.get('crash') else ''), flush=True)
     tag = (os.path.splitext(os.path.basename(model))[0] if model else 'pilots') + (f'_{a.tag}' if a.tag else '')
-    fn = os.path.join(out, f'eval_{a.scene}_{tag}.json')
+    fn = os.path.join(out, f"eval_{'arena_' if a.arena else ''}{a.scene}_{tag}.json")
     json.dump(table, open(fn, 'w'), indent=1)
     print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s}')
     for p in pilots:
@@ -459,14 +503,15 @@ def cmd_video(a):
     from nanouav.agile.video import render_episode
     out = _out(a)
     calib = _calib(a)
-    w = _world(a)
-    line = json.load(open(os.path.join(out, f'lines_{a.scene}.json')))[a.line]
-    client = make_client(a, calib)
-    r, R, log, env = _episode(a, w, line, a.line, a.pilot, a.v, client, calib,
-                              os.path.abspath(a.model) if a.model else None, trace=True)
+    a.n = a.line + 1
+    i, env = _envs(a)[a.line]
+    rig = rig_of(a)
+    client = make_client(a, calib, n_objects=a.n_objects if a.arena else 0, rig=rig)
+    r, R, log, env = _episode(a, env, i, a.pilot, a.v, client, calib,
+                              os.path.abspath(a.model) if a.model else None, trace=True, rig=rig)
     os.makedirs(os.path.join(out, 'video'), exist_ok=True)
     tag = os.path.splitext(os.path.basename(a.model))[0] if a.pilot == 'student' else a.pilot
-    fn = os.path.join(out, 'video', f'{tag}_{a.scene}_line{a.line}_v{a.v:g}.mp4')
+    fn = os.path.join(out, 'video', f"{tag}_{'arena_' if a.arena else ''}{a.scene}_{'env' if a.arena else 'line'}{a.line}_v{a.v:g}.mp4")
     res = 'EXITO' if r['success'] else ('CHOQUE' if r['crashed'] else 'SIN LLEGAR')
     render_episode(env, log, R.trace, R.cfg.rig, R.cfg.net_size, fn, fps=a.cam_hz, chase=False,
                    result=f"{res} ({r['time_s']:.1f} s)", title=f'Flightmare {a.scene} | {tag} | {a.v:g} m/s | linea {a.line}',
@@ -474,16 +519,107 @@ def cmd_video(a):
     print(f'{res} · {r["time_s"]} s · → {fn}')
     if r.get('crash'):
         c = r['crash']
-        print(f"hit the map point {c['obstacle']} ({c['dist']} m from the drone, {c['above_ground']} m above the "
-              f"ground" + (f", seen by {c['seen_by_frames']} scan frames" if 'seen_by_frames' in c else '') + ')')
+        print(f"hit {c.get('what', 'the map point')} {c['obstacle']} ({c['dist']} m from the drone, {c['above_ground']} m "
+              f"above the ground" + (f", seen by {c['seen_by_frames']} scan frames" if 'seen_by_frames' in c else '') + ')')
     client.close()
+
+
+ARENA_BOX = {'warehouse': ('30,0,5', '100,20,10')}    # agile_flight's training box: x −20…80, y −10…10, z 0…10
+
+
+def cmd_arena(a):
+    """Map the empty scene once (scan), find its floor and the free rectangle, check the spawned box's
+    geometry against Unity's depth → arena_<scene>.npz (+ box_unit in calib.json)."""
+    from nanouav.flightmare import arena as A
+    from nanouav.flightmare.scan import scan
+    from nanouav.scene.renderer import Box, body_rot
+    out = _out(a)
+    calib = _calib(a)
+    o_def, s_def = ARENA_BOX.get(a.scene, ('30,0,4', '80,40,10'))
+    origin = np.array([float(v) for v in (a.origin or o_def).split(',')])
+    size = np.array([float(v) for v in (a.size or s_def).split(',')])
+    cl = make_client(a, calib, stereo=False, n_objects=1)
+    P, hits, st = scan(cl, origin, size, a.res, a.step, [float(v) for v in a.heights.split(',')], a.yaws,
+                       [float(v) for v in a.pitches.split(',')], a.max_range, a.stride, min_hits=2)
+    lo, hi = origin - size / 2, origin + size / 2
+    sdf, floor, rect = A.build(P, a.res, lo, hi)
+    info = {'scan': st, 'floor': round(floor, 3), 'rect': [round(x, 2) for x in rect],
+            'free_length': round(rect[1] - rect[0], 1), 'free_width': round(rect[3] - rect[2], 1)}
+    # the spawned box: a 0.5 × 0.5 × 3 m trunk 6 m ahead of the camera, measured in Unity's depth
+    yc = 0.5 * (rect[2] + rect[3])
+    p = np.array([rect[0] + 2.0, yc, floor + 1.5])
+    box = Box((p[0] + 6.0, yc, floor + 1.5), (0.25, 0.25, 1.5))
+    cl.place([box])
+    d = cl.render(p, body_rot(0.0, 0.0, 0.0))['depth_left']
+    H, W = d.shape
+    f = H / 2 / math.tan(math.radians(cl.fov) / 2)
+    front_exp = 6.0 - 0.25 - cl.T_left[0, 3]
+    win = d[H // 2 - 2:H // 2 + 3, W // 2 - 2:W // 2 + 3]
+    front = float(np.median(win))
+    def run_len(x, c):                                   # contiguous pixels at the box's depth through index c
+        m = np.abs(x - front) < 0.3
+        if not m[c]:
+            return 0
+        i0 = c
+        while i0 > 0 and m[i0 - 1]:
+            i0 -= 1
+        i1 = c
+        while i1 < len(m) - 1 and m[i1 + 1]:
+            i1 += 1
+        return i1 - i0 + 1
+    w_px = run_len(d[H // 2], W // 2)
+    # vertically only above the centre (the floor touches the bottom of the box): top half of the trunk
+    h_up = run_len(d[:H // 2 + 1, W // 2][::-1], 0)
+    w_exp, h_up_exp = f * 0.5 / front_exp, min(f * 1.5 / front_exp, H / 2)
+    unit = list(cl.box_unit)
+    ok_box = abs(front - front_exp) < 0.15 and abs(w_px / w_exp - 1) < 0.15 and abs(h_up / h_up_exp - 1) < 0.15
+    if not ok_box and abs(front - front_exp) < 0.6 and w_px > 3 and h_up > 3:   # correct the prefab size
+        unit = [unit[0] * w_px / w_exp, unit[1] * w_px / w_exp, unit[2] * h_up / h_up_exp]
+    h_px, h_exp = h_up, h_up_exp
+    info['box_check'] = {'front_m': round(front, 3), 'front_expected_m': round(front_exp, 3), 'width_px': w_px,
+                         'width_expected_px': round(w_exp, 1), 'upper_height_px': h_px, 'upper_height_expected_px': round(h_exp, 1),
+                         'ok': bool(ok_box), 'box_unit': [round(u, 4) for u in unit]}
+    cl.close()
+    calib['box_unit'] = info['box_check']['box_unit']
+    json.dump(calib, open(os.path.join(out, 'calib.json'), 'w'), indent=1)
+    fn = os.path.join(out, f'arena_{a.scene}.npz')
+    A.save(fn, P, a.res, floor, rect, lo, hi, dict(info, scene=a.scene, binary=a.binary))
+    print(json.dumps(info, indent=1))
+    warn = []
+    if rect[1] - rect[0] < 48:
+        warn.append(f'free length {rect[1] - rect[0]:.1f} m < 48 m: flights will be shorter than 40 m')
+    if rect[3] - rect[2] < 10:
+        warn.append(f'free width {rect[3] - rect[2]:.1f} m is narrow')
+    if not ok_box:
+        warn.append('the spawned box is not where/what it should be: see box_check (box_unit corrected if possible)')
+    for w_ in warn:
+        print('WARNING:', w_)
+    print(('OK: ' if not warn else '') + f'→ {fn}')
+
+
+def cmd_dagger(a):
+    from nanouav.flightmare import dagger as FD
+    out = _out(a)
+    calib = _calib(a)
+    rig = rig_of(a)
+    arena_path = os.path.join(out, f'arena_{a.scene}.npz')
+    if not os.path.exists(arena_path):
+        raise SystemExit(f'{arena_path} not found: run `nanouav run r22 arena --scene {a.scene}` first')
+    cl = make_client(a, calib, n_objects=a.n_objects, rig=rig)
+    tk = dict(lr=a.lr, lr_end=a.lr_end, keep_best=a.best, val_by_env=a.val_by_env, head=a.head)
+    m = FD.run(cl, arena_path, out, rig, n_envs=a.envs, per_round=a.per_round, workers=a.workers, epochs=a.epochs,
+               batch=a.batch, v_min=a.v_min, v_max=a.v_max, cam_hz=a.cam_hz,
+               init_model=os.path.abspath(a.init) if a.init else None, xi_start=a.xi_start, xi_step=a.xi_step,
+               train_kw=tk, tag=a.tag or f'fm_{a.scene}')
+    cl.close()
+    print('student →', m)
 
 
 def cmd_fake(a):
     from nanouav.agile import envs as EV
-    from nanouav.flightmare.fake import FakeUnity
-    env = EV.TEST[a.world](a.seed)
-    f = FakeUnity(env.world, a.pub_port, a.sub_port).start()
+    from nanouav.flightmare.fake import FakeUnity, arena_world
+    world = arena_world(a.seed) if a.world == 'arena' else EV.TEST[a.world](a.seed).world
+    f = FakeUnity(world, a.pub_port, a.sub_port).start()
     print(f'fake Flightmare: {a.world} seed {a.seed} (our renderer) on ports {a.pub_port}/{a.sub_port} — Ctrl+C to stop')
     try:
         while True:
@@ -535,16 +671,44 @@ def main(argv=None):
         p.add_argument('--tscale', default='chord', choices=['chord', 'arc'])
         p.add_argument('--vcap', type=float, default=0.0)
         p.add_argument('--select', default='snap', choices=['snap', 'consistent'])
+        p.add_argument('--arena', action='store_true', help='the arena test forests (r22 arena) instead of the lines')
         if name == 'eval':
             p.add_argument('--pilots', default='gbl,student')
             p.add_argument('--n', type=int, default=10)
             p.add_argument('--tag', default='')
         else:
             p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl'])
-            p.add_argument('--line', type=int, default=0)
+            p.add_argument('--line', type=int, default=0, help='line (or arena environment) index')
     p = sub.add_parser('fake')
-    p.add_argument('--world', default='forest', choices=['forest', 'gap'])
+    p.add_argument('--world', default='forest', choices=['forest', 'gap', 'arena'])
     p.add_argument('--seed', type=int, default=1000)
+    p = sub.add_parser('arena')
+    p.add_argument('--origin', default='', help='centre of the scanned box (default: per scene; warehouse 30,0,5)')
+    p.add_argument('--size', default='', help='extents x,y,z (default: per scene; warehouse 100,20,10)')
+    p.add_argument('--res', type=float, default=0.15)
+    p.add_argument('--step', type=float, default=4.0)
+    p.add_argument('--heights', default='1.5,3.0,5.0')
+    p.add_argument('--yaws', type=int, default=6)
+    p.add_argument('--pitches', default='-30,0,30')
+    p.add_argument('--max-range', type=float, default=25.0)
+    p.add_argument('--stride', type=int, default=2)
+    p = sub.add_parser('dagger')
+    p.add_argument('--init', default='', help='student to start from (e.g. results/r18/student_spatial_in.keras)')
+    p.add_argument('--envs', type=int, default=300)
+    p.add_argument('--per-round', type=int, default=30)
+    p.add_argument('--epochs', type=int, default=3)
+    p.add_argument('--batch', type=int, default=16)
+    p.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 2) - 2), help='expert label processes')
+    p.add_argument('--v-min', type=float, default=3.0)
+    p.add_argument('--v-max', type=float, default=10.0)
+    p.add_argument('--xi-start', type=float, default=1.0, help='ξ of the first round (m; 0: pure imitation)')
+    p.add_argument('--xi-step', type=float, default=0.5)
+    p.add_argument('--lr', type=float, default=3e-4)
+    p.add_argument('--lr-end', type=float, default=1e-5)
+    p.add_argument('--best', action='store_true')
+    p.add_argument('--val-by-env', action='store_true')
+    p.add_argument('--tag', default='', help='data / model name (default fm_<scene>)')
+    p.add_argument('--head', default='spatial', choices=['gap', 'spatial'], help='new model only (no --init)')
     for q in sub.choices.values():
         q.add_argument('--results', dest='out', default='', help='results directory (default results/r22)')
         q.add_argument('--scene', default='forest')
@@ -555,12 +719,20 @@ def main(argv=None):
         q.add_argument('--vehicle-size', type=float, default=0.01,
                        help='scale of the drone mesh (1 = full size, in view of the cameras)')
         q.add_argument('--depth-far', type=float, default=100.0, help='far clip plane of the depth layer (m)')
+        q.add_argument('--vga', action=argparse.BooleanOptionalAction, default=None,
+                       help='VGA stereo pair (the paper\'s camera; default on for arena, dagger and --arena runs)')
+        q.add_argument('--n-objects', type=int, default=160, help='spawnable trunks (arena runs)')
         q.add_argument('--unity', default='', help='path of RPG_Flightmare.x86_64: start (and stop) the player '
                        'for this command (default $NANOUAV_FLIGHTMARE; empty: start it yourself)')
     a = ap.parse_args(argv)
+    if a.vga is None:
+        a.vga = a.cmd in ('arena', 'dagger') or bool(getattr(a, 'arena', False))
+    if not hasattr(a, 'arena'):
+        a.arena = False
     if a.scene not in SCENES[a.binary]:
         raise SystemExit(f'scene {a.scene!r} is not in the {a.binary} binary: {sorted(SCENES[a.binary])}')
-    return {'probe': cmd_probe, 'cloud': cmd_cloud, 'scan': cmd_scan, 'survey': cmd_survey, 'lines': cmd_lines, 'eval': cmd_eval, 'video': cmd_video,
+    return {'probe': cmd_probe, 'cloud': cmd_cloud, 'scan': cmd_scan, 'survey': cmd_survey, 'arena': cmd_arena,
+            'dagger': cmd_dagger, 'lines': cmd_lines, 'eval': cmd_eval, 'video': cmd_video,
             'fake': cmd_fake}[a.cmd](a)
 
 

@@ -33,6 +33,10 @@ import time
 import numpy as np
 
 R_FWD = np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])    # Rz(−90°): camera → body, forward camera
+# rpg_box02 (wooden crate, BoxCollider 0.8104 × 0.8124 (up) × 0.8102 Unity units, centred on its pivot):
+# its size per unit of scale in ROS order (x, y, z up)
+BOX_PREFAB, BOX_UNIT = 'rpg_box02', (0.8104, 0.8102, 0.8124)
+PARK = (0.0, 0.0, -300.0)                      # unused objects: far below the scene
 
 
 def rot_to_quat(R):
@@ -83,7 +87,7 @@ class FlightmareClient:
     def __init__(self, scene_id=2, render_offset=(0.0, 0.0, 0.0), width=320, height=240, fov_deg=73.74,
                  baseline=0.10, cam_offset=(0.10, 0.0, 0.0), depth=True, channels=3, pub_port=10253,
                  sub_port=10254, address='tcp://*', object_csv=None, depth_mult=None, depth_far=100.0,
-                 vehicle_size=0.01, stereo=True, timeout_s=60.0):
+                 vehicle_size=0.01, stereo=True, n_objects=0, box_unit=BOX_UNIT, prefab=BOX_PREFAB, timeout_s=60.0):
         import zmq
         self.zmq = zmq
         self.ctx = zmq.Context.instance()
@@ -109,10 +113,34 @@ class FlightmareClient:
             cams.append(self._camera('quadrotor0_1', self.T_right, 1))
         self.vehicle = {'ID': 'quadrotor0', 'position': [0.0, 0.0, 0.0], 'rotation': [0.0, 0.0, 0.0, 1.0],
                         'size': [float(vehicle_size)] * 3, 'cameras': cams, 'lidars': [], 'hasCollisionCheck': False}
-        self.settings = {'scene_id': int(scene_id), 'vehicles': [self.vehicle], 'objects': [], 'dynamic_objects': [],
+        # dynamic objects (Unity moves and scales them on every frame): the obstacles we spawn, e.g. trunks
+        self.box_unit, self.n_objects = np.asarray(box_unit, float), int(n_objects)
+        self.objects = [self._object(f'nano_obj{i}', prefab) for i in range(self.n_objects)]
+        self.settings = {'scene_id': int(scene_id), 'vehicles': [self.vehicle], 'objects': [],
+                         'dynamic_objects': self.objects,
                          'static_objects': [], 'render_offset': pos_ros2unity(render_offset), 'object_csv': object_csv}
         self.frame = 0
         self.ready = False
+
+    @staticmethod
+    def _object(ID, prefab):
+        return {'ID': ID, 'prefabID': prefab, 'position': pos_ros2unity(PARK), 'rotation': [0.0, 0.0, 0.0, 1.0],
+                'size': [0.01, 0.01, 0.01]}
+
+    def place(self, boxes):
+        """Put the dynamic objects at these boxes (renderer.Box: center, half extents, yaw; scene frame, ROS);
+        the others are parked out of sight. Takes effect with the next render."""
+        if len(boxes) > self.n_objects:
+            raise ValueError(f'{len(boxes)} boxes but the client was made with n_objects={self.n_objects}')
+        for o, b in zip(self.objects, list(boxes) + [None] * (self.n_objects - len(boxes))):
+            if b is None:
+                o.update(position=pos_ros2unity(PARK), rotation=[0.0, 0.0, 0.0, 1.0], size=[0.01, 0.01, 0.01])
+                continue
+            c, h, yaw = np.asarray(b.center, float), np.asarray(b.half, float), float(getattr(b, 'yaw', 0.0))
+            sc = 2 * h / self.box_unit                         # scale per ROS axis
+            Rz = np.array([[math.cos(yaw), -math.sin(yaw), 0], [math.sin(yaw), math.cos(yaw), 0], [0, 0, 1]])
+            o.update(position=pos_ros2unity(c), rotation=quat_ros2unity(rot_to_quat(Rz)),
+                     size=[float(sc[0]), float(sc[2]), float(sc[1])])                 # Unity (x, y up, z)
 
     def _camera(self, ID, T, idx):
         return {'ID': ID, 'channels': self.C, 'width': self.W, 'height': self.H, 'fov': self.fov,
@@ -145,7 +173,7 @@ class FlightmareClient:
         depth_left, depth_right float32 m or None, collision)."""
         self.frame += 1
         v = dict(self.vehicle, position=pos_ros2unity(p), rotation=quat_ros2unity(rot_to_quat(R)))
-        self._send('Pose', {'frame_id': self.frame, 'vehicles': [v], 'objects': [], 'dynamic_objects': [],
+        self._send('Pose', {'frame_id': self.frame, 'vehicles': [v], 'objects': [], 'dynamic_objects': self.objects,
                             'static_objects': []})
         for _ in range(100):
             if not self.sub.poll(int(self.timeout * 1000)):

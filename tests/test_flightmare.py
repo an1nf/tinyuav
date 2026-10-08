@@ -179,3 +179,70 @@ def test_privileged_pilot_video_has_camera_frames_and_crash_info(unity, tmp_path
     tree = next(o for o in env.world.objects if 4 < o.cx < 28 and abs(o.cy) < 6)
     c = crash_info(w, np.array([tree.cx + tree.r + 0.1, tree.cy, 1.5]))
     assert c['dist'] < 0.4 and 0.5 < c['above_ground'] < 2.5
+
+
+# ── arena: scanned static scene + spawned trunks; DAgger in Flightmare ──────
+def _arena_player(pub, sub):
+    from nanouav.flightmare.fake import arena_world
+    return FakeUnity(arena_world(0, x=(-5.0, 45.0), y=(-6.0, 6.0), height=6.0), pub, sub).start()
+
+
+def test_spawned_boxes_render_and_map(tmp_path):
+    from nanouav.agile.geometry import Field
+    from nanouav.flightmare import arena as A
+    from nanouav.flightmare.scan import scan
+    from nanouav.scene.renderer import Box
+    pub, sub = next(PORTS), next(PORTS)
+    fake = _arena_player(pub, sub)
+    cl = B.FlightmareClient(scene_id=0, pub_port=pub, sub_port=sub, stereo=False, n_objects=3, timeout_s=20)
+    try:
+        cl.connect()
+        P, hits, st = scan(cl, np.array([20.0, 0.0, 3.0]), np.array([50.0, 12.0, 6.0]), 0.15, step=5.0,
+                           heights=(1.5, 3.0), yaws=4, pitches=(0.0, 30.0), log=lambda *_: None)
+        sdf, floor, rect = A.build(P, 0.15, np.array([-5.0, -6, 0]), np.array([45.0, 6, 6]))
+        assert abs(floor) < 0.15 and rect[1] - rect[0] > 40 and rect[3] - rect[2] > 8
+        cl.place([Box((8.0, 0.0, 1.5), (0.25, 0.25, 1.5))])
+        d = cl.render(np.array([2.0, 0.0, 1.5]), np.eye(3))['depth_left']
+        assert abs(float(np.median(d[118:123, 158:163])) - (8.0 - 0.25 - 2.0 - 0.1)) < 0.05   # the box is there
+    finally:
+        cl.close()
+        fake.stop()
+    ar = A.Arena(sdf, floor, meta={'rect': rect})
+    e = A.arena_env(ar, 0, kind='test')
+    w = e.world
+    b = w.objects[0]
+    c = np.array(b.center)
+    assert w.clearance(c + [b.half[0] + 0.5, 0, 0]) == pytest.approx(0.5, abs=1e-6)          # exact trunks
+    assert Field(w, ground=False)(np.array([[c[0], c[1] + b.half[1] + 0.3, floor + 0.2]]))[0] == pytest.approx(0.3, abs=1e-6)
+    assert Field(w, ground=True)(np.array([[c[0] + 3, c[1] + 3, floor + 0.2]]))[0] <= 0.2 + 1e-6   # the floor
+
+
+def test_dagger_in_flightmare_one_round(tmp_path):
+    """Two arena environments flown with Unity frames, labels in worker processes, one training round."""
+    pytest.importorskip('tensorflow')
+    from nanouav.agile.stereo import StereoRig
+    from nanouav.flightmare import arena as A
+    from nanouav.flightmare import dagger as FD
+    from nanouav.flightmare.scan import scan
+    pub, sub = next(PORTS), next(PORTS)
+    fake = _arena_player(pub, sub)
+    cl = B.FlightmareClient(scene_id=0, pub_port=pub, sub_port=sub, n_objects=120, timeout_s=20)
+    try:
+        cl.connect()
+        lo, hi = np.array([-5.0, -6, 0]), np.array([45.0, 6, 6])
+        P, _, _ = scan(cl, (lo + hi) / 2, hi - lo, 0.15, step=5.0, heights=(1.5, 3.0), yaws=4, pitches=(0.0, 30.0),
+                       log=lambda *_: None)
+        sdf, floor, rect = A.build(P, 0.15, lo, hi)
+        fn = str(tmp_path / 'arena_t.npz')
+        A.save(fn, P, 0.15, floor, rect, lo, hi, {'scene': 't'})
+        m = FD.run(cl, fn, str(tmp_path), StereoRig(), n_envs=2, per_round=2, workers=2, epochs=1, batch=4,
+                   v_min=3.0, v_max=3.0, init_model=None, xi_start=0.0, tag='t', log=lambda *_: None)
+    finally:
+        cl.close()
+        fake.stop()
+    import json, os
+    st = json.load(open(tmp_path / 'dagger_t.json'))['rounds'][0]
+    assert st['samples'] > 50 and st['success'] == 2 and os.path.exists(m)
+    z = np.load(tmp_path / 'data_t' / 'env_0000.npz')
+    assert z['depth'].shape[1:] == (120, 160) and z['trajs'].shape[1:] == (3, 10, 3) and z['esdf'].shape[1:] == (64, 64)
+    assert 1.0 < float(np.median(z['z'])) < 3.0                           # height above the floor

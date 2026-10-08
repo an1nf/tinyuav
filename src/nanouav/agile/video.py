@@ -68,6 +68,11 @@ def _topdown(env, log_xy, d, p, yaw, size=720, span=20.0, result=None, mark=None
                 m = (U + du >= 0) & (U + du < size) & (V + dv >= 0) & (V + dv < size)
                 img[V[m] + dv, U[m] + du] = (70, 70, 70)
     for o in env.world.objects:
+        if hasattr(o, 'half') and abs(o.center[0] - cx) < span and abs(o.center[1] - cy) < span:   # boxes (trunks)
+            c, h = o.center, o.half
+            cv2.rectangle(img, px(c[0] - h[0], c[1] + h[1]), px(c[0] + h[0], c[1] - h[1]), (90, 90, 90), -1)
+            cv2.rectangle(img, px(c[0] - h[0] - R_DRONE, c[1] + h[1] + R_DRONE),
+                          px(c[0] + h[0] + R_DRONE, c[1] - h[1] - R_DRONE), (170, 170, 170), 1)
         if hasattr(o, 'cx') and abs(o.cx - cx) < span and abs(o.cy - cy) < span:
             cv2.circle(img, px(o.cx, o.cy), max(int(o.r * s), 1), (90, 90, 90), -1, cv2.LINE_AA)
             cv2.circle(img, px(o.cx, o.cy), int((o.r + R_DRONE) * s), (170, 170, 170), 1, cv2.LINE_AA)

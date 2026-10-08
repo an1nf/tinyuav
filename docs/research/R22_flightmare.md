@@ -1,6 +1,6 @@
 # R22 · El estudiante de R18 en Flightmare
 
-*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1; mapa por escaneo en 0.19.2; líneas verificadas en 0.19.3; primera demo en 0.19.4) · sobre R18.*
+*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1; mapa por escaneo en 0.19.2; líneas verificadas en 0.19.3; primera demo en 0.19.4; entrenamiento en Flightmare en 0.20.0) · sobre R18.*
 
 ## La idea
 
@@ -102,6 +102,32 @@ Para la demo y el diagnóstico:
   con una malla de 10 m, la caja escaneada y las líneas. Sirve para elegir una zona de bosque en tierra
   firme, donde el SGM tiene textura con qué trabajar.
 
+## Entrenar en Flightmare como el paper (0.20.0)
+
+El estudiante de R18 se entrenó con nuestro renderizador. En Unity ve otras imágenes y otro SGM, y no vuela
+bien. El paper entrena dentro de Flightmare; esta versión hace lo mismo.
+
+| pieza | el paper | aquí |
+|---|---|---|
+| escena | un bosque vacío con árboles sembrados por procedimiento en posiciones conocidas (agile_autonomy: `spawn_trees`, separación media 4 m) | la escena vacía (por defecto el almacén de agile_flight) escaneada una vez, más troncos sembrados: el prefab `rpg_box02` (caja de madera de 0.81 m con collider) escalado a 0.3–0.8 × 0.3–0.8 × 6 m, como objeto dinámico que Unity mueve en cada cuadro |
+| mapa del experto | la nube de los colliders de esos árboles | la malla de distancias de la escena escaneada ∪ las cajas (exactas) |
+| cámara | estéreo VGA, base 0.1 m, ~90° | igual: 640 × 480, SGM con 96 disparidades (33 ms en CPU; error 2.8 % frente a 4.2 % a media resolución, en nuestro bosque) |
+| DAgger | 850 entornos, ξ creciente, reentrenar cada 30 | igual, empezando desde `student_spatial_in`; las etiquetas del experto (~0.4 s cada una) se calculan en paralelo mientras vuela el siguiente entorno |
+
+`r22 arena`:
+- escanea la escena vacía;
+- encuentra el suelo y el rectángulo libre más grande, donde de 0.5 a 4 m sobre el suelo hay al menos
+  1.2 m libres;
+- comprueba con la profundidad de Unity que una caja sembrada aparece donde y del tamaño que debe. Si no,
+  corrige `box_unit` en `calib.json`.
+
+Cada entorno de entrenamiento es un bosque de Poisson de troncos con separación δ ∈ {4, 5, 6, 7} m. Los de
+prueba tienen densidad 1/25 m⁻² y troncos de 0.5–0.7 m, el protocolo de R18. `r22 eval --arena` y
+`r22 video --arena` los usan.
+
+Validado con el reproductor falso (un almacén de prueba): la caja sale en su sitio y la malla de distancias es
+exacta; DAgger de 2 rondas vuela, etiqueta en paralelo, entrena y evalúa. τ_gbl llega en todos los entornos.
+
 ## Cómo correrlo
 
 ```bash
@@ -113,6 +139,12 @@ unzip RPG_Flightmare.zip -d ~/flightmare_unity && chmod +x ~/flightmare_unity/RP
 ~/flightmare_unity/RPG_Flightmare.x86_64 &        # se conecta a nosotros; dejarlo abierto
 
 nanouav run r22 probe                             # → results/r22/probe.png, calib.json
+# entrenamiento en Flightmare (almacén + troncos sembrados, VGA)
+nanouav run r22 arena --scene warehouse
+nanouav run r22 dagger --scene warehouse --init results/r18/student_spatial_in.keras --best --val-by-env
+nanouav run r22 eval --arena --scene warehouse --pilots gbl,student --model results/r22/student_fm_warehouse.keras --v 3,5,7,10
+nanouav run r22 video --arena --scene warehouse --pilot student --model results/r22/student_fm_warehouse.keras --v 5 --line 0
+
 nanouav run r22 survey --size 300                 # mosaico cenital: dónde hay bosque en tierra firme
 nanouav run r22 scan --origin 30,0,4 --size 80,40,10    # el mapa de la zona de vuelo (bosque de 2022)
 # nanouav run r22 cloud ...                       # solo en escenas con colliders

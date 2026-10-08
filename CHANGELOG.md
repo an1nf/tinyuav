@@ -3,6 +3,25 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.20.0] — 2026-10-08
+
+Sin cambios en los resultados de R18–R21 (el campo `z` de las muestras sigue siendo la altura sobre el
+suelo, que en nuestro simulador está en 0).
+
+### Añadido
+- Entrenamiento en Flightmare como el paper:
+  - `r22 arena`: escaneo de la escena vacía, suelo, rectángulo libre y comprobación de la caja sembrada;
+  - `flightmare.arena`: `GridSDF`, `Arena` (escena estática ∪ troncos exactos, suelo aparte) y `arena_env`
+    (bosques de Poisson de troncos);
+  - `FlightmareClient(n_objects=)` y `place(boxes)`: objetos dinámicos de Unity (`rpg_box02`);
+  - `r22 dagger` (`flightmare.dagger`): DAgger con imágenes de Unity, etiquetas en paralelo
+    (`Rollout.defer`), reanudable;
+  - `r22 eval --arena`, `r22 video --arena`.
+- Par estéreo VGA (`--vga`, por defecto en arena, dagger y `--arena`): 640 × 480 y 96 disparidades, como
+  la cámara del paper.
+- `Field` pasa `ground` a los mundos que separan el suelo y usa su `local`. El reproductor falso dibuja
+  los objetos dinámicos y tiene un almacén de prueba (`fake --world arena`).
+
 ## [0.19.4] — 2026-10-08
 
 Sin cambios en los resultados de R18–R21. R18: cabeza espacial (ImageNet) 7/9/6/1 de 10 a 3/5/7/10 m/s = 23/40

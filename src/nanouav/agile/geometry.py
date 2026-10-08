@@ -43,7 +43,12 @@ class Field:
     def local(self, center, radius):
         """Copy restricted to the primitives that can be within `radius` of `center` (faster queries)."""
         if self.cloud is not None:
-            return self
+            if not hasattr(self.cloud, 'local'):
+                return self
+            f = object.__new__(Field)
+            f.__dict__.update(self.__dict__)
+            f.cloud = self.cloud.local(center, radius)
+            return f
         c = np.asarray(center, float)
         f = object.__new__(Field)
         f.cloud = None
@@ -67,6 +72,8 @@ class Field:
 
     def _query(self, P):
         if self.cloud is not None:
+            if getattr(self.cloud, 'split_ground', False):          # e.g. flightmare.arena.Arena
+                return self.cloud.distance(P, ground=self.ground)
             return self.cloud.distance(P)
         d = P[:, 2].copy() if self.ground else np.full(len(P), np.inf)
         if len(self.cyl):

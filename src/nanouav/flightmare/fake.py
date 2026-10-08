@@ -19,7 +19,8 @@ import numpy as np
 
 from nanouav.control.quad_sim import euler_from_rot
 from nanouav.agile.stereo import cull
-from nanouav.scene.renderer import render_view
+from nanouav.scene.renderer import Box, Texture, World, render_view
+from nanouav.flightmare.bridge import BOX_UNIT
 
 S_OURS = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])   # Flightmare camera axes → ours (x fwd, y left)
 M_U = np.array([[1.0, 0, 0, 0], [0, 0, 1.0, 0], [0, 1.0, 0, 0], [0, 0, 0, 1.0]])
@@ -49,6 +50,7 @@ class FakeUnity:
         self.pub = self.ctx.socket(zmq.PUB)
         self.pub.connect(f'tcp://{host}:{sub_port}')
         self.settings, self.running, self.frames = None, False, 0
+        self.dyn = {}                                    # dynamic objects by ID (Unity messages)
 
     def start(self):
         self.running = True
@@ -73,11 +75,35 @@ class FakeUnity:
                 self.point_cloud(m)
             elif 'frame_id' not in m:                       # settings
                 self.settings = m
+                self.dyn = {o['ID']: o for o in m.get('dynamic_objects', [])}
                 self.pub.send_multipart([json.dumps({'ready': True}).encode()])
             elif self.settings is not None:
                 self.pub.send_multipart(self.render(m))
 
+    def boxes(self):
+        """The dynamic objects as renderer boxes (scene frame; rpg_box02 geometry)."""
+        out = []
+        for ID, o in self.dyn.items():
+            sx, sy, sz = o['size']
+            if min(sx, sy, sz) < 0.05:
+                continue
+            ux, uy, uz = o['position']
+            qx, qy, qz, qw = o['rotation']
+            w, x, y, z = qw, -qx, -qz, -qy                         # Unity → ROS quaternion
+            yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+            half = (0.5 * sx * BOX_UNIT[0], 0.5 * sz * BOX_UNIT[1], 0.5 * sy * BOX_UNIT[2])
+            out.append(Box((ux, uz, uy), half, yaw, Texture('noise', albedo=0.55, albedo2=0.22, scale=0.08,
+                                                            seed=hash(ID) & 0xFFFF)))
+        return out
+
     def render(self, m):
+        for o in m.get('dynamic_objects', []):
+            if o['ID'] in self.dyn:
+                self.dyn[o['ID']].update(o)
+        bx = self.boxes()
+        W0 = self.world
+        world = W0 if not bx else World(list(W0.objects) + bx, W0.ground, sun=W0.sun, ambient=W0.ambient,
+                                        diffuse=W0.diffuse, sky=W0.sky)
         v = m['vehicles'][0]
         cams = self.settings['vehicles'][0]['cameras']
         ux, uy, uz = v['position']
@@ -92,7 +118,7 @@ class FakeUnity:
             roll, pitch, yaw = euler_from_rot(Rc)
             W, H = int(c['width']), int(c['height'])
             hfov = 2 * math.atan(math.tan(math.radians(c['fov']) / 2) * W / H)
-            w = cull(self.world, pos, yaw, _Rig(hfov))
+            w = cull(world, pos, yaw, _Rig(hfov))
             gray, depth = render_view(w, pos, yaw, pitch, roll, cam_pitch=0.0, cam_offset=(0, 0, 0), hfov=hfov,
                                       post=False, shadows=False, size=(H, W), d_max=100.0)
             img = np.repeat(gray[..., None], int(c['channels']), -1)[::-1]
@@ -129,3 +155,17 @@ class FakeUnity:
             f.write(U.tobytes())
         import os
         os.replace(fn + '.tmp', fn)
+
+
+def arena_world(seed=0, x=(-20.0, 80.0), y=(-10.0, 10.0), height=10.0):
+    """A stand-in for agile_flight's warehouse: textured floor, four walls and a roof (tests, dry runs)."""
+    from nanouav.agile import envs as EV
+    rng = np.random.default_rng(seed)
+    t = lambda: Texture('noise', albedo=float(rng.uniform(0.4, 0.7)), albedo2=0.2, scale=0.3, seed=int(rng.integers(1 << 30)))
+    cx, cy, L, Wd = (x[0] + x[1]) / 2, (y[0] + y[1]) / 2, x[1] - x[0], y[1] - y[0]
+    walls = [Box((cx, y[0] - 0.25, height / 2), (L / 2 + 0.5, 0.25, height / 2), 0.0, t()),
+             Box((cx, y[1] + 0.25, height / 2), (L / 2 + 0.5, 0.25, height / 2), 0.0, t()),
+             Box((x[0] - 0.25, cy, height / 2), (0.25, Wd / 2 + 0.5, height / 2), 0.0, t()),
+             Box((x[1] + 0.25, cy, height / 2), (0.25, Wd / 2 + 0.5, height / 2), 0.0, t()),
+             Box((cx, cy, height + 0.25), (L / 2 + 0.5, Wd / 2 + 0.5, 0.25), 0.0, t())]
+    return World(walls, EV._ground(rng), sun=(-0.4, 0.2, 0.9), ambient=0.45, diffuse=0.6)

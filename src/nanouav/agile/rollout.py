@@ -198,6 +198,10 @@ class Rollout:
         # e.g. Flightmare (nanouav.flightmare.run.FlightmareObserver)
         self.observer = None
         self.record_cam = False      # with a trace: also observe and record frames for privileged pilots (videos)
+        # a list → labelled states are stored without the expert label (computed later, in parallel:
+        # nanouav.flightmare.dagger) — the expert is the slow part when the renderer is a single Unity player
+        self.defer = None
+        self.z_ground = float(getattr(env.world, 'floor', 0.0))   # 'z' of the samples: height above the floor
 
     # ── plans ─────────────────────────────────────────────────────────────
     def _fit(self, P, p, v, a, v_des):
@@ -281,7 +285,15 @@ class Rollout:
                 self._v_ref = F.get('v_ref', self._v_des)     # speed of the privileged reference
                 use_student = self.pilot == 'student' or (self.pilot == 'dagger' and self.policy is not None
                                                           and F['d_ref'] <= cfg.xi)
-                if self.label and ref is not None and (n_frames - 1) % cfg.label_every == 0:
+                if self.label and ref is not None and (n_frames - 1) % cfg.label_every == 0 and self.defer is not None:
+                    self.defer.append({
+                        'depth': np.round(depth * 1000).astype(np.uint16),
+                        'v': TR.rotate_to_heading(v, yaw).astype(np.float32),
+                        'R': R.ravel().astype(np.float32),
+                        'omega': TR.rotate_to_heading(omega, yaw).astype(np.float32),
+                        'z': np.float32(p[2] - self.z_ground),
+                        '_p': p.copy(), '_ref': np.asarray(ref, float).copy(), '_v': v.copy(), '_yaw': float(yaw)})
+                elif self.label and ref is not None and (n_frames - 1) % cfg.label_every == 0:
                     L = self.expert.label(p, ref, v0=v)
                     if len(L['trajs']):
                         samples.append({
@@ -291,7 +303,7 @@ class Rollout:
                             'omega': TR.rotate_to_heading(omega, yaw).astype(np.float32),
                             'trajs': TR.to_heading_frame(L['trajs'], p, yaw).astype(np.float32),
                             'costs': L['costs'].astype(np.float32),
-                            'esdf': local_esdf(self.field_ng, p, yaw, p[2], cfg), 'z': np.float32(p[2])})
+                            'esdf': local_esdf(self.field_ng, p, yaw, p[2], cfg), 'z': np.float32(p[2] - self.z_ground)})
                 if F.get('hold') and self.pilot in ('student', 'direct', 'blind'):   # target lost: hover
                     new = TR.Plan(TR.poly5_fit(np.repeat(p[None], 10, 0), p, v, a0), t, 1.0, source='hold')
                 elif self.pilot == 'expert':
