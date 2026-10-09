@@ -148,6 +148,8 @@ def main():
             p.add_argument('--seed', type=int, default=1000)
             p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl', 'blind'])
             p.add_argument('--no-chase', dest='chase', action='store_false', help='skip the chase camera (faster)')
+            p.add_argument('--debug-map', action='store_true',
+                           help='old panels with the true map (default: only what the drone perceives)')
             p.add_argument('--proj', default='scaled', choices=['scaled', 'raw'])
             p.add_argument('--tag', default='')
         if name in ('pilots', 'eval', 'diagnose', 'video'):
@@ -203,7 +205,8 @@ def main():
         from nanouav.agile import video
         o, suf = opts_of(a)
         return video.run(a.model, _out(a), world=a.world, v=a.v, seed=a.seed, pilot=a.pilot, cam_hz=a.cam_hz,
-                         opts=o, chase=a.chase, suffix=suf + (f'_{a.tag}' if a.tag else ''))
+                         opts=o, chase=a.chase, suffix=suf + (f'_{a.tag}' if a.tag else ''),
+                         view='debug' if a.debug_map else 'perception')
     if a.cmd == 'diagnose':
         from nanouav.agile import diagnose
         o, suf = opts_of(a)

@@ -28,6 +28,7 @@ UberReplacement.shader), and what this client relies on:
 import json
 import math
 import os
+import threading
 import time
 
 import numpy as np
@@ -103,6 +104,7 @@ class FlightmareClient:
         self.depth_mult = float(depth_mult) if depth_mult else self.depth_far     # Unity sends depth / far
         self.offset = np.asarray(render_offset, float)
         ox, oy, oz = cam_offset
+        self.cam_offset, self.baseline, self.tilt = (ox, oy, oz), float(baseline), 0.0
         self.T_left = camera_T([ox, oy, oz])
         self.T_right = camera_T([ox, oy - baseline, oz])
         if object_csv is None:                                 # the 2022 binary reads this file: give it an empty one
@@ -121,6 +123,8 @@ class FlightmareClient:
                          'static_objects': [], 'render_offset': pos_ros2unity(render_offset), 'object_csv': object_csv}
         self.frame = 0
         self.ready = False
+        self._lock = threading.RLock()                 # render / place / keepalive share the sockets
+        self._last_t, self._last_pose, self.keepalives, self.reloads = time.time(), (np.zeros(3), np.eye(3)), 0, 0
 
     @staticmethod
     def _object(ID, prefab):
@@ -130,6 +134,10 @@ class FlightmareClient:
     def place(self, boxes):
         """Put the dynamic objects at these boxes (renderer.Box: center, half extents, yaw; scene frame, ROS);
         the others are parked out of sight. Takes effect with the next render."""
+        with self._lock:
+            self._place(boxes)
+
+    def _place(self, boxes):
         if len(boxes) > self.n_objects:
             raise ValueError(f'{len(boxes)} boxes but the client was made with n_objects={self.n_objects}')
         for o, b in zip(self.objects, list(boxes) + [None] * (self.n_objects - len(boxes))):
@@ -142,6 +150,17 @@ class FlightmareClient:
             o.update(position=pos_ros2unity(c), rotation=quat_ros2unity(rot_to_quat(Rz)),
                      size=[float(sc[0]), float(sc[2]), float(sc[1])])                 # Unity (x, y up, z)
 
+    def set_tilt(self, deg):
+        """Tilt both cameras up by `deg` (the paper: 30° for flights at ≥ 7 m/s, so the camera looks ahead
+        while the drone pitches forward). Unity reads T_BC from every pose message: effective next frame."""
+        with self._lock:
+            ox, oy, oz = self.cam_offset
+            self.tilt = float(deg)
+            self.T_left = camera_T([ox, oy, oz], pitch_up_deg=self.tilt)
+            self.T_right = camera_T([ox, oy - self.baseline, oz], pitch_up_deg=self.tilt)
+            for c, T in zip(self.vehicle['cameras'], (self.T_left, self.T_right)):
+                c['T_BC'] = tf_ros2unity(T)
+
     def _camera(self, ID, T, idx):
         return {'ID': ID, 'channels': self.C, 'width': self.W, 'height': self.H, 'fov': self.fov,
                 'nearClipPlane': [0.01] * 4, 'farClipPlane': [1000.0, self.depth_far, 1000.0, 1000.0], 'T_BC': tf_ros2unity(T),
@@ -150,8 +169,31 @@ class FlightmareClient:
     def _send(self, topic, obj):
         self.pub.send_multipart([topic.encode(), json.dumps(obj).encode()])
 
-    def connect(self):
-        """Send the settings until the Unity player answers {"ready": true} (start it first)."""
+    def connect(self, keepalive=2.0):
+        """Send the settings until the Unity player answers {"ready": true} (start it first). keepalive: the
+        player drops back to its menu after 10 s without a message (CameraController.cs) — e.g. while the
+        student trains between DAgger rounds, or during privileged-pilot episodes that need no images — so a
+        frame is rendered at least every `keepalive` s (None: never)."""
+        ok = self._connect()
+        if keepalive and not getattr(self, '_ka', None):
+            self._ka_period, self._ka_stop = float(keepalive), threading.Event()
+            self._ka = threading.Thread(target=self._keepalive, daemon=True)
+            self._ka.start()
+        return ok
+
+    def _keepalive(self):
+        while not self._ka_stop.wait(0.5):
+            if self.ready and time.time() - self._last_t > self._ka_period and self._last_pose is not None:
+                try:
+                    with self._lock:
+                        if time.time() - self._last_t > self._ka_period:
+                            self._render(*self._last_pose)
+                            self._last_t = time.time()
+                            self.keepalives += 1
+                except Exception:                      # a failed heartbeat is retried; render() reports errors
+                    pass
+
+    def _connect(self):
         t0 = time.time()
         while time.time() - t0 < self.timeout:
             self._send('Pose', self.settings)
@@ -171,15 +213,33 @@ class FlightmareClient:
     def render(self, p, R):
         """Body position p (3,) and rotation R (3 × 3, body → world, ROS) → dict(left, right uint8 (H, W, C),
         depth_left, depth_right float32 m or None, collision)."""
+        with self._lock:
+            out = self._render(np.asarray(p, float), np.asarray(R, float))
+            self._last_t, self._last_pose = time.time(), (np.asarray(p, float).copy(), np.asarray(R, float).copy())
+            return out
+
+    def _pose_message(self, v):
+        # every pose also carries the settings: if the player went back to its menu it takes the next message
+        # as its settings (CameraController.Update) — with these fields that is a valid one, it reloads the
+        # scene, answers {"ready": true} and the pose is sent again
+        return {'frame_id': self.frame, 'vehicles': [v], 'objects': [], 'dynamic_objects': self.objects,
+                'static_objects': [], 'scene_id': self.settings['scene_id'],
+                'render_offset': self.settings['render_offset'], 'object_csv': self.settings['object_csv']}
+
+    def _render(self, p, R):
         self.frame += 1
         v = dict(self.vehicle, position=pos_ros2unity(p), rotation=quat_ros2unity(rot_to_quat(R)))
-        self._send('Pose', {'frame_id': self.frame, 'vehicles': [v], 'objects': [], 'dynamic_objects': self.objects,
-                            'static_objects': []})
+        msg = self._pose_message(v)
+        self._send('Pose', msg)
         for _ in range(100):
             if not self.sub.poll(int(self.timeout * 1000)):
                 raise TimeoutError('no frame from Flightmare')
             parts = self.sub.recv_multipart()
             m = json.loads(parts[0].decode())
+            if 'frame_id' not in m and m.get('ready'):     # the player had reset and has reloaded the scene
+                self.reloads += 1
+                self._send('Pose', msg)
+                continue
             if int(m.get('frame_id', -1)) == self.frame:
                 break
         imgs, i = [], 1
@@ -233,5 +293,9 @@ class FlightmareClient:
         return P - self.offset, info
 
     def close(self):
+        if getattr(self, '_ka', None):
+            self._ka_stop.set()
+            self._ka.join(timeout=5)
+            self._ka = None
         self.pub.close(0)
         self.sub.close(0)

@@ -189,7 +189,10 @@ class Rollout:
         self.mission = mission or GoalMission(env, cfg.v_des, gref)
         self.gref = getattr(self.mission, 'gref', None)
         self.line = getattr(self.mission, 'line', None)
-        self.expert = Expert(env.world, seed=cfg.seed, **(expert_kw or {})) if (label or pilot == 'expert') else None
+        self.z_ground = float(getattr(env.world, 'floor', 0.0))   # 'z' of the samples: height above the floor
+        kw = dict(expert_kw or {})
+        kw.setdefault('z_min', self.z_ground + 0.4)                 # the expert's lowest point, above the floor
+        self.expert = Expert(env.world, seed=cfg.seed, **kw) if (label or pilot == 'expert') else None
         self.rng = np.random.default_rng(cfg.seed)
         self._v_des = self._v_ref = cfg.v_des
         self.trace = None            # a list → per student decision: hypotheses, costs, choice, true clearance
@@ -201,7 +204,15 @@ class Rollout:
         # a list → labelled states are stored without the expert label (computed later, in parallel:
         # nanouav.flightmare.dagger) — the expert is the slow part when the renderer is a single Unity player
         self.defer = None
-        self.z_ground = float(getattr(env.world, 'floor', 0.0))   # 'z' of the samples: height above the floor
+
+    def _trace_images(self, depth, cam, gray):
+        """Images of a trace entry (videos): the network input, the full-resolution SGM and the camera image."""
+        d = self.trace[-1]
+        d['depth'] = np.round(depth * 1000).astype(np.uint16)
+        d['sgm'] = np.round(np.asarray(cam['depth']) * 1000).astype(np.uint16)
+        d['img'] = cam['rgb'] if cam.get('rgb') is not None else gray
+        if self.observer is not None:
+            d['gray'] = gray                                   # the external renderer's left image
 
     # ── plans ─────────────────────────────────────────────────────────────
     def _fit(self, P, p, v, a, v_des):
@@ -325,9 +336,7 @@ class Rollout:
                                            'W': np.round(W, 2).tolist(),
                                            'att': [round(float(yaw), 4), round(float(pitch), 4), round(float(roll), 4)]})
                         if self.trace_depth:
-                            self.trace[-1]['depth'] = np.round(depth * 1000).astype(np.uint16)
-                            if self.observer is not None:
-                                self.trace[-1]['gray'] = gray     # the external renderer's left image
+                            self._trace_images(depth, cam, gray)
                 else:
                     new = self.plan_ref(ref, p, v, a0, t)
                 if self.record_cam and self.trace is not None and not use_student and cam is not None:
@@ -338,9 +347,7 @@ class Rollout:
                                        'att': [round(float(yaw), 4), round(float(pitch), 4), round(float(roll), 4)],
                                        'pilot': self.pilot})
                     if self.trace_depth:
-                        self.trace[-1]['depth'] = np.round(depth * 1000).astype(np.uint16)
-                        if self.observer is not None:
-                            self.trace[-1]['gray'] = gray
+                        self._trace_images(depth, cam, gray)
                 pending.append((t + cfg.latency, new, yaw_hold))   # computed from the state at capture time t
             while pending and pending[0][0] <= t:
                 _, plan, yaw_cmd = pending.pop(0)

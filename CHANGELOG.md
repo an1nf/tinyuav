@@ -3,6 +3,26 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.20.1] — 2026-10-09
+
+Sin cambios en los resultados de R18–R21 (los videos cambian de diseño).
+
+### Corregido
+- `FlightmareClient`: el reproductor vuelve a su menú tras 10 s sin mensajes (entre rondas de DAgger,
+  episodios de τ_gbl en `eval`). Ahora manda un cuadro cada 2 s si está ocioso, y cada pose lleva la
+  configuración para recuperarse si el reproductor se reinicia igual (`reloads`). El falso lo imita
+  (`idle_reset_s`).
+- Cámara inclinada 30° hacia arriba en los vuelos a ≥ 7 m/s, como en el paper, en entrenamiento y
+  evaluación en la arena (`set_tilt`, `dagger.tilted`).
+- `z_min` del experto relativo al suelo de la escena.
+
+### Cambiado
+- Videos (`r18 video`, `r22 video`): solo lo que percibe el dron. Cámara con la trayectoria elegida como
+  túnel (sección del dron cada 0.2 s) coloreado por el costo predicho, SGM a resolución completa con escala,
+  y mapa local del propio SGM del último 0.5 s. `--debug-map` vuelve a los paneles anteriores.
+- La traza guarda el SGM a resolución completa y la imagen de la cámara (`Rollout._trace_images`);
+  `FlightmareObserver` devuelve también el RGB.
+
 ## [0.20.0] — 2026-10-08
 
 Sin cambios en los resultados de R18–R21 (el campo `z` de las muestras sigue siendo la altura sobre el

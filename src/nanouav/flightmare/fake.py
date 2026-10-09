@@ -14,6 +14,7 @@ The world is the scene frame: the absolute frame is the scene frame + render_off
 import json
 import math
 import threading
+import time
 
 import numpy as np
 
@@ -40,7 +41,9 @@ def _quat_to_rot(w, x, y, z):
 
 
 class FakeUnity:
-    def __init__(self, world, pub_port=10253, sub_port=10254, host='localhost'):
+    def __init__(self, world, pub_port=10253, sub_port=10254, host='localhost', idle_reset_s=None):
+        """idle_reset_s: like the real player (10 s), go back to the menu after this long without a message:
+        the next message is then taken as the settings."""
         import zmq
         self.world, self.zmq = world, zmq
         self.ctx = zmq.Context()
@@ -51,6 +54,7 @@ class FakeUnity:
         self.pub.connect(f'tcp://{host}:{sub_port}')
         self.settings, self.running, self.frames = None, False, 0
         self.dyn = {}                                    # dynamic objects by ID (Unity messages)
+        self.idle_reset_s, self.resets = idle_reset_s, 0
 
     def start(self):
         self.running = True
@@ -66,20 +70,25 @@ class FakeUnity:
         self.ctx.term()
 
     def loop(self):
+        last = time.time()
         while self.running:
             if not self.sub.poll(100):
+                if self.idle_reset_s and self.settings is not None and time.time() - last > self.idle_reset_s:
+                    self.settings, self.dyn = None, {}          # back to the menu: wait for settings again
+                    self.resets += 1
                 continue
             topic, body = self.sub.recv_multipart()[:2]
+            last = time.time()
             m = json.loads(body.decode())
             if topic == b'PointCloud':
                 self.point_cloud(m)
-            elif 'frame_id' not in m:                       # settings
+            elif self.settings is None or 'frame_id' not in m:   # settings (the real player takes any message)
                 self.settings = m
-                self.dyn = {o['ID']: o for o in m.get('dynamic_objects', [])}
+                self.dyn = {o['ID']: dict(o) for o in m.get('dynamic_objects', [])}
                 self.pub.send_multipart([json.dumps({'ready': True}).encode()])
-            elif self.settings is not None:
+            else:
                 self.pub.send_multipart(self.render(m))
-
+            last = time.time()                               # idle time counts from the reply
     def boxes(self):
         """The dynamic objects as renderer boxes (scene frame; rpg_box02 geometry)."""
         out = []
@@ -105,7 +114,7 @@ class FakeUnity:
         world = W0 if not bx else World(list(W0.objects) + bx, W0.ground, sun=W0.sun, ambient=W0.ambient,
                                         diffuse=W0.diffuse, sky=W0.sky)
         v = m['vehicles'][0]
-        cams = self.settings['vehicles'][0]['cameras']
+        cams = v.get('cameras') or self.settings['vehicles'][0]['cameras']     # T_BC of this frame
         ux, uy, uz = v['position']
         p = np.array([ux, uz, uy])
         qx, qy, qz, qw = v['rotation']

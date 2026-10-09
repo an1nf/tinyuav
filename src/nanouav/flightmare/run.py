@@ -145,7 +145,7 @@ class FlightmareObserver:
         sgm = sgm_depth(gl, gr, self.rig)
         d = o['depth_left']
         gt = np.where((d > 0) & (d < self.rig.max_range), d, 0.0).astype(np.float32) if d is not None else np.zeros_like(sgm)
-        return gl, sgm, gt
+        return gl, sgm, gt, o['left']
 
 
 # ── probe: check the conventions on one frame ───────────────────────────────
@@ -409,6 +409,11 @@ def _episode(a, env, i, pilot, v, client, calib, model, trace=False, rig=None):
     from nanouav.agile import dagger
     from nanouav.agile.rollout import Config, Rollout
     from nanouav.agile.run import apply_opts
+    if rig is not None and getattr(a, 'arena', False):         # trained with the paper's tilt at ≥ 7 m/s
+        from nanouav.flightmare.dagger import tilted
+        rig = tilted(rig, v)
+        if client is not None:
+            client.set_tilt(rig.tilt_up_deg)
     cfg = Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, **({'rig': rig} if rig is not None else {}))
     R = Rollout(env, cfg, pilot, dagger._policy(model) if pilot == 'student' else None)
     apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select})
@@ -515,7 +520,7 @@ def cmd_video(a):
     res = 'EXITO' if r['success'] else ('CHOQUE' if r['crashed'] else 'SIN LLEGAR')
     render_episode(env, log, R.trace, R.cfg.rig, R.cfg.net_size, fn, fps=a.cam_hz, chase=False,
                    result=f"{res} ({r['time_s']:.1f} s)", title=f'Flightmare {a.scene} | {tag} | {a.v:g} m/s | linea {a.line}',
-                   mark=r['crash']['obstacle'] if r.get('crash') else None)
+                   mark=r['crash']['obstacle'] if r.get('crash') else None, view='debug' if a.debug_map else 'perception')
     print(f'{res} · {r["time_s"]} s · → {fn}')
     if r.get('crash'):
         c = r['crash']
@@ -679,6 +684,8 @@ def main(argv=None):
         else:
             p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl'])
             p.add_argument('--line', type=int, default=0, help='line (or arena environment) index')
+            p.add_argument('--debug-map', action='store_true',
+                           help='old panels with the true map (default: only what the drone perceives)')
     p = sub.add_parser('fake')
     p.add_argument('--world', default='forest', choices=['forest', 'gap', 'arena'])
     p.add_argument('--seed', type=int, default=1000)

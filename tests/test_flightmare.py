@@ -77,7 +77,7 @@ def test_episode_in_flightmare_with_cloud_map(unity, tmp_path):
     r, _, _ = Rollout(e, Config(v_des=4.0, seed=0), 'gbl').run()
     assert r['success']
     obs = FlightmareObserver(cl, Config().rig)
-    g, sgm, gt = obs(e.start, 0.0, 0.0, 0.0)
+    g, sgm, gt, rgb = obs(e.start, 0.0, 0.0, 0.0)
     assert g.shape == (240, 320) and (sgm > 0).mean() > 0.2 and (gt > 0).mean() > 0.2
 
 
@@ -246,3 +246,39 @@ def test_dagger_in_flightmare_one_round(tmp_path):
     z = np.load(tmp_path / 'data_t' / 'env_0000.npz')
     assert z['depth'].shape[1:] == (120, 160) and z['trajs'].shape[1:] == (3, 10, 3) and z['esdf'].shape[1:] == (64, 64)
     assert 1.0 < float(np.median(z['z'])) < 3.0                           # height above the floor
+
+
+def test_player_reset_and_keepalive():
+    """The player goes back to its menu after an idle spell; the client keeps it alive, and if it reset
+    anyway the next pose (which carries the settings) reloads it."""
+    import time
+    from nanouav.scene.renderer import Box
+    env = EV.TEST['forest'](1000)
+    for keepalive, expect_resets in ((None, True), (0.3, False)):
+        pub, sub = next(PORTS), next(PORTS)
+        fake = FakeUnity(env.world, pub, sub, idle_reset_s=1.5).start()
+        cl = B.FlightmareClient(scene_id=2, pub_port=pub, sub_port=sub, n_objects=2, timeout_s=20)
+        try:
+            cl.connect(keepalive=keepalive)
+            cl.place([Box((6.0, 0.0, 1.5), (0.3, 0.3, 1.5))])
+            d0 = cl.render(np.array([0.0, 0.0, 1.5]), np.eye(3))['depth_left']
+            time.sleep(3.5)                                         # e.g. a training round
+            d1 = cl.render(np.array([0.0, 0.0, 1.5]), np.eye(3))['depth_left']
+        finally:
+            cl.close()
+            fake.stop()
+        assert np.allclose(d0, d1, atol=1e-3)                       # same view, the box still there
+        assert (fake.resets > 0) == expect_resets and (cl.reloads > 0) == expect_resets
+
+
+def test_camera_tilt_matches_our_rig(unity):
+    """set_tilt(30) (the paper's camera at ≥ 7 m/s) renders what our tilted rig sees."""
+    from nanouav.agile.stereo import StereoRig, render_stereo
+    cl, env = unity
+    cl.set_tilt(30.0)
+    p = np.array([0.0, 0.0, 1.5])
+    o = cl.render(p, np.eye(3))
+    gl, gr, d = render_stereo(env.world, StereoRig(tilt_up_deg=30.0), p, 0.0, rng=np.random.default_rng(0))
+    m = (d < 15) & (o['depth_left'] < 15)
+    assert m.mean() > 0.2 and np.median(np.abs(o['depth_left'][m] - d[m])) < 0.05
+    cl.set_tilt(0.0)

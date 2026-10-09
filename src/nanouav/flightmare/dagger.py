@@ -22,6 +22,13 @@ import time
 import numpy as np
 
 _ARENA = None
+TILT_V, TILT_DEG = 7.0, 30.0           # the paper: depth sensor tilted 30° up for flights at ≥ 7 m/s
+
+
+def tilted(rig, v):
+    """The rig for a flight at v (m/s): tilted up TILT_DEG at v ≥ TILT_V (the network infers it from v)."""
+    import dataclasses
+    return dataclasses.replace(rig, tilt_up_deg=TILT_DEG if v >= TILT_V - 1e-6 else 0.0)
 
 
 def _init(arena_path):
@@ -41,7 +48,7 @@ def _label(job):
     boxes = [Box(tuple(c), tuple(h)) for c, h in job['boxes']]
     world = _ARENA.with_boxes(boxes)
     p, ref, v, yaw = job['p'], job['ref'], job['v'], job['yaw']
-    L = Expert(world, seed=job['seed']).label(p, ref, v0=v)
+    L = Expert(world, seed=job['seed'], z_min=world.floor + 0.4).label(p, ref, v0=v)
     if not len(L['trajs']):
         return None
     return {'trajs': TR.to_heading_frame(L['trajs'], p, yaw).astype(np.float32),
@@ -98,9 +105,11 @@ def run(client, arena_path, out, rig, n_envs=300, per_round=30, workers=6, epoch
                     stats.append({'error': str(e), 'i': i, 'n_samples': 0})
                     continue
                 client.place(env.world.objects)
-                cfg = Config(v_des=v, xi=xi, cam_hz=cam_hz, seed=i, rig=rig)
+                rig_v = tilted(rig, v)
+                client.set_tilt(rig_v.tilt_up_deg)
+                cfg = Config(v_des=v, xi=xi, cam_hz=cam_hz, seed=i, rig=rig_v)
                 R = Rollout(env, cfg, 'dagger', D._policy(model), label=True)
-                R.observer = FlightmareObserver(client, rig)
+                R.observer = FlightmareObserver(client, rig_v)
                 R.defer = []
                 te = time.time()
                 res, _, _ = R.run()

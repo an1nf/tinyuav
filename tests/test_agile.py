@@ -219,3 +219,23 @@ def test_episode_video_is_written(tmp_path):
     n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     ok, frame = cap.read()
     assert ok and frame.shape == (720, 1200, 3) and n >= 5
+
+
+def test_perception_video_shows_only_onboard_data(tmp_path):
+    """Default video: camera + tunnel HUD, full-resolution SGM, local map from the drone's own SGM."""
+    import cv2
+
+    from nanouav.agile.rollout import Config
+    from nanouav.agile.video import render_episode
+    cfg = Config()
+    rng = np.random.default_rng(0)
+    log = [(0.1 * i, 0.3 * i, 0.0, 1.5, 3.0, 0.0, 0.0, 'student') for i in range(5)]
+    W = [[[0.3 + 0.4 * j, 0.1 * k * j, 1.5] for j in range(1, 11)] for k in (-1, 0, 1)]
+    sgm = (rng.uniform(2, 9, cfg.rig.size) * 1000).astype(np.uint16)
+    trace = [{'t': 0.1 * i, 'p': [0.3 * i, 0.0, 1.5], 'k': 1, 'costs': [0.2, 0.05, 0.3], 'beta': 1.0, 'W': W,
+              'att': [0.0, 0.0, 0.0], 'depth': np.full((120, 160), 4000, np.uint16), 'sgm': sgm,
+              'img': rng.integers(0, 255, cfg.rig.size, dtype=np.uint8)} for i in range(5)]
+    fn = render_episode(None, log, trace, cfg.rig, cfg.net_size, str(tmp_path / 'ep.mp4'), fps=15, result='EXITO')
+    cap = cv2.VideoCapture(fn)
+    ok, frame = cap.read()
+    assert ok and frame.shape == (720, 1280, 3) and int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) >= 5

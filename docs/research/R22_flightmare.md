@@ -1,6 +1,6 @@
 # R22 · El estudiante de R18 en Flightmare
 
-*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1; mapa por escaneo en 0.19.2; líneas verificadas en 0.19.3; primera demo en 0.19.4; entrenamiento en Flightmare en 0.20.0) · sobre R18.*
+*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1; mapa por escaneo en 0.19.2; líneas verificadas en 0.19.3; primera demo en 0.19.4; entrenamiento en Flightmare en 0.20.0; revisión antes de entrenar en 0.20.1) · sobre R18.*
 
 ## La idea
 
@@ -127,6 +127,29 @@ prueba tienen densidad 1/25 m⁻² y troncos de 0.5–0.7 m, el protocolo de R18
 
 Validado con el reproductor falso (un almacén de prueba): la caja sale en su sitio y la malla de distancias es
 exacta; DAgger de 2 rondas vuela, etiqueta en paralelo, entrena y evalúa. τ_gbl llega en todos los entornos.
+
+## Revisión antes del primer entrenamiento (0.20.1)
+
+Tres fallos habrían arruinado el entrenamiento o lo habrían alejado del paper. 0.20.1 los corrige:
+- **El reproductor se habría reiniciado entre rondas.** Vuelve a su menú tras 10 s sin mensajes
+  (CameraController.cs), y entre rondas el estudiante entrena varios minutos. En `eval --arena`, los
+  episodios de τ_gbl tampoco piden imágenes. El cliente ahora manda un cuadro cada 2 s cuando está ocioso.
+  Además, cada pose lleva la configuración: si aun así el reproductor se reinicia, la toma como tal,
+  recarga la escena y el cliente reenvía la pose. El reproductor falso imita ese reinicio y hay una prueba.
+- **La cámara no se inclinaba a alta velocidad.** El paper inclina el sensor de profundidad 30° hacia arriba
+  para vuelos a ≥ 7 m/s, para que mire al frente mientras el dron cabecea (Materials and Methods). R18
+  nunca lo hizo: a 10 m/s la cámara mira al suelo, lo que explica en parte el 1/10. En Flightmare se aplica
+  por episodio (`FlightmareClient.set_tilt`, `flightmare.dagger.tilted`), en entrenamiento y en evaluación.
+- **La altura mínima del experto** (`z_min`, 0.4 m) era absoluta. Ahora es relativa al suelo de la escena.
+
+El video ahora muestra solo lo que percibe el dron:
+- la cámara con la trayectoria elegida como un túnel: la sección del dron (0.4 × 0.24 m) cada 0.2 s en
+  perspectiva, coloreada por el costo de choque que predice la red; las otras hipótesis van como líneas finas;
+- el SGM a resolución completa con escala de 0 a 10 m;
+- un mapa local hecho solo con su propio SGM del último medio segundo, a su altura.
+
+Ya no aparece el mapa verdadero ni la cámara de seguimiento (`--debug-map` los recupera). El mapa verdadero
+sigue existiendo solo para el experto que etiqueta y para decidir si hubo choque, como en el paper.
 
 ## Cómo correrlo
 
