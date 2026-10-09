@@ -3,6 +3,18 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.20.2] — 2026-10-09
+
+Sin cambios en los resultados. R22, primeras dos rondas de DAgger en Flightmare: τ_gbl 10/10 a 3, 5 y 7 m/s;
+estudiante 2/10, 2/10 y 5/10, con deriva hacia la izquierda a baja velocidad.
+
+### Añadido
+- `r22 check`: geometría de las imágenes contra nuestro modelo de cámara, con cajas fuera del eje, nivelada
+  y a 30° (espejo, inclinación, SGM).
+- `r22 diagnose`: clasificación de choques en la arena (como `r18 diagnose`), deriva lateral, lado de las
+  hipótesis elegidas y calidad del SGM por decisión (`Rollout._trace_stats`). Un PNG por choque, con
+  troncos y escena estática.
+
 ## [0.20.1] — 2026-10-09
 
 Sin cambios en los resultados de R18–R21 (los videos cambian de diseño).

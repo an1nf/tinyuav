@@ -60,8 +60,9 @@ def _nearest(world, p):
         d = o.sdf(p)
         if d < best:
             best, o_best = d, o
-    if p[2] - 0.0 < best:
-        return float(p[2]), 'suelo', None, None
+    floor = float(getattr(world, 'floor', 0.0))
+    if p[2] - floor < best:
+        return float(p[2] - floor), 'suelo', None, None
     c = np.array([o_best.cx, o_best.cy]) if hasattr(o_best, 'cx') else np.asarray(getattr(o_best, 'center', p), float)[:2]
     return float(best), type(o_best).__name__, float(getattr(o_best, 'r', 0.0) or 0.0), c
 
@@ -113,10 +114,20 @@ def plot(env, trace, log, diag, fn):
     from matplotlib.patches import Circle
     p_c = np.array(diag['p'])
     fig, ax = plt.subplots(figsize=(6, 6))
+    from matplotlib.patches import Rectangle
     for o in env.world.objects:
         if hasattr(o, 'cx') and np.hypot(o.cx - p_c[0], o.cy - p_c[1]) < 9:
             ax.add_patch(Circle((o.cx, o.cy), o.r, color='0.4'))
             ax.add_patch(Circle((o.cx, o.cy), o.r + R_DRONE, fill=False, ls=':', color='0.6'))
+        elif hasattr(o, 'half') and np.hypot(o.center[0] - p_c[0], o.center[1] - p_c[1]) < 9:   # trunks (arena)
+            c, h = o.center, o.half
+            ax.add_patch(Rectangle((c[0] - h[0], c[1] - h[1]), 2 * h[0], 2 * h[1], color='0.4'))
+            ax.add_patch(Rectangle((c[0] - h[0] - R_DRONE, c[1] - h[1] - R_DRONE), 2 * (h[0] + R_DRONE),
+                                   2 * (h[1] + R_DRONE), fill=False, ls=':', color='0.6'))
+    S = getattr(env.world, 'points', None)                  # the static scene of an arena / a scanned map
+    if S is not None and len(S):
+        k = (np.abs(S[:, 0] - p_c[0]) < 8) & (np.abs(S[:, 1] - p_c[1]) < 8)
+        ax.plot(S[k, 0], S[k, 1], ',', color='0.55')
     P = np.array([row[1:4] for row in log if row[0] >= diag['t'] - 4])
     ax.plot(P[:, 0], P[:, 1], 'k-', lw=1.5, label='vuelo (4 s)')
     for j, d in enumerate([d for d in trace if d['t'] >= diag['t'] - 0.6]):

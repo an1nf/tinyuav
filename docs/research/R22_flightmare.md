@@ -1,6 +1,6 @@
 # R22 · El estudiante de R18 en Flightmare
 
-*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1; mapa por escaneo en 0.19.2; líneas verificadas en 0.19.3; primera demo en 0.19.4; entrenamiento en Flightmare en 0.20.0; revisión antes de entrenar en 0.20.1) · sobre R18.*
+*2026-10-07 · nanouav 0.19.0 (convenciones de Unity corregidas en 0.19.1; mapa por escaneo en 0.19.2; líneas verificadas en 0.19.3; primera demo en 0.19.4; entrenamiento en Flightmare en 0.20.0; revisión antes de entrenar en 0.20.1; diagnóstico en la arena en 0.20.2) · sobre R18.*
 
 ## La idea
 
@@ -150,6 +150,38 @@ El video ahora muestra solo lo que percibe el dron:
 
 Ya no aparece el mapa verdadero ni la cámara de seguimiento (`--debug-map` los recupera). El mapa verdadero
 sigue existiendo solo para el experto que etiqueta y para decidir si hubo choque, como en el paper.
+
+## Primeras dos rondas en Flightmare (0.20.2)
+
+60 entornos, ξ de 1.0 a 1.5, 4668 muestras (el 6 % de las del simulador propio). Prueba en 10 bosques del
+almacén:
+
+| piloto | 3 m/s | 5 m/s | 7 m/s |
+|---|---|---|---|
+| τ_gbl | 10/10 | 10/10 | 10/10 |
+| estudiante tras 2 rondas | 2/10 | 2/10 | 5/10 |
+
+τ_gbl confirma que el entorno, el mapa y el juez de choques están bien. El estudiante todavía no vuela, y
+hay dos señales que revisar antes de seguir:
+- **a 3 y 5 m/s le va peor que a 7 m/s;**
+- **a 3 m/s, todos los choques son a la izquierda** de la línea (y = +2 a +11 m; uno contra la pared del
+  almacén). A 7 m/s, con la cámara inclinada, no hay deriva.
+
+La explicación más probable es la de DAgger con ξ chico: el estudiante solo vuela a menos de 1–1.5 m de la
+trayectoria de τ_gbl. Si se aleja, τ_gbl lo devuelve, así que nunca ve los estados alejados. En la prueba
+nadie lo devuelve, y a baja velocidad (vuelos de 13 s) la deriva se acumula. ξ crece con las rondas
+justamente para eso.
+
+Antes de gastar horas hay que descartar otras dos causas: un error geométrico (un espejo izquierda/derecha,
+que la comprobación de la caja centrada de `arena` no podía ver) o la banda izquierda sin SGM. Para eso:
+- `r22 check`: tres cajas fuera del eje (izquierda a 6 m, derecha a 9 m, arriba a 7.5 m), nivelada y a 30°.
+  Comprueba que aparecen en la imagen de Unity y en el SGM donde las pone nuestro modelo de cámara, y que no
+  hay espejo;
+- `r22 diagnose --model M --v 3,5`: clasifica cada choque como `r18 diagnose`. Las clases son: todas chocan
+  (percepción), cambio de plan, eligió mal (cabeza de costo), plan justo y seguimiento. Por episodio da la
+  deriva lateral, a qué lado van las hipótesis elegidas y la calidad del SGM de los cuadros con que decidió
+  (válido total, mitad izquierda y derecha, error frente a la profundidad verdadera). Hace un PNG por
+  choque.
 
 ## Cómo correrlo
 

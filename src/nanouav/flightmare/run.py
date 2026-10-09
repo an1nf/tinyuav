@@ -620,6 +620,129 @@ def cmd_dagger(a):
     print('student →', m)
 
 
+def cmd_check(a):
+    """Geometry of the rendered images against ours, with spawned boxes off the axis (the arena's box check
+    was straight ahead, blind to a left/right mirror): position and distance of each box in Unity's depth
+    and in the SGM, level and tilted 30°."""
+    import cv2
+    from nanouav.agile.stereo import sgm_depth
+    from nanouav.flightmare import arena as A
+    from nanouav.follow.estimate import project
+    from nanouav.scene.renderer import Box, body_rot
+    out = _out(a)
+    calib = _calib(a)
+    ar = A.load(os.path.join(out, f'arena_{a.scene}.npz'))
+    x0, x1, y0, y1 = ar.meta['rect']
+    yc, f0 = 0.5 * (y0 + y1), ar.floor
+    rig0 = rig_of(a)
+    cl = make_client(a, calib, n_objects=3, rig=rig0)
+    p = np.array([x0 + 2.0, yc, f0 + 1.5])
+    boxes = [Box((p[0] + 6.0, yc + 2.0, f0 + 1.5), (0.25, 0.25, 1.5)),      # left, 6 m
+             Box((p[0] + 9.0, yc - 3.0, f0 + 1.5), (0.3, 0.3, 1.5)),        # right, 9 m
+             Box((p[0] + 7.5, yc + 0.0, f0 + 3.6), (0.3, 0.3, 0.3))]        # ahead, above the camera
+    cl.place(boxes)
+    import dataclasses
+    rows, ok_all = [], True
+    for tilt in (0.0, 30.0):
+        rig = dataclasses.replace(rig0, tilt_up_deg=tilt)
+        cl.set_tilt(tilt)
+        o = cl.render(p, body_rot(0.0, 0.0, 0.0))
+        D = o['depth_left']
+        g = lambda im: cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
+        S = sgm_depth(g(o['left']), g(o['right']), rig)
+        for name, b in zip(('left 6 m', 'right 9 m', 'above 7.5 m'), boxes):
+            face = np.array([b.center[0] - b.half[0], b.center[1], b.center[2]])
+            (u, v), X = project(rig, (p, 0.0, 0.0, 0.0), face[None])[0][0], project(rig, (p, 0.0, 0.0, 0.0), face[None])[1][0]
+            H, W = D.shape
+            row = {'tilt': tilt, 'box': name, 'u_exp': round(float(u), 1), 'v_exp': round(float(v), 1),
+                   'depth_exp': round(float(X), 2)}
+            m = np.abs(D - X) < 0.25
+            vv, uu = np.nonzero(m)
+            near = (np.abs(uu - u) < 40) & (np.abs(vv - v) < 40)
+            mir = (np.abs(uu - (W - 1 - u)) < 40) & (np.abs(vv - v) < 40)
+            row['found'] = int(near.sum())
+            row['mirrored'] = int(mir.sum()) if abs(u - (W - 1 - u)) > 80 else None
+            if near.sum():
+                row['u_meas'], row['v_meas'] = round(float(uu[near].mean()), 1), round(float(vv[near].mean()), 1)
+                k = (S[vv[near], uu[near]] > 0)
+                row['sgm_rel_err'] = round(float(np.median(np.abs(S[vv[near], uu[near]][k] - X) / X)), 3) if k.sum() > 10 else None
+            good = near.sum() > 20 and (row['mirrored'] is None or row['mirrored'] < near.sum() / 4)
+            row['ok'] = bool(good)
+            ok_all &= good
+            rows.append(row)
+        fl = (np.arange(D.shape[0])[:, None] > D.shape[0] * 0.8) & (S > 0) & (D > 0)
+        rows.append({'tilt': tilt, 'floor_sgm_rel_err': round(float(np.median(np.abs(S[fl] - D[fl]) / D[fl])), 3)
+                     if fl.sum() > 50 else None, 'sgm_valid': round(float((S > 0).mean()), 3)})
+    cl.set_tilt(0.0)
+    cl.close()
+    for r in rows:
+        print(r)
+    json.dump(rows, open(os.path.join(out, 'check_geometry.json'), 'w'), indent=1)
+    print('OK: the rendered geometry matches ours (no mirror, tilt right)' if ok_all else
+          'WARNING: a box is not where our camera model puts it — send check_geometry.json')
+
+
+def cmd_diagnose(a):
+    """Why the student crashes in the arena: each crash classified like `r18 diagnose` (from the true
+    clearance of its hypotheses, privileged — diagnosis only), plus the lateral drift from the start→goal
+    line, which side the chosen hypotheses go to, and the SGM quality of the frames it decided on."""
+    from nanouav.agile import diagnose as DG
+    out = _out(a)
+    calib = _calib(a)
+    E = _envs(a)
+    rig = rig_of(a)
+    client = make_client(a, calib, n_objects=a.n_objects, rig=rig)
+    model = os.path.abspath(a.model)
+    tag = os.path.splitext(os.path.basename(model))[0]
+    d_out = os.path.join(out, f'diag_arena_{tag}')
+    os.makedirs(d_out, exist_ok=True)
+    res = []
+    for v in [float(x) for x in a.v.split(',')]:
+        for i, env in E:
+            from nanouav.agile import dagger
+            from nanouav.agile.rollout import Config, Rollout
+            from nanouav.agile.run import apply_opts
+            from nanouav.flightmare.dagger import tilted
+            rv = tilted(rig, v)
+            client.set_tilt(rv.tilt_up_deg)
+            client.place(env.world.objects)
+            R = Rollout(env, Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, rig=rv), 'student', dagger._policy(model))
+            apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select})
+            R.observer = FlightmareObserver(client, rv, calib)
+            R.trace = []
+            r, _, log = R.run()
+            L = np.array([row[1:4] for row in log], float)
+            y_off = L[:, 1] - env.start[1]
+            tr = R.trace
+            x = {'v': v, 'env': i, 'success': r['success'], 'crashed': r['crashed'], 'time_s': r['time_s'],
+                 'drift_mean_m': round(float(y_off.mean()), 2), 'drift_end_m': round(float(y_off[-1]), 2),
+                 'chosen_left': round(float(np.mean([d['lat'][d['k']] > 0.3 for d in tr])), 2) if tr else None,
+                 'chosen_right': round(float(np.mean([d['lat'][d['k']] < -0.3 for d in tr])), 2) if tr else None,
+                 'sgm_valid': np.round(np.mean([d['sgm_valid'] for d in tr], 0), 3).tolist() if tr else None,
+                 'sgm_err': round(float(np.nanmedian([d['sgm_err'] if d['sgm_err'] is not None else np.nan for d in tr])), 3) if tr else None}
+            if r['crashed']:
+                dg = DG.classify(env, tr, log, v)
+                x['class'] = dg['class']
+                x['in_view'] = dg['in_view_0.5s']
+                DG.plot(env, tr, log, dg, os.path.join(d_out, f'v{v:g}_env{i}.png'))
+            res.append(x)
+            print(f"v={v:g} env {i}: {'ok' if x['success'] else 'CRASH ' + x.get('class', '') if x['crashed'] else 'fail'}"
+                  f"  drift {x['drift_mean_m']:+.2f} m (end {x['drift_end_m']:+.2f})  chosen left/right "
+                  f"{x['chosen_left']}/{x['chosen_right']}  SGM valid {x['sgm_valid']} err {x['sgm_err']}", flush=True)
+    client.close()
+    json.dump(res, open(os.path.join(d_out, 'diag.json'), 'w'), indent=1)
+    K = ('todas_chocan', 'cambio_de_plan', 'eligio_mal', 'plan_justo', 'seguimiento')
+    print(f'{"v":>4s} {"exito":>6s} ' + ' '.join(f'{k:>14s}' for k in K) + f' {"deriva m":>9s} {"izq/der":>9s} {"SGM ok":>7s} {"SGM err":>7s}')
+    for v in sorted({x['v'] for x in res}):
+        X = [x for x in res if x['v'] == v]
+        c = {k: sum(x.get('class') == k for x in X) for k in K}
+        print(f'{v:4.1f} {sum(x["success"] for x in X):3d}/{len(X):<2d} ' + ' '.join(f'{c[k]:14d}' for k in K) +
+              f' {np.mean([x["drift_mean_m"] for x in X]):+9.2f} '
+              f'{np.mean([x["chosen_left"] for x in X]):4.2f}/{np.mean([x["chosen_right"] for x in X]):4.2f} '
+              f'{np.mean([x["sgm_valid"][0] for x in X]):7.2f} {np.nanmedian([x["sgm_err"] for x in X]):7.3f}')
+    print(f'→ {d_out}: diag.json and one PNG per crash (deriva: + = izquierda)')
+
+
 def cmd_fake(a):
     from nanouav.agile import envs as EV
     from nanouav.flightmare.fake import FakeUnity, arena_world
@@ -669,10 +792,11 @@ def main(argv=None):
     p.add_argument('--check-v', type=float, default=3.0, help='keep a line only if τ_gbl flies it at this speed '
                    '(0: no check)')
     p.add_argument('--seed', type=int, default=0)
-    for name in ('eval', 'video'):
+    p = sub.add_parser('check')
+    for name in ('eval', 'video', 'diagnose'):
         p = sub.add_parser(name)
         p.add_argument('--model', default='')
-        p.add_argument('--v', default='3,5,7' if name == 'eval' else 3.0, type=str if name == 'eval' else float)
+        p.add_argument('--v', default='3,5,7' if name != 'video' else 3.0, type=str if name != 'video' else float)
         p.add_argument('--tscale', default='chord', choices=['chord', 'arc'])
         p.add_argument('--vcap', type=float, default=0.0)
         p.add_argument('--select', default='snap', choices=['snap', 'consistent'])
@@ -681,6 +805,8 @@ def main(argv=None):
             p.add_argument('--pilots', default='gbl,student')
             p.add_argument('--n', type=int, default=10)
             p.add_argument('--tag', default='')
+        elif name == 'diagnose':
+            p.add_argument('--n', type=int, default=10)
         else:
             p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl'])
             p.add_argument('--line', type=int, default=0, help='line (or arena environment) index')
@@ -732,13 +858,16 @@ def main(argv=None):
         q.add_argument('--unity', default='', help='path of RPG_Flightmare.x86_64: start (and stop) the player '
                        'for this command (default $NANOUAV_FLIGHTMARE; empty: start it yourself)')
     a = ap.parse_args(argv)
+    if a.cmd == 'diagnose':
+        a.arena = True                                   # the arena only (exact obstacles)
     if a.vga is None:
-        a.vga = a.cmd in ('arena', 'dagger') or bool(getattr(a, 'arena', False))
+        a.vga = a.cmd in ('arena', 'dagger', 'check') or bool(getattr(a, 'arena', False))
     if not hasattr(a, 'arena'):
         a.arena = False
     if a.scene not in SCENES[a.binary]:
         raise SystemExit(f'scene {a.scene!r} is not in the {a.binary} binary: {sorted(SCENES[a.binary])}')
     return {'probe': cmd_probe, 'cloud': cmd_cloud, 'scan': cmd_scan, 'survey': cmd_survey, 'arena': cmd_arena,
+            'check': cmd_check, 'diagnose': cmd_diagnose,
             'dagger': cmd_dagger, 'lines': cmd_lines, 'eval': cmd_eval, 'video': cmd_video,
             'fake': cmd_fake}[a.cmd](a)
 

@@ -282,3 +282,32 @@ def test_camera_tilt_matches_our_rig(unity):
     m = (d < 15) & (o['depth_left'] < 15)
     assert m.mean() > 0.2 and np.median(np.abs(o['depth_left'][m] - d[m])) < 0.05
     cl.set_tilt(0.0)
+
+
+def test_geometry_check_command(tmp_path):
+    """r22 check: off-axis boxes appear where our camera model puts them, level and tilted."""
+    import json
+    from nanouav.flightmare import arena as A
+    from nanouav.flightmare import run as RUN
+    from nanouav.flightmare.scan import scan
+    pub, sub = next(PORTS), next(PORTS)
+    fake = _arena_player(pub, sub)
+    cl = B.FlightmareClient(scene_id=0, pub_port=pub, sub_port=sub, stereo=False, timeout_s=20)
+    try:
+        cl.connect()
+        lo, hi = np.array([-5.0, -6, 0]), np.array([45.0, 6, 6])
+        P, _, _ = scan(cl, (lo + hi) / 2, hi - lo, 0.15, step=5.0, heights=(1.5,), yaws=4, pitches=(0.0,),
+                       log=lambda *_: None)
+        sdf, floor, rect = A.build(P, 0.15, lo, hi)
+        A.save(str(tmp_path / 'arena_warehouse.npz'), P, 0.15, floor, rect, lo, hi, {'scene': 'warehouse'})
+    finally:
+        cl.close()
+    try:
+        RUN.main(['check', '--scene', 'warehouse', '--results', str(tmp_path), '--no-vga',
+                  '--pub-port', str(pub), '--sub-port', str(sub)])
+    finally:
+        fake.stop()
+    rows = json.load(open(tmp_path / 'check_geometry.json'))
+    boxes = [r for r in rows if 'box' in r]
+    assert len(boxes) == 6 and all(r['ok'] for r in boxes)
+    assert all(abs(r['u_meas'] - r['u_exp']) < 4 and abs(r['v_meas'] - r['v_exp']) < 6 for r in boxes)

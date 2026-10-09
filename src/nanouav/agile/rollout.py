@@ -205,6 +205,17 @@ class Rollout:
         # nanouav.flightmare.dagger) — the expert is the slow part when the renderer is a single Unity player
         self.defer = None
 
+    def _trace_stats(self, cam):
+        """SGM quality of the frame behind a decision (diagnosis): valid fraction (all, left and right halves)
+        and median relative error against the true depth where both exist."""
+        sgm, gt = np.asarray(cam['depth']), np.asarray(cam['depth_gt'])
+        v = sgm > 0
+        h = sgm.shape[1] // 2
+        d = self.trace[-1]
+        d['sgm_valid'] = [round(float(v.mean()), 3), round(float(v[:, :h].mean()), 3), round(float(v[:, h:].mean()), 3)]
+        m = v & (gt > 0)
+        d['sgm_err'] = round(float(np.median(np.abs(sgm[m] - gt[m]) / gt[m])), 3) if m.sum() > 50 else None
+
     def _trace_images(self, depth, cam, gray):
         """Images of a trace entry (videos): the network input, the full-resolution SGM and the camera image."""
         d = self.trace[-1]
@@ -335,6 +346,7 @@ class Rollout:
                                            'beta': round(float(fits[k_sel][1]), 3),
                                            'W': np.round(W, 2).tolist(),
                                            'att': [round(float(yaw), 4), round(float(pitch), 4), round(float(roll), 4)]})
+                        self._trace_stats(cam)
                         if self.trace_depth:
                             self._trace_images(depth, cam, gray)
                 else:
