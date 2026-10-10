@@ -73,7 +73,7 @@ docs/                   documentación (español) e informes de investigación
 models/ data/ results/  artefactos, fuera de git (cada uno con su README)
 ```
 
-Arquitectura y flujo de datos: [docs/arquitectura.md](docs/arquitectura.md).
+Arquitectura y flujo de datos: [docs/arquitectura.md](docs/arquitectura.md). Fundamentos matemáticos y visión de conjunto: [docs/fundamentos.md](docs/fundamentos.md).
 
 ## Experimentos
 

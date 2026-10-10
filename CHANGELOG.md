@@ -3,6 +3,15 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.20.3] — 2026-10-10
+
+Sin cambios en el código ni en los resultados.
+
+### Añadido
+- `docs/fundamentos.md`: qué se ha construido, las razones matemáticas que lo sostienen (escala
+  monocular y ToF, estéreo y SGM, bosques de Poisson, experto M-H, R-WTA, proyección polinómica y escala
+  de tiempo, DAgger, IC de Wilson, convenciones de Flightmare, arena) y la infraestructura del proyecto.
+
 ## [0.20.2] — 2026-10-09
 
 Sin cambios en los resultados. R22, primeras dos rondas de DAgger en Flightmare: τ_gbl 10/10 a 3, 5 y 7 m/s;
