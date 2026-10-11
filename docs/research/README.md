@@ -23,6 +23,7 @@ Su equivalente actual está en [../migracion.md](../migracion.md); por ejemplo
 | [R19_seguimiento_personas.md](R19_seguimiento_personas.md) | R19: detectar y seguir a una persona (YOLO + ByteTrack + bloqueo del objetivo + política R18) | `r19 prep-visdrone/train-det/eval-det/video/sim/dagger` |
 | [R20_seguimiento_globo.md](R20_seguimiento_globo.md) | R20: seguir un globo de color por un bosque (detector de color, distancia por tamaño, filtro 3D, compensación del giro) | `r20 frames/sim/dagger/pick-color/video` |
 | [R21_gazebo_agile.md](R21_gazebo_agile.md) | R21: el estudiante de R18 en Gazebo (mundo de prueba, X3 ágil con estéreo, nodo ROS 2, export a TFLite) | `gazebo/gz_docker.sh agile`, `r18 export`, `r18 video --from-gz` |
+| [R23_direccion_y_etiquetas.md](R23_direccion_y_etiquetas.md) | R23: el techo del estudiante — sus etiquetas siguen una ruta que no ve (τ_gbl) mientras ω apunta a la recta; aprende a no fiarse de ω y deriva. Cuatro condiciones y una referencia replaneada que las cumple | `r18 dagger --label-ref ctg`, `r22 dagger --label-ref ctg` |
 | [R22_flightmare.md](R22_flightmare.md) | R22: el estudiante de R18 en Flightmare (Unity del paper) por un puente ZMQ en Python, con la nube de puntos como mapa privilegiado | `r22 probe/cloud/lines/eval/video/fake` |
 
 Plantilla para un informe nuevo (`RNN_tema.md`): pregunta · qué se toma de la fuente · cambios en el

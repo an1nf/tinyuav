@@ -254,6 +254,21 @@ class TFLitePolicy:
         return (self.it.get_tensor(self.o_traj)[0].astype(float), self.it.get_tensor(self.o_cost)[0].astype(float))
 
 
+def write_meta(model_path, **kw):
+    """Sidecar `<model>.json`: how the model was trained (R23: what its direction input ω points to)."""
+    with open(str(model_path) + '.json', 'w') as f:
+        json.dump(kw, f)
+
+
+def omega_of(model_path):
+    """The ω convention a model was trained with ('line' for models without a sidecar: R18–R22)."""
+    try:
+        with open(str(model_path) + '.json') as f:
+            return json.load(f).get('omega_ref', 'line')
+    except (OSError, ValueError, TypeError):
+        return 'line'
+
+
 def load_policy(path):
     """.keras → StudentPolicy (TensorFlow); .tflite → TFLitePolicy."""
     return TFLitePolicy(path) if str(path).endswith('.tflite') else StudentPolicy(path)

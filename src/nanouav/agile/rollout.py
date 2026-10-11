@@ -48,6 +48,17 @@ class Config:
     rig: StereoRig = field(default_factory=StereoRig)
     seed: int = 0
     label_every: int = 1              # DAgger: expert label every n camera frames (long follow episodes)
+    # where the student's direction input ω points: 'line' (the straight start→goal reference, the only one
+    # that exists at test time) or 'gbl' (τ_gbl, the reference the expert's labels follow). R23: with 'line'
+    # during training the labels are not a function of what the student sees (they follow τ_gbl, a global
+    # plan); with 'gbl' they are, but the student then learns to trust an ω that at test points through
+    # obstacles. 'goal': straight to the goal point, identical in training and test.
+    omega_ref: str = 'line'
+    # reference of the expert's labels: 'gbl' (τ_gbl, planned once from the start: R18) or 'ctg' (replanned
+    # from the current position down the cost-to-go to the goal, keeping to the line: `expert.CostToGo`, R23).
+    # With 'ctg' the DAgger takeover flies the replanned reference too, and ξ is measured from the cost-to-go
+    # path planned at the start instead of τ_gbl.
+    label_ref: str = 'gbl'
 
 
 def straight_ref(env, v):
@@ -94,8 +105,13 @@ class GoalMission:
     and the τ_gbl pilot use the global collision-free trajectory."""
     needs_camera = False
 
-    def __init__(self, env, v_des, gref=None):
-        self.env, self.v = env, v_des
+    def __init__(self, env, v_des, gref=None, omega_ref='line', label_ref='gbl'):
+        self.env, self.v, self.omega_ref, self.label_ref = env, v_des, omega_ref, label_ref
+        self._ctg = None
+        if label_ref == 'ctg' and gref is None:
+            # R23: the nominal route is the cost-to-go path from the start (it keeps to the line); DAgger's ξ
+            # is measured from it, and the expert, the takeover and the labels use the path replanned from p
+            gref = self._cost_to_go().ref_from(np.asarray(env.start, float), v_des)
         self.gref = gref or global_plan(env, v_des, straight=False)
         self.line = straight_ref(env, v_des)
         self.s_g = self.s_l = 0.0
@@ -118,9 +134,29 @@ class GoalMission:
     def frame(self, t, p, v, yaw, cam=None):
         omega, self.s_l = goal_direction(self.line, p, self.s_l)
         self.s_g, d_g = self.gref.closest(p, self.s_g)
+        if self.omega_ref == 'gbl':                      # toward τ_gbl 1 s ahead of its closest state (R23)
+            q = self.gref.pos(min(self.s_g + self.v * 1.0, self.gref.length)) - p
+            omega = q / max(float(np.linalg.norm(q)), 1e-6)
+        elif self.omega_ref == 'goal':                   # straight to the goal point (train and test)
+            q = np.asarray(self.env.goal, float) - p
+            omega = q / max(float(np.linalg.norm(q)), 1e-6)
         s_b, _ = self.line.closest(p, self.s_l)
-        return {'omega': omega, 'ref': self.gref.ahead(self.s_g), 'd_ref': d_g, 'v_des': self.v,
-                'blind': self.line.ahead(s_b), 'yaw': None}
+        out = {'omega': omega, 'ref': self.gref.ahead(self.s_g), 'd_ref': d_g, 'v_des': self.v,
+               'blind': self.line.ahead(s_b), 'yaw': None}
+        if self.label_ref == 'ctg':
+            out['ref'] = out['label_ref'] = self.ctg_ref(p)
+        return out
+
+    def _cost_to_go(self):
+        if self._ctg is None:
+            from nanouav.agile.expert import W_LINE, CostToGo
+            self._ctg = CostToGo(self.env, w_line=W_LINE)
+        return self._ctg
+
+    def ctg_ref(self, p):
+        """Reference replanned from p down the cost-to-go (built once per environment), 1 s of it."""
+        r = self._cost_to_go().ref_from(p, self.v)
+        return r.ahead(0.0) if r is not None else self.gref.ahead(self.s_g)
 
     def check(self, t, p):
         """→ (success, failure, clearance to dynamic objects)."""
@@ -186,7 +222,8 @@ class Rollout:
         self.env, self.cfg, self.pilot, self.policy, self.label = env, cfg, pilot, policy, label
         self.field = Field(env.world, ground=True)
         self.field_ng = Field(env.world, ground=False)
-        self.mission = mission or GoalMission(env, cfg.v_des, gref)
+        self.mission = mission or GoalMission(env, cfg.v_des, gref, getattr(cfg, 'omega_ref', 'line'),
+                                              getattr(cfg, 'label_ref', 'gbl'))
         self.gref = getattr(self.mission, 'gref', None)
         self.line = getattr(self.mission, 'line', None)
         self.z_ground = float(getattr(env.world, 'floor', 0.0))   # 'z' of the samples: height above the floor
@@ -304,6 +341,7 @@ class Rollout:
                            'rig': cfg.rig, 'rgb': obs[3] if len(obs) > 3 else None}
                 F = M.frame(t, p, v, yaw, cam)
                 omega, ref, self._v_des, yaw_hold = F['omega'], F['ref'], F['v_des'], F.get('yaw')
+                lref = F.get('label_ref', ref)                  # the expert's labels (R23: may differ from ref)
                 self._v_ref = F.get('v_ref', self._v_des)     # speed of the privileged reference
                 use_student = self.pilot == 'student' or (self.pilot == 'dagger' and self.policy is not None
                                                           and F['d_ref'] <= cfg.xi)
@@ -314,9 +352,9 @@ class Rollout:
                         'R': R.ravel().astype(np.float32),
                         'omega': TR.rotate_to_heading(omega, yaw).astype(np.float32),
                         'z': np.float32(p[2] - self.z_ground),
-                        '_p': p.copy(), '_ref': np.asarray(ref, float).copy(), '_v': v.copy(), '_yaw': float(yaw)})
+                        '_p': p.copy(), '_ref': np.asarray(lref, float).copy(), '_v': v.copy(), '_yaw': float(yaw)})
                 elif self.label and ref is not None and (n_frames - 1) % cfg.label_every == 0:
-                    L = self.expert.label(p, ref, v0=v)
+                    L = self.expert.label(p, lref, v0=v)
                     if len(L['trajs']):
                         samples.append({
                             'depth': np.round(depth * 1000).astype(np.uint16),

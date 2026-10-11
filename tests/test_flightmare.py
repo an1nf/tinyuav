@@ -215,6 +215,9 @@ def test_spawned_boxes_render_and_map(tmp_path):
     assert w.clearance(c + [b.half[0] + 0.5, 0, 0]) == pytest.approx(0.5, abs=1e-6)          # exact trunks
     assert Field(w, ground=False)(np.array([[c[0], c[1] + b.half[1] + 0.3, floor + 0.2]]))[0] == pytest.approx(0.3, abs=1e-6)
     assert Field(w, ground=True)(np.array([[c[0] + 3, c[1] + 3, floor + 0.2]]))[0] <= 0.2 + 1e-6   # the floor
+    from nanouav.agile.expert import RQ, CostToGo                     # R23: replanned references in an arena
+    r = CostToGo(e, w_line=0.5).ref_from(np.asarray(e.start, float), 5.0)
+    assert r is not None and Field(w, ground=False)(r.pos(np.arange(0.3, r.length, 0.1))).min() > RQ
 
 
 def test_dagger_in_flightmare_one_round(tmp_path):
@@ -236,13 +239,15 @@ def test_dagger_in_flightmare_one_round(tmp_path):
         fn = str(tmp_path / 'arena_t.npz')
         A.save(fn, P, 0.15, floor, rect, lo, hi, {'scene': 't'})
         m = FD.run(cl, fn, str(tmp_path), StereoRig(), n_envs=2, per_round=2, workers=2, epochs=1, batch=4,
-                   v_min=3.0, v_max=3.0, init_model=None, xi_start=0.0, tag='t', log=lambda *_: None)
+                   v_min=3.0, v_max=3.0, init_model=None, xi_start=0.0, tag='t', label_ref='ctg',
+                   log=lambda *_: None)
     finally:
         cl.close()
         fake.stop()
     import json, os
     st = json.load(open(tmp_path / 'dagger_t.json'))['rounds'][0]
     assert st['samples'] > 50 and st['success'] == 2 and os.path.exists(m)
+    assert json.load(open(m + '.json')) == {'omega_ref': 'line', 'label_ref': 'ctg'}   # R23 sidecar
     z = np.load(tmp_path / 'data_t' / 'env_0000.npz')
     assert z['depth'].shape[1:] == (120, 160) and z['trajs'].shape[1:] == (3, 10, 3) and z['esdf'].shape[1:] == (64, 64)
     assert 1.0 < float(np.median(z['z'])) < 3.0                           # height above the floor

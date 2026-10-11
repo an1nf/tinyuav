@@ -414,7 +414,9 @@ def _episode(a, env, i, pilot, v, client, calib, model, trace=False, rig=None):
         rig = tilted(rig, v)
         if client is not None:
             client.set_tilt(rig.tilt_up_deg)
-    cfg = Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, **({'rig': rig} if rig is not None else {}))
+    from nanouav.agile.policy import omega_of
+    om = omega_of(model) if pilot == 'student' and model else 'line'
+    cfg = Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, omega_ref=om, **({'rig': rig} if rig is not None else {}))
     R = Rollout(env, cfg, pilot, dagger._policy(model) if pilot == 'student' else None)
     apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select})
     obs = None
@@ -602,6 +604,11 @@ def cmd_arena(a):
     print(('OK: ' if not warn else '') + f'→ {fn}')
 
 
+def _dagger_tag(a):
+    """Default data / model name: different ω or label conventions never share a data directory."""
+    return f'fm_{a.scene}' + {'line': '', 'gbl': '_og', 'goal': '_goal'}[a.omega] + ('_ctg' if a.label_ref == 'ctg' else '')
+
+
 def cmd_dagger(a):
     from nanouav.flightmare import dagger as FD
     out = _out(a)
@@ -615,7 +622,7 @@ def cmd_dagger(a):
     m = FD.run(cl, arena_path, out, rig, n_envs=a.envs, per_round=a.per_round, workers=a.workers, epochs=a.epochs,
                batch=a.batch, v_min=a.v_min, v_max=a.v_max, cam_hz=a.cam_hz,
                init_model=os.path.abspath(a.init) if a.init else None, xi_start=a.xi_start, xi_step=a.xi_step,
-               train_kw=tk, tag=a.tag or f'fm_{a.scene}')
+               train_kw=tk, tag=a.tag or _dagger_tag(a), omega_ref=a.omega, label_ref=a.label_ref)
     cl.close()
     print('student →', m)
 
@@ -706,7 +713,9 @@ def cmd_diagnose(a):
             rv = tilted(rig, v)
             client.set_tilt(rv.tilt_up_deg)
             client.place(env.world.objects)
-            R = Rollout(env, Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, rig=rv), 'student', dagger._policy(model))
+            from nanouav.agile.policy import omega_of
+            R = Rollout(env, Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, rig=rv, omega_ref=omega_of(model)),
+                        'student', dagger._policy(model))
             apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select})
             R.observer = FlightmareObserver(client, rv, calib)
             R.trace = []
@@ -842,6 +851,11 @@ def main(argv=None):
     p.add_argument('--val-by-env', action='store_true')
     p.add_argument('--tag', default='', help='data / model name (default fm_<scene>)')
     p.add_argument('--head', default='spatial', choices=['gap', 'spatial'], help='new model only (no --init)')
+    p.add_argument('--omega', default='line', choices=['line', 'gbl', 'goal'],
+                   help="what the student's direction input points to: line (R18; R23 keeps it), τ_gbl (training only), goal")
+    p.add_argument('--label-ref', default='gbl', choices=['gbl', 'ctg'],
+                   help="reference of the expert's labels: τ_gbl from the start (R18) or replanned from the current "
+                        "position, keeping to the line (R23)")
     for q in sub.choices.values():
         q.add_argument('--results', dest='out', default='', help='results directory (default results/r22)')
         q.add_argument('--scene', default='forest')

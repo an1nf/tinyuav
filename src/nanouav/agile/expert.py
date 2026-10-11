@@ -30,6 +30,7 @@ from nanouav.agile.trajectory import T_I, bspline
 
 RQ = 0.2
 LAMBDA_C = 1000.0
+W_LINE = 0.5            # CostToGo line penalty for the labels' reference (R23, label_ref='ctg')
 DT = 0.1
 
 
@@ -175,6 +176,116 @@ def _resample(P, ds):
     s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))]
     t = np.arange(0, s[-1], ds)
     return np.stack([np.interp(t, s, P[:, k]) for k in range(P.shape[1])], 1)
+
+
+class CostToGo:
+    """Cost-to-go to the goal point over the τ_gbl grid (backward Dijkstra, same free space and clearance
+    cost as `global_plan`), and from it a collision-free reference from *any* position (R23).
+
+    τ_gbl is planned once from the start; the expert's labels then pull the drone back to it wherever the
+    drone is, and where τ_gbl lies is not visible. The descent of the cost-to-go from the current position is
+    the best way to the goal from *here*: it depends on the position, the goal and the obstacles (mostly the
+    near ones), not on a path chosen at the start. With `w_line` > 0 each cell also costs w_line·d² (d: its
+    distance to the start→goal line): the reference rejoins the line and follows it, leaving it only around
+    obstacles — what the student's ω (the line 1 s ahead) says, wherever the drone is."""
+
+    def __init__(self, env, rq=RQ, res=0.2, inflate=0.15, w_clear=4.0, w_line=0.0):
+        self.res, self.z = res, float(env.start[2])
+        self.field = Field(env.world, ground=False)
+        A, B = np.asarray(env.start, float), np.asarray(env.goal, float)
+        self.u = (B - A)[:2] / max(float(np.linalg.norm((B - A)[:2])), 1e-6)
+        self.x0, x1 = min(A[0], B[0]) - 4, max(A[0], B[0]) + 4
+        self.y0, y1 = min(A[1], B[1]) - 15, max(A[1], B[1]) + 15
+        self.xs, self.ys = np.arange(self.x0, x1, res), np.arange(self.y0, y1, res)
+        X, Y = np.meshgrid(self.xs, self.ys, indexing='ij')
+        d = np.full(X.shape, np.inf)
+        for dz in (-0.5, 0.0, 0.5):
+            P = np.stack([X.ravel(), Y.ravel(), np.full(X.size, A[2] + dz)], 1)
+            d = np.minimum(d, self.field(P).reshape(X.shape))
+        self.clr = rq + inflate + 0.1
+        self.dist = np.full(X.shape, np.inf)
+        free = d > rq + inflate
+        cost = 1.0 + w_clear * np.clip(1.5 - d, 0, None) ** 2
+        if w_line:                                     # stay on the start→goal line unless blocked
+            d_line = np.abs((X - A[0]) * self.u[1] - (Y - A[1]) * self.u[0])
+            cost = cost + w_line * d_line ** 2
+        nx, ny = X.shape
+        gx, gy = int(round((B[0] - self.x0) / res)), int(round((B[1] - self.y0) / res))
+        # seeds: the free cells within 0.4 m of the goal point; if the goal lies in an obstacle's margin (or
+        # those cells cannot reach the start) the radius grows — τ_gbl does not need this, it targets x ≥ goal.x
+        for radius in (0.4, 1.0, 2.0, 3.0, 5.0):
+            tol = max(1, int(round(radius / res)))
+            seeds = [(i, j) for i in range(max(gx - tol, 0), min(gx + tol + 1, nx))
+                     for j in range(max(gy - tol, 0), min(gy + tol + 1, ny))
+                     if free[i, j] and (i - gx) ** 2 + (j - gy) ** 2 <= tol * tol]
+            if not seeds:
+                continue
+            self._dijkstra(seeds, free, cost, res)
+            if self._cell(A) is not None:
+                break
+
+    def _dijkstra(self, seeds, free, cost, res):
+        nx, ny = free.shape
+        self.dist = np.full((nx, ny), np.inf)
+        self.nxt = -np.ones((nx, ny, 2), int)
+        for c in seeds:
+            self.dist[c] = 0.0
+        pq = [(0.0, c) for c in seeds]
+        heapq.heapify(pq)
+        nb = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+        while pq:
+            dc, (i, j) = heapq.heappop(pq)
+            if dc > self.dist[i, j]:
+                continue
+            for di, dj in nb:
+                a, b = i + di, j + dj
+                if 0 <= a < nx and 0 <= b < ny and free[a, b]:
+                    nd = dc + res * math.hypot(di, dj) * 0.5 * (cost[i, j] + cost[a, b])
+                    if nd < self.dist[a, b]:
+                        self.dist[a, b] = nd
+                        self.nxt[a, b] = (i, j)
+                        heapq.heappush(pq, (nd, (a, b)))
+
+    def _cell(self, p):
+        i = int(round((p[0] - self.x0) / self.res))
+        j = int(round((p[1] - self.y0) / self.res))
+        nx, ny = self.dist.shape
+        if 0 <= i < nx and 0 <= j < ny and np.isfinite(self.dist[i, j]):
+            return i, j
+        r = int(round(1.0 / self.res))            # in the inflated band: best reachable cell within 1 m
+        best = None
+        for a in range(max(i - r, 0), min(i + r + 1, nx)):
+            for b in range(max(j - r, 0), min(j + r + 1, ny)):
+                if np.isfinite(self.dist[a, b]) and (a - i) ** 2 + (b - j) ** 2 <= r * r:
+                    c = self.dist[a, b] + 3.0 * self.res * math.hypot(a - i, b - j)
+                    if best is None or c < best[0]:
+                        best = (c, (a, b))
+        return None if best is None else best[1]
+
+    def ref_from(self, p, v_des):
+        """→ GlobalRef from p down the cost-to-go to the goal (None if no free cell within 1 m of p)."""
+        c = self._cell(p)
+        if c is None:
+            return None
+        path = [c]
+        while self.dist[path[-1]] > 0 and len(path) < 20000:
+            path.append(tuple(self.nxt[path[-1]]))
+        xy = np.vstack([np.asarray(p, float)[:2], [[self.xs[i], self.ys[j]] for i, j in path]])
+        raw = _shortcut(xy, self.field, self.z, self.clr)
+        ext = raw[-1] + 3.0 * self.u                  # on past the goal line (the seed may be short of it)
+        if self.dist[path[-1]] == 0 and _segment_free(raw[-1], ext, self.field, self.z, self.clr):
+            raw = np.vstack([raw, ext])
+        P0 = _resample(raw, 0.05)
+        d_raw = self.field(np.c_[P0, np.full(len(P0), self.z)]).min() if len(P0) else 0.0
+        for n_smooth in (3, 2, 1, 0):
+            sm = _chaikin(raw, n_smooth)
+            P = _resample(sm, 0.05)
+            if n_smooth == 0 or self.field(np.c_[P, np.full(len(P), self.z)]).min() >= d_raw - 0.01:
+                break
+        pts = np.c_[sm, np.full(len(sm), self.z)]
+        pts[0] = [p[0], p[1], self.z]
+        pts = _resample(pts, 0.1)
+        return GlobalRef(pts, v_des) if len(pts) >= 2 else None
 
 
 def _sph(r, az, el):

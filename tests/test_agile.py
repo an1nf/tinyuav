@@ -239,3 +239,63 @@ def test_perception_video_shows_only_onboard_data(tmp_path):
     cap = cv2.VideoCapture(fn)
     ok, frame = cap.read()
     assert ok and frame.shape == (720, 1280, 3) and int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) >= 5
+
+
+def test_omega_points_along_the_reference_the_labels_follow():
+    """R23: with omega_ref='gbl' the student's direction input points to τ_gbl 1 s ahead (where the expert's
+    labels go); with 'line' (default) to the straight start→goal line."""
+    from nanouav.agile.envs import training_env
+    from nanouav.agile.rollout import GoalMission
+    env = training_env(3, 0)
+    ml, mg = GoalMission(env, 5.0), GoalMission(env, 5.0, omega_ref='gbl')
+    mg.gref = ml.gref
+    p = np.asarray(ml.gref.pos(12.0))
+    ml.s_g = mg.s_g = 12.0                                  # the closest-point search follows the flight
+    Fl, Fg = ml.frame(0.0, p, np.array([5.0, 0, 0]), 0.0), mg.frame(0.0, p, np.array([5.0, 0, 0]), 0.0)
+    s, _ = mg.gref.closest(p)
+    q = mg.gref.pos(s + 5.0) - p
+    assert Fg['omega'] == pytest.approx(q / np.linalg.norm(q), abs=1e-6)
+    assert np.linalg.norm(Fl['omega']) == pytest.approx(1.0) and np.allclose(Fl['ref'], Fg['ref'])
+    mo = GoalMission(env, 5.0, gref=ml.gref, omega_ref='goal')
+    q = np.asarray(env.goal, float) - p
+    assert mo.frame(0.0, p, np.array([5.0, 0, 0]), 0.0)['omega'] == pytest.approx(q / np.linalg.norm(q))
+
+
+def test_cost_to_go_reference_is_free_from_anywhere():
+    """R23: the labels' reference replanned from the current position (descent of the cost-to-go to the goal)
+    is collision-free from the start and from a point off τ_gbl, and passes through the goal. Also when the goal
+    point lies in an obstacle's margin (env 16 of base seed 4242)."""
+    from nanouav.agile.envs import training_env
+    from nanouav.agile.expert import RQ, CostToGo
+    from nanouav.agile.rollout import GoalMission
+    env = training_env(3, 0)
+    ctg, F = CostToGo(env), Field(env.world, ground=False)
+    g = global_plan(env, 5.0)
+    off = np.asarray(g.pos(15.0)) + [0.0, 2.5, 0.0]
+    if F(off[None])[0] < 0.6:                       # keep the test point in free space
+        off = off + [0.0, -5.0, 0.0]
+    for p in (np.asarray(env.start, float), off):
+        r = ctg.ref_from(p, 5.0)
+        assert r is not None and np.linalg.norm(r.pts[0, :2] - p[:2]) < 1e-6
+        assert F(r.pos(np.arange(0.3, r.length, 0.1))).min() > RQ
+        assert np.linalg.norm(r.pts[:, :2] - np.asarray(env.goal)[:2], axis=1).min() < 0.8
+        assert r.pts[-1, 0] > env.goal[0]                # and goes on past the goal line
+    m = GoalMission(env, 5.0, label_ref='ctg')        # nominal route: the cost-to-go path from the start
+    assert np.median(np.abs(m.gref.pts[:, 1] - env.start[1])) < np.median(np.abs(g.pts[:, 1] - env.start[1]))
+    Fm = m.frame(0.0, off, np.array([5.0, 0, 0]), 0.0)
+    assert Fm['label_ref'].shape == (10, 3) and np.allclose(Fm['label_ref'], Fm['ref'])
+    assert np.linalg.norm(Fm['ref'][0, :2] - off[:2]) < 1.0                 # replanned from where the drone is
+    # with the line penalty the reference keeps to the start→goal line and is still free
+    r0, r1 = ctg.ref_from(off, 5.0), CostToGo(env, w_line=0.5).ref_from(off, 5.0)
+    d_line = lambda r: np.median(np.abs(r.pts[:, 1] - env.start[1]))      # this env's line runs along +x
+    assert d_line(r1) < d_line(r0) and F(r1.pos(np.arange(0.3, r1.length, 0.1))).min() > RQ
+    env16 = training_env(16, 4242)
+    assert CostToGo(env16).ref_from(np.asarray(env16.start, float), 5.0) is not None
+
+
+def test_model_sidecar_carries_the_omega_convention(tmp_path):
+    from nanouav.agile.policy import omega_of, write_meta
+    m = tmp_path / 'student.keras'
+    assert omega_of(m) == 'line'                    # R18–R22 models: no sidecar
+    write_meta(m, omega_ref='goal', label_ref='ctg')
+    assert omega_of(m) == 'goal'

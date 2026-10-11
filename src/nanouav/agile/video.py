@@ -200,8 +200,9 @@ def run(model, out, world='forest', v=3.0, seed=1000, pilot='student', cam_hz=15
         view='perception'):
     from nanouav.agile import dagger, envs as EV
     from nanouav.agile.rollout import Config, Rollout
+    from nanouav.agile.policy import omega_of
     env = EV.TEST[world](seed)
-    cfg = Config(v_des=v, cam_hz=cam_hz, seed=seed)
+    cfg = Config(v_des=v, cam_hz=cam_hz, seed=seed, omega_ref=omega_of(model) if pilot == 'student' and model else 'line')
     R = Rollout(env, cfg, pilot, dagger._policy(os.path.abspath(model)) if pilot == 'student' else None)
     from nanouav.agile.run import apply_opts
     apply_opts(R, opts or {})

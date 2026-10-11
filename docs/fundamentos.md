@@ -219,6 +219,12 @@ estudiante (`expert.Expert.label`).
 - estado de 15 números: velocidad en el marco de rumbo (/10), matriz de rotación (9) y la dirección
   unitaria al punto 1 s adelante en la línea a la meta (3).
 
+**Ojo (R23):** las etiquetas siguen $\tau_\text{gbl}$ y esa dirección apunta a la recta, así que las
+etiquetas no son función de lo que ve el estudiante. Eso fija un piso de R-WTA ~45, el valor en que se
+estanca su validación, y le enseña a no fiarse de la dirección. La corrección (`--label-ref ctg`) replanea
+la referencia de las etiquetas desde la posición actual por el costo hasta la meta, pegado a la recta.
+Ver [R23](research/R23_direccion_y_etiquetas.md).
+
 **Red:** MobileNet-V3 Small sobre la profundidad, una rama densa para el estado y cabezas que producen
 **$M = 3$ hipótesis**. Cada hipótesis tiene 10 puntos a $t = 0.1 \ldots 1$ s y un costo de choque
 predicho (softplus).
@@ -546,7 +552,13 @@ Flightmare sin Unity.
 - Tras 2 rondas de DAgger (60 entornos, 4 668 muestras, el 6 % de lo usado en R18), el estudiante logra
   2/10, 2/10 y 5/10. A baja velocidad choca siempre a la izquierda de la línea.
 
+**Hallazgo de R23** ([nota](research/R23_direccion_y_etiquetas.md)): la deriva y el techo del estudiante
+se explican porque sus etiquetas siguen una ruta que no ve ($\tau_\text{gbl}$) mientras su dirección
+$\omega$ apunta a la recta. Con la misma red pequeña, las variantes con etiquetas que no siguen $\omega$
+llegan 0/40 y se alejan 3.7–5.5 m de la recta; las que sí, 19/60 y a 0.2–0.4 m.
+
 **Próximos pasos, en orden:**
+0. DAgger con las etiquetas replaneadas (`--label-ref ctg`), en R18 y en R22: los comandos están en R23.
 1. `r22 check`: descartar un error geométrico (espejo) con cajas fuera del eje.
 2. Evaluar el modelo de partida (`student_spatial_in`) en la misma arena, para saber si las rondas
    mejoraron o empeoraron.

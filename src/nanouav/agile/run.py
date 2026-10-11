@@ -47,7 +47,9 @@ def _eval_job(job):
     from nanouav.agile.rollout import Config, Rollout
     dagger._worker_init()
     env = EV.TEST[job['world']](job['seed'])
-    cfg = Config(v_des=job['v'], cam_hz=job['cam_hz'], seed=job['seed'])
+    from nanouav.agile.policy import omega_of
+    om = omega_of(job['model']) if job['pilot'] == 'student' and job.get('model') else 'line'
+    cfg = Config(v_des=job['v'], cam_hz=job['cam_hz'], seed=job['seed'], omega_ref=om)
     pol = dagger._policy(job.get('model')) if job['pilot'] == 'student' else None
     try:
         R = Rollout(env, cfg, job['pilot'], pol)
@@ -56,6 +58,10 @@ def _eval_job(job):
     except RuntimeError as e:
         r, log = {'success': False, 'crashed': False, 'timeout': False, 'error': str(e)}, []
     r.update(seed=job['seed'], world=job['world'])
+    if log:                                       # R23: drift from the straight line (the student's ω)
+        from nanouav.agile.rollout import straight_ref
+        line = straight_ref(env, job['v'])
+        r['lateral_m'] = round(float(np.mean([line.closest(np.array(row[1:4]))[1] for row in log])), 3)
     if job.get('traj_dir'):
         np.save(os.path.join(job['traj_dir'], f"{job['world']}_{job['pilot']}{job.get('tag', '')}_v{job['v']:g}_s{job['seed']}.npy"),
                 np.array([row[:7] for row in log], float))
@@ -87,14 +93,15 @@ def _sweep(a, pilots, model=None):
     old = json.load(open(fn)) if os.path.exists(fn) else {}
     old.update(table)
     json.dump(old, open(fn, 'w'), indent=1)
-    print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s} {"t_med":>6s} {"v_mean":>6s}')
+    print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s} {"t_med":>6s} {"v_mean":>6s} {"lat_m":>6s}')
     for p in pilots:
         for v in speeds:
             L = table[f'{p}_v{v:g}']
             ok = [r for r in L if r.get('success')]
             tm = np.median([r['time_s'] for r in ok]) if ok else float('nan')
             vm = np.median([r['mean_speed'] for r in ok]) if ok else float('nan')
-            print(f'{p:10s} {v:5.1f} {len(ok):3d}/{len(L):<4d} {sum(r.get("crashed", 0) for r in L):6d} {tm:6.1f} {vm:6.1f}')
+            lat = np.mean([r['lateral_m'] for r in L if 'lateral_m' in r]) if any('lateral_m' in r for r in L) else float('nan')
+            print(f'{p:10s} {v:5.1f} {len(ok):3d}/{len(L):<4d} {sum(r.get("crashed", 0) for r in L):6d} {tm:6.1f} {vm:6.1f} {lat:6.2f}')
     print(f'→ {fn}  ({time.time() - t0:.0f} s)')
 
 
@@ -177,6 +184,14 @@ def main():
             p.add_argument('--lr-end', type=float, default=None, help='cosine decay of the learning rate down to this')
             p.add_argument('--best', action='store_true', help='keep the epoch with the lowest validation R-WTA')
             p.add_argument('--val-by-env', action='store_true', help='validation on whole environments')
+            p.add_argument('--omega', default='line', choices=['line', 'gbl', 'goal'],
+                           help="dagger: what the student's direction input points to — the straight line 1 s "
+                                "ahead (R18; R23 keeps it), τ_gbl (training only) or the goal point; saved with "
+                                "the model and used by eval")
+            p.add_argument('--label-ref', default='gbl', choices=['gbl', 'ctg'],
+                           help="dagger: reference of the expert's labels — τ_gbl from the start (R18) or 'ctg', "
+                                "replanned from the current position down the cost-to-go to the goal, keeping to the "
+                                "line (R23). Use a new --out: data with different labels must not be mixed")
             p.add_argument('--head', default='gap', choices=['gap', 'spatial'],
                            help='new models only: how the depth features keep the position of obstacles')
         if name == 'train':
@@ -228,7 +243,8 @@ def main():
     m = dagger.run(_out(a), n_envs=a.envs, per_round=a.per_round, workers=a.workers, epochs=a.epochs, batch=a.batch,
                    v_min=a.v_min, v_max=a.v_max, cam_hz=a.cam_hz, net_size=net,
                    weights='imagenet' if a.imagenet else None, kind=a.kind, init_model=a.init or None,
-                   train_kw=dict(lr=a.lr, lr_end=a.lr_end, keep_best=a.best, val_by_env=a.val_by_env, head=a.head))
+                   train_kw=dict(lr=a.lr, lr_end=a.lr_end, keep_best=a.best, val_by_env=a.val_by_env, head=a.head),
+                   omega_ref=a.omega, label_ref=a.label_ref)
     print('student →', m)
 
 

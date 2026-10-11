@@ -1,0 +1,26 @@
+{
+ "A": {
+  "labels": "priv",
+  "omega_train": "omega",
+  "rwta_train": 2.5591802413646993,
+  "rwta_val": 22.61845588684082,
+  "open_loop_chosen_free": 0.9427860696517413,
+  "open_loop_any_free": 0.9614427860696517
+ },
+ "B": {
+  "labels": "priv",
+  "omega_train": "omega_gbl",
+  "rwta_train": 1.7839379769105177,
+  "rwta_val": 6.415335059165955,
+  "open_loop_chosen_free": 0.8134328358208955,
+  "open_loop_any_free": 0.8308457711442786
+ },
+ "C": {
+  "labels": "line",
+  "omega_train": "omega",
+  "rwta_train": 3.056349821143098,
+  "rwta_val": 13.425351738929749,
+  "open_loop_chosen_free": 0.7860696517412935,
+  "open_loop_any_free": 0.8034825870646766
+ }
+}

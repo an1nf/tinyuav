@@ -1,0 +1,52 @@
+{
+ "D": {
+  "labels": "ctg",
+  "omega_train": "omega_goal",
+  "omega_test": "omega_goal",
+  "rwta_train": 1.8595006937509055,
+  "rwta_val": 16.39570140838623,
+  "rwta_val_min": 11.734353303909302,
+  "open_loop_chosen_free": 0.9203980099502488,
+  "open_loop_any_free": 0.945273631840796
+ },
+ "A2": {
+  "labels": "priv",
+  "omega_train": "omega",
+  "omega_test": "omega",
+  "rwta_train": 2.5591802413646993,
+  "rwta_val": 22.61845588684082,
+  "rwta_val_min": 15.891688108444214,
+  "open_loop_chosen_free": 0.9427860696517413,
+  "open_loop_any_free": 0.9614427860696517
+ },
+ "E": {
+  "labels": "ctg",
+  "omega_train": "omega",
+  "omega_test": "omega",
+  "rwta_train": 1.8931284946399731,
+  "rwta_val": 17.42762517929077,
+  "rwta_val_min": 12.531360864639282,
+  "open_loop_chosen_free": 0.9241293532338308,
+  "open_loop_any_free": 0.9564676616915423
+ },
+ "F": {
+  "labels": "priv",
+  "omega_train": "omega_goal",
+  "omega_test": "omega_goal",
+  "rwta_train": 2.5635295372742872,
+  "rwta_val": 21.406019926071167,
+  "rwta_val_min": 16.029462099075317,
+  "open_loop_chosen_free": 0.9390547263681592,
+  "open_loop_any_free": 0.9577114427860697
+ },
+ "G": {
+  "labels": "ctgl",
+  "omega_train": "omega",
+  "omega_test": "omega",
+  "rwta_train": 1.8593367167881556,
+  "rwta_val": 14.092515468597412,
+  "rwta_val_min": 9.226149439811707,
+  "open_loop_chosen_free": 0.8544776119402985,
+  "open_loop_any_free": 0.8781094527363185
+ }
+}

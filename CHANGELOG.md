@@ -3,6 +3,28 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.21.0] — 2026-10-11
+
+Sin cambios en los resultados con las opciones por defecto (`omega_ref='line'`, `label_ref='gbl'`: el
+comportamiento de R18–R22).
+
+### Añadido
+- R23 (`docs/research/R23_direccion_y_etiquetas.md`): las etiquetas de R18 siguen τ_gbl mientras la dirección ω
+  del estudiante apunta a la recta; las etiquetas no son función de la observación (piso de R-WTA ~45, igual
+  a la validación del estudiante, ~44) y el estudiante aprende a no fiarse de ω y deriva. Cuatro condiciones
+  para imitar a un experto privilegiado y una referencia que las cumple; prueba a escala reducida en CPU.
+- `expert.CostToGo`: costo hasta la meta (Dijkstra hacia atrás en la rejilla de τ_gbl, con penalización por
+  alejarse de la recta, `W_LINE`) y, desde cualquier posición, la ruta libre de choques que baja por él.
+- `Config.label_ref` / `GoalMission(label_ref=)`: `'ctg'` usa esa ruta, replaneada desde la posición actual,
+  para las etiquetas y la toma de control de DAgger; ξ se mide desde la ruta de costo mínimo planeada en
+  la salida.
+- `Config.omega_ref` / `GoalMission(omega_ref=)`: `'line'` (R18), `'gbl'` (τ_gbl 1 s adelante, solo
+  entrenamiento) o `'goal'` (recto a la meta).
+- `--omega {line,gbl,goal}` y `--label-ref {gbl,ctg}` en `r18 dagger` y `r22 dagger`. Cada modelo nuevo
+  guarda su convención en `<modelo>.keras.json` (`policy.write_meta`, `policy.omega_of`), y `eval`, `video`,
+  `diagnose` (R18 y R22) la usan solos. En `r22`, cada convención tiene su etiqueta de datos por defecto.
+- `r18 eval`: distancia media a la recta por episodio (`lateral_m`, columna `lat_m`).
+
 ## [0.20.3] — 2026-10-10
 
 Sin cambios en el código ni en los resultados.

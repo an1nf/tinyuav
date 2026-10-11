@@ -60,7 +60,8 @@ def collect_one(job):
     rng = np.random.default_rng([job.get('base_seed', 0), i, 0x5D])
     kind = job.get('kind')
     v = float(rng.uniform(job['v_min'], job['v_max']))
-    cfg = Config(v_des=v, xi=job['xi'], cam_hz=job['cam_hz'], seed=i, label_every=job.get('label_every', 1))
+    cfg = Config(v_des=v, xi=job['xi'], cam_hz=job['cam_hz'], seed=i, label_every=job.get('label_every', 1),
+                 omega_ref=job.get('omega_ref', 'line'), label_ref=job.get('label_ref', 'gbl'))
     t0 = time.time()
     try:
         mission = None
@@ -88,8 +89,8 @@ def collect_one(job):
 
 def run(out, n_envs=850, per_round=30, workers=4, epochs=3, batch=8, v_min=3.0, v_max=10.0, cam_hz=15.0,
         xi_step=0.25, xi_max=6.0, net_size=(120, 160), weights=None, kind='train', init_model=None,
-        base_seed=0, label_every=1, xi_start=None, train_kw=None, log=print):
-    from nanouav.agile.policy import train
+        base_seed=0, label_every=1, xi_start=None, train_kw=None, omega_ref='line', label_ref='gbl', log=print):
+    from nanouav.agile.policy import train, write_meta
     data = os.path.join(out, 'data_' + kind)
     os.makedirs(data, exist_ok=True)
     state_f = os.path.join(out, f'dagger_{kind}.json')
@@ -107,7 +108,8 @@ def run(out, n_envs=850, per_round=30, workers=4, epochs=3, batch=8, v_min=3.0, 
         mpath = os.path.join(out, f'student_{kind}_r{r:02d}.keras')
         ids = list(range(r * per_round, min((r + 1) * per_round, n_envs)))
         jobs = [dict(i=i, out=data, model=model, xi=xi, v_min=v_min, v_max=v_max, cam_hz=cam_hz,
-                     kind=kind, base_seed=base_seed, label_every=label_every) for i in ids]
+                     kind=kind, base_seed=base_seed, label_every=label_every, omega_ref=omega_ref,
+                     label_ref=label_ref) for i in ids]
         t0 = time.time()
         if workers > 1:
             with ctx.Pool(workers, initializer=_worker_init) as pool:
@@ -126,6 +128,7 @@ def run(out, n_envs=850, per_round=30, workers=4, epochs=3, batch=8, v_min=3.0, 
                             epochs=epochs, batch=batch, init_from=model, net_size=net_size, weights=weights, log=log,
                             **(train_kw or {}))
             summ['val'] = hist[-1]['val']
+            write_meta(mpath, omega_ref=omega_ref, label_ref=label_ref)
         model = mpath
         xi = min(xi + xi_step, xi_max)
         state['rounds'] = [x for x in state['rounds'] if x['round'] != r] + [summ]
@@ -134,4 +137,6 @@ def run(out, n_envs=850, per_round=30, workers=4, epochs=3, batch=8, v_min=3.0, 
     if model and os.path.exists(model):
         import shutil
         shutil.copy(model, final)
+        if os.path.exists(model + '.json'):
+            shutil.copy(model + '.json', final + '.json')
     return final

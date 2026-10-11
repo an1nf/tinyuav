@@ -37,7 +37,8 @@ def _job(job):
     from nanouav.agile.rollout import Config, Rollout
     dagger._worker_init()
     env = EV.TEST[job['world']](job['seed'])
-    R = Rollout(env, Config(v_des=job['v'], cam_hz=job['cam_hz'], seed=job['seed']), 'student',
+    from nanouav.agile.policy import omega_of
+    R = Rollout(env, Config(v_des=job['v'], cam_hz=job['cam_hz'], seed=job['seed'], omega_ref=omega_of(job['model'])), 'student',
                 dagger._policy(job['model']))
     from nanouav.agile.run import apply_opts
     apply_opts(R, job)

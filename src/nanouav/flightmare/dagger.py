@@ -72,9 +72,9 @@ def _finish(path, r, items, labels):
 
 def run(client, arena_path, out, rig, n_envs=300, per_round=30, workers=6, epochs=3, batch=16, v_min=3.0,
         v_max=10.0, cam_hz=15.0, init_model=None, xi_start=1.0, xi_step=0.5, xi_max=6.0, base_seed=0,
-        train_kw=None, tag='fm', log=print):
+        train_kw=None, tag='fm', omega_ref='line', label_ref='gbl', log=print):
     from nanouav.agile import dagger as D
-    from nanouav.agile.policy import train
+    from nanouav.agile.policy import train, write_meta
     from nanouav.agile.rollout import Config, Rollout
     from nanouav.flightmare import arena as A
     from nanouav.flightmare.run import FlightmareObserver
@@ -107,7 +107,8 @@ def run(client, arena_path, out, rig, n_envs=300, per_round=30, workers=6, epoch
                 client.place(env.world.objects)
                 rig_v = tilted(rig, v)
                 client.set_tilt(rig_v.tilt_up_deg)
-                cfg = Config(v_des=v, xi=xi, cam_hz=cam_hz, seed=i, rig=rig_v)
+                cfg = Config(v_des=v, xi=xi, cam_hz=cam_hz, seed=i, rig=rig_v, omega_ref=omega_ref,
+                             label_ref=label_ref)
                 R = Rollout(env, cfg, 'dagger', D._policy(model), label=True)
                 R.observer = FlightmareObserver(client, rig_v)
                 R.defer = []
@@ -136,6 +137,7 @@ def run(client, arena_path, out, rig, n_envs=300, per_round=30, workers=6, epoch
             if not os.path.exists(mpath):
                 _, hist = train(data, mpath, epochs=epochs, batch=batch, init_from=model, log=log, **(train_kw or {}))
                 summ['val'] = hist[-1]['val']
+                write_meta(mpath, omega_ref=omega_ref, label_ref=label_ref)
             model = mpath
             xi = min(xi + xi_step, xi_max)
             state['rounds'] = [x for x in state['rounds'] if x['round'] != r] + [summ]
@@ -146,4 +148,6 @@ def run(client, arena_path, out, rig, n_envs=300, per_round=30, workers=6, epoch
     if model and os.path.exists(model):
         import shutil
         shutil.copy(model, final)
+        if os.path.exists(model + '.json'):
+            shutil.copy(model + '.json', final + '.json')
     return final
