@@ -212,6 +212,23 @@ mismo campo de visión que envía, y los troncos son exactos.
 - Los datos de DAgger nuevos van a otro directorio (`fm_<escena>_ctg`, R23), así que no se mezclan con los
   viejos.
 
+## Con la focal corregida (2026-10-13)
+
+`r22 check`: cajas a ≤ 2 px de lo esperado, focal 0.990, SGM con 4.5–6.6 % de error sobre las cajas y un
+65–92 % de cobertura en ellas. El suelo del almacén, liso, casi no tiene SGM.
+
+60 entornos (2 rondas), arranque desde `student_spatial_in`, mismo `eval` (10 entornos de prueba):
+
+| | 3 m/s | 5 m/s | 7 m/s | total |
+|---|---|---|---|---|
+| focal mal, etiquetas τ_gbl (0.20.2) | 2/10 | 2/10 | 5/10 | 9/30 |
+| **focal bien, etiquetas τ_gbl** (`fm_warehouse_fov`) | 5/10 | 7/10 | 8/10 | **20/30** |
+| focal bien, etiquetas replaneadas (`fm_warehouse_ctg`, R23) | 4/10 | 5/10 | 4/10 | 13/30 |
+
+- La focal explica la mayor parte de lo malo de R22 (9 → 20, $p = 0.009$).
+- Los choques que quedan son contra troncos, a 1.3–1.7 m de altura y sin deriva. Varios ocurren en los
+  primeros 1.5–2.3 s, contra un tronco cerca de la salida.
+
 ## Cómo correrlo
 
 ```bash

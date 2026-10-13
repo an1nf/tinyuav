@@ -3,6 +3,12 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.21.3] — 2026-10-13
+
+Solo documentación. R22 con la focal corregida: 20/30 con las etiquetas de R18 (antes 9/30). Las etiquetas
+replaneadas de R23 dan 13/30 a la misma escala: se aprenden mejor (validación 7.8 contra 10.0) pero no
+vuelan mejor todavía (R23 §5, R22).
+
 ## [0.21.2] — 2026-10-13
 
 Sin cambios en los resultados. Con la focal corregida, `r22 check` en el almacén da las cajas a ≤ 2 px de lo

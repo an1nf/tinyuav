@@ -32,7 +32,7 @@ lado** a baja velocidad.
    - (ii) la misma $\omega$ en entrenamiento y en prueba;
    - (iii) un experto competente donde vaya el estudiante;
    - (iv) una $\omega$ que corrija a corto plazo.
-4. **Una referencia que cumple las cuatro:** la ruta de costo mínimo a la meta **replaneada desde la
+4. **Una referencia que cumple las cuatro** (en Flightmare, a pequeña escala, todavía no vuela mejor: ver §5): la ruta de costo mínimo a la meta **replaneada desde la
    posición actual**, con una penalización por alejarse de la recta, y $\omega$ hacia la recta 1 s adelante
    (como en R18). Sus etiquetas:
    - están libres de choques en el 98.9 %, también lejos de la recta;
@@ -217,6 +217,34 @@ libre en 4 de los 10 bosques.
 de los datos. Venía de pedirle al estudiante seguir una ruta que no puede ver, mientras se le daba una
 dirección que no coincidía con ella. El paper resuelve (iii) con $\tau_\text{gbl}$; la referencia replaneada
 resuelve (iii) sin romper (i).
+
+## 5 · Primera prueba en Flightmare (2026-10-13): no se confirma
+
+Almacén, focal ya corregida (0.21.1), las dos variantes con la misma receta: arranque desde
+`student_spatial_in`, 60 entornos en 2 rondas, ξ = 1 → 1.5. Solo cambian las etiquetas.
+
+| | etiquetas τ_gbl (`--label-ref gbl`) | etiquetas replaneadas (`--label-ref ctg`) |
+|---|---|---|
+| ronda 1 / ronda 2 de DAgger | 10/30 · 18/30 | 12/30 · 15/30 |
+| R-WTA de validación (ronda 2) | 10.0 | 7.8 |
+| `eval` a 3 · 5 · 7 m/s | **5/10 · 7/10 · 8/10 = 20/30** | 4/10 · 5/10 · 4/10 = 13/30 |
+
+- **Lo que se confirma.** Las etiquetas replaneadas se aprenden mejor (7.8 contra 10.0), como predecía la
+  etapa 2.
+- **Lo que no.** En vuelo, a esta escala, las etiquetas de R18 van mejor (20/30 contra 13/30, $p = 0.12$;
+  a 7 m/s, 8/10 contra 4/10).
+- **Dónde chocan las replaneadas.** Sus 17 choques son contra troncos a menos de 1.3 m de la recta: el
+  estudiante sigue la recta y no se aparta lo suficiente. Es el modo de fallo de G en la etapa 2 (lejos de
+  la recta, sus planes chocan la mitad de las veces). Lo que más pesa aquí es esquivar, y la penalización por
+  la recta (`W_LINE` = 0.5, sin ajustar) va en contra de eso.
+- **Lo que pesa más.** El arreglo de la focal: de 9/30 (focal mal, R22) a 20/30 con las mismas etiquetas
+  ($p = 0.009$).
+
+**Estado de la hipótesis.**
+- Que las etiquetas de R18 no son función de la observación sigue en pie, al igual que el piso de R-WTA.
+- Que corregirlo mejore el vuelo no se ha visto en Flightmare. La prueba justa es a más escala (300
+  entornos, ξ hasta 5–6 m, donde el estudiante visita estados lejos de τ_gbl), y quizá con un `W_LINE` menor.
+- Mientras tanto, la línea principal sigue con `--label-ref gbl`.
 
 ## Cambio en el código
 
