@@ -3,6 +3,28 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.21.1] — 2026-10-13
+
+**Corrige un error de geometría en Flightmare que invalida lo que el estudiante vio en R22** (imágenes,
+SGM y las dos rondas de DAgger). No cambia nada de R18–R21, ni τ_gbl ni el mapa de la arena: el escaneo
+retroproyecta con el mismo campo de visión que envía.
+
+### Corregido
+- El campo de visión enviado a Unity salía de `calib.json`, donde el probe antiguo había escrito 90°. Lo
+  decidió sobre una nube de puntos plana: la escena no tenía colisionadores. Unity lo toma como vertical:
+  focal de 240 px a 640 × 480, contra los 320 px de nuestra cámara. `r22 check` lo mostró con las cajas
+  fuera del eje: las tres aparecen al 0.74 de su distancia al centro, y el SGM da distancias 1.33 veces
+  mayores (error relativo 0.31–0.42).
+- Ahora el campo de visión sale de la cámara (`unity_fov`: 73.74° vertical para 90° horizontal en 4:3). Un
+  valor en `calib.json` solo cuenta si lo midió `r22 check` (`fov_from: check`); el del probe se ignora y se
+  avisa. El probe ya no escribe `fov_deg` (ahora `fov_deg_probe`).
+
+### Añadido
+- `r22 check` mide la focal de las imágenes respecto de la nuestra (`focal_ratio`: ajuste de las caras de
+  las cajas sobre la profundidad de Unity). Si difiere más de un 3 %, corrige `fov_deg` en `calib.json` y
+  pide repetir la comprobación. Una caja cuenta como bien puesta solo si está a ≤ 8 px (VGA) de donde la
+  pone nuestro modelo.
+
 ## [0.21.0] — 2026-10-11
 
 Sin cambios en los resultados con las opciones por defecto (`omega_ref='line'`, `label_ref='gbl'`: el

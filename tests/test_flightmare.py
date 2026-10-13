@@ -307,12 +307,21 @@ def test_geometry_check_command(tmp_path):
         A.save(str(tmp_path / 'arena_warehouse.npz'), P, 0.15, floor, rect, lo, hi, {'scene': 'warehouse'})
     finally:
         cl.close()
+    check = lambda: RUN.main(['check', '--scene', 'warehouse', '--results', str(tmp_path), '--no-vga',
+                              '--pub-port', str(pub), '--sub-port', str(sub)])
+    boxes = lambda: [r for r in json.load(open(tmp_path / 'check_geometry.json')) if 'box' in r]
+    calib = lambda: json.load(open(tmp_path / 'calib.json'))
     try:
-        RUN.main(['check', '--scene', 'warehouse', '--results', str(tmp_path), '--no-vga',
-                  '--pub-port', str(pub), '--sub-port', str(sub)])
+        json.dump({'fov_deg': 90.0}, open(tmp_path / 'calib.json', 'w'))     # the old probe's value: ignored
+        check()
+        assert len(boxes()) == 6 and all(r['ok'] for r in boxes())
+        assert all(abs(r['u_meas'] - r['u_exp']) < 4 and abs(r['v_meas'] - r['v_exp']) < 6 for r in boxes())
+        # a wrong field of view (Unity's vertical 90°: focal 0.75× ours) is detected, measured and corrected
+        json.dump({'fov_deg': 90.0, 'fov_from': 'check'}, open(tmp_path / 'calib.json', 'w'))
+        check()
+        assert not all(r['ok'] for r in boxes()) and calib()['focal_ratio'] == pytest.approx(0.75, abs=0.02)
+        assert calib()['fov_deg'] == pytest.approx(73.74, abs=1.0)
+        check()
+        assert all(r['ok'] for r in boxes()) and 'focal_ratio' in calib()
     finally:
         fake.stop()
-    rows = json.load(open(tmp_path / 'check_geometry.json'))
-    boxes = [r for r in rows if 'box' in r]
-    assert len(boxes) == 6 and all(r['ok'] for r in boxes)
-    assert all(abs(r['u_meas'] - r['u_exp']) < 4 and abs(r['v_meas'] - r['v_exp']) < 6 for r in boxes)

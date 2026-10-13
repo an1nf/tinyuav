@@ -183,6 +183,35 @@ que la comprobación de la caja centrada de `arena` no podía ver) o la banda iz
   (válido total, mitad izquierda y derecha, error frente a la profundidad verdadera). Hace un PNG por
   choque.
 
+## La focal de Unity no era la nuestra (0.21.1)
+
+`r22 check` (2026-10-13, VGA, almacén) encontró las tres cajas fuera del eje al **0.74 de su distancia
+al centro** de la imagen, tanto en horizontal como en vertical:
+
+| caja | esperado (px) | medido (px) | razón |
+|---|---|---|---|
+| izquierda, 6 m | u = 206.2 | 235.5 | 0.741 |
+| derecha, 9 m | u = 431.1 | 402.4 | 0.743 |
+| arriba, 7.5 m | v = 144.9 | 169.2 | 0.743 |
+
+**Qué pasaba.**
+- `calib.json` tenía `fov_deg: 90`, escrito por el probe antiguo sobre una nube de puntos plana (la escena
+  no tiene colisionadores).
+- Unity toma ese valor como vertical: focal de 240 px a 640 × 480, contra los 320 px de nuestra cámara
+  (90° horizontales). La razón esperada es 240/320 = 0.75.
+- Con esas imágenes, el SGM da distancias 1.33 veces mayores: el error relativo de 0.31–0.42 que reportó la
+  comprobación. Los obstáculos, además, aparecen más centrados de lo que están.
+
+**Qué invalida.** Todo lo que el estudiante vio en Flightmare: los vídeos de percepción, las dos rondas de
+DAgger (2/10, 2/10, 5/10) y su deriva. No afecta a τ_gbl ni a la arena: el escaneo retroproyecta con el
+mismo campo de visión que envía, y los troncos son exactos.
+
+**Corrección.**
+- El campo de visión sale ahora de la cámara: 73.74° vertical.
+- `r22 check` mide la razón de focales y, si difiere más de un 3 %, corrige `calib.json`.
+- Los datos de DAgger nuevos van a otro directorio (`fm_<escena>_ctg`, R23), así que no se mezclan con los
+  viejos.
+
 ## Cómo correrlo
 
 ```bash

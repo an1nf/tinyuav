@@ -108,13 +108,29 @@ def rig_of(a):
     return StereoRig()
 
 
+def unity_fov(rig, calib=None):
+    """Field of view sent to Unity (vertical: the 2022 player's convention, measured by `r22 check`) so that its
+    images have our rig's focal length. A value in calib.json counts only if `r22 check` measured it; the one
+    the old probe wrote was decided on a flat point cloud and came out as 90° (focal 0.75× ours)."""
+    from nanouav.agile.stereo import StereoRig
+    rig = rig or StereoRig()
+    c = calib or {}
+    if c.get('fov_from') == 'check' and c.get('fov_deg'):
+        return float(c['fov_deg'])
+    fov = math.degrees(2 * math.atan(rig.height / 2 / rig.focal))
+    if c.get('fov_deg') and abs(float(c['fov_deg']) - fov) > 0.5:
+        print(f"calib.json: fov_deg {c['fov_deg']} (old probe) ignored → {fov:.2f}° (focal of the rig)")
+    return fov
+
+
 def make_client(a, calib=None, stereo=True, n_objects=0, rig=None):
     from nanouav.flightmare.bridge import FlightmareClient
     os.environ.setdefault('TF_FORCE_GPU_ALLOW_GROWTH', 'true')       # the GPU is shared with Unity
     _launch_unity(a)
     sid, off = SCENES[a.binary][a.scene]
     c = calib or {}
-    cl = FlightmareClient(scene_id=sid, render_offset=off, fov_deg=c.get('fov_deg', 73.74),
+    fov = unity_fov(rig, c)
+    cl = FlightmareClient(scene_id=sid, render_offset=off, fov_deg=fov,
                           depth_mult=c.get('depth_mult'), depth_far=a.depth_far, vehicle_size=a.vehicle_size,
                           stereo=stereo, n_objects=n_objects,
                           box_unit=c.get('box_unit', (0.8104, 0.8102, 0.8124)),
@@ -246,7 +262,7 @@ def cmd_probe(a):
     score = lambda k: res[k].get('unity_rel_err', res[k]['sgm_rel_err'])
     best = min(res, key=score)
     calib.update(checks=res, best=best, y_mirror='mirror=True' in best, fov_is=best.split('fov=')[1],
-                 fov_deg=73.74 if 'vertical' in best else 90.0)
+                 fov_deg_probe=73.74 if 'vertical' in best else 90.0)    # `r22 check` measures the one used
     if score(best) > 0.15:
         warn.append(f'the cloud does not explain the depth image ({best}: {score(best):.2f} median relative error)')
     calib['warnings'] = warn
@@ -627,6 +643,40 @@ def cmd_dagger(a):
     print('student →', m)
 
 
+def focal_ratio(D, rig, p, boxes, ks=np.arange(0.5, 1.6001, 0.005)):
+    """Focal length of a level Unity depth image relative to our rig's: the scale k (about the image centre)
+    that best lays the projected front faces of the boxes over pixels at their depth. NaN if no k fits."""
+    import dataclasses
+    from nanouav.follow.estimate import project
+    rig = dataclasses.replace(rig, tilt_up_deg=0.0)
+    H, W = D.shape
+    c0 = np.array([(W - 1) / 2, (H - 1) / 2])
+    faces = []
+    for b in boxes:
+        c, h = np.asarray(b.center, float), np.asarray(b.half, float)
+        C = np.array([[c[0] - h[0], c[1] + sy * h[1], c[2] + sz * h[2]] for sy in (-1, 1) for sz in (-1, 1)])
+        uv, X = project(rig, (p, 0.0, 0.0, 0.0), C)
+        faces.append((np.asarray(uv, float), float(np.mean(X))))
+    score = []
+    for k in ks:
+        fr = []
+        for uv, X in faces:
+            q = c0 + k * (uv - c0)
+            (u0, v0), (u1, v1) = q.min(0), q.max(0)
+            du, dv = 0.15 * (u1 - u0), 0.15 * (v1 - v0)           # keep off the edges
+            u0, u1 = int(max(u0 + du, 0)), int(min(u1 - du, W - 1))
+            v0, v1 = int(max(v0 + dv, 0)), int(min(v1 - dv, H - 1))
+            if u1 <= u0 or v1 <= v0:
+                fr.append(0.0)
+                continue
+            fr.append(float(np.mean(np.abs(D[v0:v1 + 1, u0:u1 + 1] - X) < 0.25)))
+        score.append(np.mean(fr))
+    score = np.array(score)
+    if score.max() <= 0.6:
+        return float('nan')
+    return float(np.median(ks[score >= score.max() - 0.02]))        # the middle of the plateau
+
+
 def cmd_check(a):
     """Geometry of the rendered images against ours, with spawned boxes off the axis (the arena's box check
     was straight ahead, blind to a left/right mirror): position and distance of each box in Unity's depth
@@ -655,6 +705,8 @@ def cmd_check(a):
         cl.set_tilt(tilt)
         o = cl.render(p, body_rot(0.0, 0.0, 0.0))
         D = o['depth_left']
+        if tilt == 0.0:
+            D0 = D
         g = lambda im: cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
         S = sgm_depth(g(o['left']), g(o['right']), rig)
         for name, b in zip(('left 6 m', 'right 9 m', 'above 7.5 m'), boxes):
@@ -673,19 +725,32 @@ def cmd_check(a):
                 row['u_meas'], row['v_meas'] = round(float(uu[near].mean()), 1), round(float(vv[near].mean()), 1)
                 k = (S[vv[near], uu[near]] > 0)
                 row['sgm_rel_err'] = round(float(np.median(np.abs(S[vv[near], uu[near]][k] - X) / X)), 3) if k.sum() > 10 else None
-            good = near.sum() > 20 and (row['mirrored'] is None or row['mirrored'] < near.sum() / 4)
+            tol = 8.0 * W / 640                                    # px
+            placed = near.sum() > 0 and abs(row['u_meas'] - u) <= tol and abs(row['v_meas'] - v) <= tol
+            good = near.sum() > 20 and placed and (row['mirrored'] is None or row['mirrored'] < near.sum() / 4)
             row['ok'] = bool(good)
             ok_all &= good
             rows.append(row)
         fl = (np.arange(D.shape[0])[:, None] > D.shape[0] * 0.8) & (S > 0) & (D > 0)
         rows.append({'tilt': tilt, 'floor_sgm_rel_err': round(float(np.median(np.abs(S[fl] - D[fl]) / D[fl])), 3)
                      if fl.sum() > 50 else None, 'sgm_valid': round(float((S > 0).mean()), 3)})
+    fov_sent = cl.fov
     cl.set_tilt(0.0)
     cl.close()
     for r in rows:
         print(r)
+    ratio = focal_ratio(D0, rig0, p, boxes)
+    if not np.isfinite(ratio):
+        ok_all = False
+    rows.append({'focal_ratio': round(ratio, 3), 'fov_sent': round(fov_sent, 2)})
     json.dump(rows, open(os.path.join(out, 'check_geometry.json'), 'w'), indent=1)
-    print('OK: the rendered geometry matches ours (no mirror, tilt right)' if ok_all else
+    print(f'focal of the images / ours: {ratio:.3f} (fov sent {fov_sent:.2f}°)')
+    if np.isfinite(ratio) and abs(ratio - 1) > 0.03:
+        fov_new = math.degrees(2 * math.atan(math.tan(math.radians(fov_sent) / 2) * ratio))
+        calib.update(fov_deg=round(fov_new, 2), fov_from='check', focal_ratio=round(ratio, 3))
+        json.dump(calib, open(os.path.join(out, 'calib.json'), 'w'), indent=1)
+        print(f'calib.json: fov_deg {fov_sent:.2f} → {fov_new:.2f} (measured). Run `r22 check` again.')
+    print('OK: the rendered geometry matches ours (no mirror, tilt right, same focal length)' if ok_all else
           'WARNING: a box is not where our camera model puts it — send check_geometry.json')
 
 

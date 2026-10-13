@@ -189,7 +189,7 @@ libre en 4 de los 10 bosques.
     de sus 40 vuelos se pierden sin llegar ni chocar.
   - B, C y G tienen etiquetas que sí siguen $\omega$: 19/60, a 0.2–0.4 m.
   - Es la diferencia más robusta de la prueba (Fisher $p = 2 \cdot 10^{-5}$ en llegadas; Mann-Whitney
-    $p < 10^{-12}$ en deriva). Es el mismo síntoma de Flightmare.
+    $p < 10^{-12}$ en deriva). Es el mismo síntoma de Flightmare, aunque allí había además otra causa posible: la focal de las imágenes era 0.75 veces la nuestra ([R22, 0.21.1](R22_flightmare.md)).
   - El lazo abierto no lo ve: los planes de A casi siempre están libres (0.94), pero esa medida no dice si
     avanzan hacia la meta.
 - **(ii), (iii) y (iv) también se ven.**
