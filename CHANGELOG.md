@@ -3,6 +3,17 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.21.2] — 2026-10-13
+
+Sin cambios en los resultados. Con la focal corregida, `r22 check` en el almacén da las cajas a ≤ 2 px de lo
+esperado y el SGM con un 4.5–6.6 % de error en ellas. Pero solo un 3.5–5 % de la imagen tiene profundidad
+SGM, contra un 34–46 % en nuestro simulador.
+
+### Añadido
+- `r22 check` separa lo que falta por alcance de lo que falta por emparejamiento: fracción de SGM válida
+  donde Unity da menos de `max_range` (10 m), y en cada caja. Guarda `check_geometry.png` con, por
+  inclinación, imagen izquierda | SGM | profundidad de Unity.
+
 ## [0.21.1] — 2026-10-13
 
 **Corrige un error de geometría en Flightmare que invalida lo que el estudiante vio en R22** (imágenes,

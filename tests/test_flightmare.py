@@ -323,5 +323,8 @@ def test_geometry_check_command(tmp_path):
         assert calib()['fov_deg'] == pytest.approx(73.74, abs=1.0)
         check()
         assert all(r['ok'] for r in boxes()) and 'focal_ratio' in calib()
+        assert (tmp_path / 'check_geometry.png').exists()
+        ranges = [r for r in json.load(open(tmp_path / 'check_geometry.json')) if 'sgm_valid_within_range' in r]
+        assert len(ranges) == 2 and all(0 < r['sgm_valid_within_range'] <= 1 for r in ranges)
     finally:
         fake.stop()

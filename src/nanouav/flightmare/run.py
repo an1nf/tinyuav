@@ -643,6 +643,17 @@ def cmd_dagger(a):
     print('student →', m)
 
 
+def _check_panel(rgb, S, D, rig, tilt):
+    """left image | SGM | Unity depth (0–max_range m, black: invalid / beyond), one row per tilt."""
+    import cv2
+    col = lambda d: (cv2.applyColorMap((255 - np.clip(d / rig.max_range, 0, 1) * 255).astype(np.uint8),
+                                       cv2.COLORMAP_JET) * ((d > 0) & (d < rig.max_range))[..., None])
+    ims = [cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), col(S), col(D)]
+    for im, t in zip(ims, (f'left, tilt {tilt:g} deg', f'SGM ({(S > 0).mean():.0%} valid)', 'Unity depth')):
+        cv2.putText(im, t, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    return np.hstack(ims)
+
+
 def focal_ratio(D, rig, p, boxes, ks=np.arange(0.5, 1.6001, 0.005)):
     """Focal length of a level Unity depth image relative to our rig's: the scale k (about the image centre)
     that best lays the projected front faces of the boxes over pixels at their depth. NaN if no k fits."""
@@ -699,7 +710,7 @@ def cmd_check(a):
              Box((p[0] + 7.5, yc + 0.0, f0 + 3.6), (0.3, 0.3, 0.3))]        # ahead, above the camera
     cl.place(boxes)
     import dataclasses
-    rows, ok_all = [], True
+    rows, ok_all, panels = [], True, []
     for tilt in (0.0, 30.0):
         rig = dataclasses.replace(rig0, tilt_up_deg=tilt)
         cl.set_tilt(tilt)
@@ -725,6 +736,7 @@ def cmd_check(a):
                 row['u_meas'], row['v_meas'] = round(float(uu[near].mean()), 1), round(float(vv[near].mean()), 1)
                 k = (S[vv[near], uu[near]] > 0)
                 row['sgm_rel_err'] = round(float(np.median(np.abs(S[vv[near], uu[near]][k] - X) / X)), 3) if k.sum() > 10 else None
+                row['sgm_valid'] = round(float(k.mean()), 3)                 # on the box
             tol = 8.0 * W / 640                                    # px
             placed = near.sum() > 0 and abs(row['u_meas'] - u) <= tol and abs(row['v_meas'] - v) <= tol
             good = near.sum() > 20 and placed and (row['mirrored'] is None or row['mirrored'] < near.sum() / 4)
@@ -732,8 +744,13 @@ def cmd_check(a):
             ok_all &= good
             rows.append(row)
         fl = (np.arange(D.shape[0])[:, None] > D.shape[0] * 0.8) & (S > 0) & (D > 0)
+        near_px = (D > 0.3) & (D < rig.max_range)
+        near_px[:, :rig.num_disp] = False                  # SGM has no match on the left band
         rows.append({'tilt': tilt, 'floor_sgm_rel_err': round(float(np.median(np.abs(S[fl] - D[fl]) / D[fl])), 3)
-                     if fl.sum() > 50 else None, 'sgm_valid': round(float((S > 0).mean()), 3)})
+                     if fl.sum() > 50 else None, 'sgm_valid': round(float((S > 0).mean()), 3),
+                     'sgm_valid_within_range': round(float((S[near_px] > 0).mean()), 3) if near_px.any() else None,
+                     'within_range_frac': round(float(near_px.mean()), 3)})
+        panels.append(_check_panel(o['left'], S, D, rig, tilt))
     fov_sent = cl.fov
     cl.set_tilt(0.0)
     cl.close()
@@ -744,7 +761,8 @@ def cmd_check(a):
         ok_all = False
     rows.append({'focal_ratio': round(ratio, 3), 'fov_sent': round(fov_sent, 2)})
     json.dump(rows, open(os.path.join(out, 'check_geometry.json'), 'w'), indent=1)
-    print(f'focal of the images / ours: {ratio:.3f} (fov sent {fov_sent:.2f}°)')
+    cv2.imwrite(os.path.join(out, 'check_geometry.png'), np.vstack(panels))
+    print(f'focal of the images / ours: {ratio:.3f} (fov sent {fov_sent:.2f}°) → {out}/check_geometry.png')
     if np.isfinite(ratio) and abs(ratio - 1) > 0.03:
         fov_new = math.degrees(2 * math.atan(math.tan(math.radians(fov_sent) / 2) * ratio))
         calib.update(fov_deg=round(fov_new, 2), fov_from='check', focal_ratio=round(ratio, 3))
