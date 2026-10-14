@@ -332,7 +332,8 @@ def test_perceived_selection_uses_only_the_drones_own_sgm():
         obs.add(trunk)
     assert obs.clearance(np.array([[2.0, 0.0, 1.5]])) > 1.0
     assert perceived_index(fits, [0.0, 0.5], obs) == 1            # the straight plan's low cost does not save it
-    assert perceived_index(fits, [0.5, 0.0], PerceivedObstacles()) == 1   # nothing perceived: the paper's rule
+    assert perceived_index(fits, None, PerceivedObstacles()) == 0          # nothing perceived: the least snap
+    assert perceived_index(fits, [0.5, 0.0], PerceivedObstacles()) == 1   # … or the paper's cost rule (sgm_cost)
 
 
 def test_perception_errors_compare_the_sgm_with_the_truth():

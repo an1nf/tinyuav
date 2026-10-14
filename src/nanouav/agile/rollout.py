@@ -190,16 +190,23 @@ def fit_plan(P, p, v, a, v_des, proj='scaled', tscale='chord', v_cap=None):
     return coef, beta
 
 
-def oracle_index(fits, field, margin=0.15):
-    """Privileged choice (diagnosis only): among the flown polynomials that keep ≥ radius + margin from every
-    obstacle, the least snap; if none, the one with the most clearance. With the student's own hypotheses it
-    gives the ceiling of a perfect cost head and selection."""
-    tt = np.linspace(0, 1, 21)
-    clear = np.array([float(field(TR.poly_eval(c, tt)).min()) for c, _ in fits])
-    ok = np.where(clear >= AGILE.radius + margin)[0]
+def _among_free(fits, clear, margin=0.15, costs=None):
+    """Among the plans with clearance ≥ radius + margin: the least snap (costs=None) or the paper's rule on
+    the predicted costs (c*/c_k ≥ 0.95, then the least snap). None free: the one with the most clearance."""
+    ok = np.where(np.asarray(clear) >= AGILE.radius + margin)[0]
     if not len(ok):
         return int(np.argmax(clear))
-    return int(ok[np.argmin([TR.snap_cost(fits[k][0]) for k in ok])])
+    if costs is None:
+        return int(ok[np.argmin([TR.snap_cost(fits[k][0]) for k in ok])])
+    return int(ok[TR.select([fits[k][0] for k in ok], [costs[k] for k in ok])])
+
+
+def oracle_index(fits, field, margin=0.15, costs=None):
+    """Privileged choice (diagnosis only) by the true clearance of each flown polynomial (see `_among_free`).
+    With the student's own hypotheses it gives the ceiling of a perfect cost head and selection."""
+    tt = np.linspace(0, 1, 21)
+    clear = np.array([float(field(TR.poly_eval(c, tt)).min()) for c, _ in fits])
+    return _among_free(fits, clear, margin, costs)
 
 
 def sgm_points(depth, rig, pose, stride=4):
@@ -258,15 +265,10 @@ def perceived_clearance(fits, obstacles):
 
 
 def perceived_index(fits, costs, obstacles, margin=0.15, clear=None):
-    """Choice with the drone's own perception: among the flown polynomials that keep ≥ radius + margin from
-    the obstacles in its SGM, the paper's rule (predicted cost, then least snap); if none, the one with the
-    most perceived clearance."""
+    """Choice with the drone's own perception, by the clearance of each flown polynomial to the obstacles in
+    its SGM (see `_among_free`; costs=None: the least snap among the free ones, like the oracle)."""
     clear = perceived_clearance(fits, obstacles) if clear is None else clear
-    ok = np.where(clear >= AGILE.radius + margin)[0]
-    if not len(ok):
-        return int(np.argmax(clear))
-    sub = TR.select([fits[k][0] for k in ok], [costs[k] for k in ok])
-    return int(ok[sub])
+    return _among_free(fits, clear, margin, costs)
 
 
 def choose(fits, costs, W, prev=None, mode='snap'):
@@ -292,9 +294,10 @@ class Rollout:
     # student at v_des = 10 happened at 12–19 m/s.
     TSCALE = 'chord'
     V_CAP = None                 # e.g. 1.3: lower β until the plan's peak speed ≤ V_CAP · v_des (or the current speed)
-    # Choice among the M hypotheses: 'oracle' (privileged, diagnosis only: the true clearance of each flown
-    # polynomial instead of the predicted cost), 'sgm' (the same with the obstacles of the drone's own SGM of
-    # the last second: not privileged), 'snap' (paper: c*/c_k ≥ 0.95, then the least snap) or 'consistent'
+    # Choice among the M hypotheses: 'snap' (paper: c*/c_k ≥ 0.95, then the least snap), 'consistent',
+    # 'oracle' (privileged, diagnosis only: the least snap among the plans whose flown polynomial is truly free),
+    # 'sgm' (the same with the obstacles of the drone's own SGM of the last second: not privileged), and
+    # 'oracle_cost' / 'sgm_cost' (the paper's cost rule instead of the least snap among the free ones)
     # (c*/c_k ≥ 0.8, then the one nearest to the previous choice: no switching sides around a tree unless
     # the predicted cost says so)
     SELECT = 'snap'
@@ -375,11 +378,11 @@ class Rollout:
         trajs, costs = self.policy(depth, TR.rotate_to_heading(v, yaw), R.ravel(), TR.rotate_to_heading(omega, yaw))
         W = TR.from_heading_frame(trajs, p, yaw)
         fits = [self._fit(W[k], p, v, a, self._v_des) for k in range(len(W))]
-        if self.SELECT == 'oracle':                          # privileged: true clearance (diagnosis only)
-            k = oracle_index(fits, self.field)
-        elif self.SELECT == 'sgm':                           # own perception: clearance in its own SGM
+        if self.SELECT in ('oracle', 'oracle_cost'):        # privileged: true clearance (diagnosis only)
+            k = oracle_index(fits, self.field, costs=costs if self.SELECT == 'oracle_cost' else None)
+        elif self.SELECT in ('sgm', 'sgm_cost'):             # own perception: clearance in its own SGM
             self._seen = perceived_clearance(fits, self._perceived)
-            k = perceived_index(fits, costs, self._perceived, clear=self._seen)
+            k = perceived_index(fits, costs if self.SELECT == 'sgm_cost' else None, self._perceived, clear=self._seen)
         else:
             k = choose(fits, costs, W, getattr(self, '_prev_W', None), self.SELECT)
         self._prev_W = W[k]
@@ -459,7 +462,7 @@ class Rollout:
                 elif self.pilot in ('blind', 'direct'):        # straight toward the goal, no perception
                     new = self._plan_points(F['blind'], p, v, a0, t, self.pilot)
                 elif use_student:
-                    if self.SELECT == 'sgm':
+                    if self.SELECT in ('sgm', 'sgm_cost'):
                         if getattr(self, '_perceived', None) is None:
                             self._perceived = PerceivedObstacles(n_frames=max(1, int(round(cfg.cam_hz))))
                         self._perceived.add(sgm_points(cam['depth'], cfg.rig, (p, yaw, pitch, roll)))
@@ -476,7 +479,7 @@ class Rollout:
                                            'beta': round(float(fits[k_sel][1]), 3),
                                            'W': np.round(W, 2).tolist(), 'omega': np.round(omega, 3).tolist(),
                                            'att': [round(float(yaw), 4), round(float(pitch), 4), round(float(roll), 4)]})
-                        if self.SELECT == 'sgm':                 # what its own SGM said about each plan
+                        if self.SELECT in ('sgm', 'sgm_cost'):   # what its own SGM said about each plan
                             self.trace[-1]['clear_seen'] = [round(float(min(c, 99.0)), 3) for c in self._seen]
                         self._trace_stats(cam)
                         if self.trace_depth:

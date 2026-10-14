@@ -308,7 +308,19 @@ resume tres medidas:
 - **falsas alarmas:** cuántos libres vio bloqueados;
 - **elección con choque:** en cuántas decisiones voló uno con choque creyéndolo libre.
 
-En nuestro bosque, con el modelo pequeño, casi no pierde ninguno (0–2.6 %) y da 5–14 % de falsas alarmas. El cálculo cuesta unos 80 ms por cuadro en este
+En nuestro bosque, con el modelo pequeño, casi no pierde ninguno (0–2.6 %) y da 5–14 % de falsas alarmas.
+
+**`r22 diagnose --select sgm` en el almacén** (4/10 · 7/10 · 5/10 = 16/30):
+- Su SGM coincide casi siempre con la verdad. De los planes que de verdad chocan vio libres el 2 %; de los
+  libres vio bloqueados el 7 %. Solo en el 0.1 % de las decisiones voló un plan con choque creyéndolo libre.
+- De los 14 choques, 13 son `cambio_de_plan`. Volaba planes libres y, en el último medio segundo, ya no le
+  quedaba ninguno: se metió en una trampa plan a plan, no por no ver.
+- Sin embargo, el oráculo elige el más suave (menor snap) entre los libres, mientras que `sgm` usaba la regla
+  del paper, es decir, la cabeza de costo, la misma que puntúa mal. Para separar percepción y regla:
+  - `sgm` pasa a elegir como el oráculo (el más suave entre los que su SGM ve libres);
+  - `sgm_cost` es el de antes (16/30);
+  - `oracle_cost` es la holgura real con la regla del costo.
+ El cálculo cuesta unos 80 ms por cuadro en este
 CPU (búsqueda por fuerza bruta; un k-d tree lo bajaría si hiciera falta en tiempo real).
 
 ## Cómo correrlo

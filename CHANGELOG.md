@@ -3,6 +3,21 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.21.9] — 2026-10-14
+
+**Cambia `--select sgm`.** Ahora elige como el oráculo: el plan más suave (menor snap) entre los que su
+propio SGM ve libres. El de 0.21.7–0.21.8, que usaba la regla del costo de la red entre los libres (16/30 en
+el almacén), pasa a llamarse `sgm_cost`. No cambia ningún otro resultado.
+
+**`r22 diagnose --select sgm_cost`** (lo que era `sgm`):
+- de los planes que chocan, vio libres el 2 %; de los libres, vio bloqueados el 7 %;
+- solo en el 0.1 % de las decisiones voló uno con choque creyéndolo libre;
+- 13 de sus 14 choques son `cambio_de_plan`.
+
+### Añadido
+- `--select oracle_cost` (la holgura real con la regla del costo) y `sgm_cost`. Junto con `oracle` y `sgm`
+  forman un 2 × 2 que separa percepción (holgura real o su SGM) y regla (menor snap o costo predicho).
+
 ## [0.21.8] — 2026-10-14
 
 Sin cambios en los resultados. En el almacén, `--select sgm` da 16/30: igual que `snap` (17/30), lejos del
