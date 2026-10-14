@@ -202,6 +202,68 @@ def oracle_index(fits, field, margin=0.15):
     return int(ok[np.argmin([TR.snap_cost(fits[k][0]) for k in ok])])
 
 
+def sgm_points(depth, rig, pose, stride=4):
+    """The drone's own SGM depth (m, 0 = none; full resolution of `rig`) → world points, from its pose
+    estimate (p, yaw, pitch, roll)."""
+    from nanouav.follow.estimate import camera_pose
+    H, W = depth.shape
+    dep = np.asarray(depth, np.float32)[::stride, ::stride]
+    v, u = np.nonzero(dep > 0)
+    X = dep[v, u]
+    u, v = u * stride * rig.width / W, v * stride * rig.height / H
+    O, Rc = camera_pose(rig, pose)
+    dirs = np.stack([np.ones_like(X), -(u + 0.5 - rig.width / 2) / rig.focal, -(v + 0.5 - rig.height / 2) / rig.focal], 1)
+    return O + (dirs * X[:, None]) @ Rc.T
+
+
+class PerceivedObstacles:
+    """Obstacles as the drone itself perceives them: cells of `cell` m hit by its SGM in ≥ `min_hits` of the
+    last `n_frames` frames (stereo speckle does not repeat). Nothing privileged: own depth, own pose."""
+
+    def __init__(self, n_frames=15, cell=0.15, min_hits=2):
+        from collections import deque
+        self.hist, self.cell, self.min_hits = deque(maxlen=n_frames), cell, min_hits
+        self._cells = None
+
+    def add(self, P):
+        self.hist.append(np.unique(np.floor(np.asarray(P, float) / self.cell).astype(np.int64), axis=0)
+                         if len(P) else np.zeros((0, 3), np.int64))
+        self._cells = None
+
+    def cells(self):
+        if self._cells is None:
+            A = [h for h in self.hist if len(h)]
+            if not A:
+                self._cells = np.zeros((0, 3))
+            else:
+                c, n = np.unique(np.vstack(A), axis=0, return_counts=True)
+                self._cells = (c[n >= min(self.min_hits, len(self.hist))] + 0.5) * self.cell
+        return self._cells
+
+    def clearance(self, X):
+        """Distance from the points X (M, 3) to the nearest perceived obstacle (∞ if none)."""
+        X = np.asarray(X, float)
+        C = self.cells()
+        C = C[((C >= X.min(0) - 1.5) & (C <= X.max(0) + 1.5)).all(1)] if len(C) else C
+        if not len(C):
+            return np.inf
+        d2 = ((X[:, None, :] - C[None, :, :]) ** 2).sum(-1)
+        return float(np.sqrt(d2.min())) - 0.5 * self.cell
+
+
+def perceived_index(fits, costs, obstacles, margin=0.15):
+    """Choice with the drone's own perception: among the flown polynomials that keep ≥ radius + margin from
+    the obstacles in its SGM, the paper's rule (predicted cost, then least snap); if none, the one with the
+    most perceived clearance."""
+    tt = np.linspace(0, 1, 21)
+    clear = np.array([obstacles.clearance(TR.poly_eval(c, tt)) for c, _ in fits])
+    ok = np.where(clear >= AGILE.radius + margin)[0]
+    if not len(ok):
+        return int(np.argmax(clear))
+    sub = TR.select([fits[k][0] for k in ok], [costs[k] for k in ok])
+    return int(ok[sub])
+
+
 def choose(fits, costs, W, prev=None, mode='snap'):
     """Index of the hypothesis to fly (see `Rollout.SELECT`; 'oracle' is chosen in `Rollout.plan_student`)."""
     if mode == 'consistent' and prev is not None:
@@ -226,7 +288,8 @@ class Rollout:
     TSCALE = 'chord'
     V_CAP = None                 # e.g. 1.3: lower β until the plan's peak speed ≤ V_CAP · v_des (or the current speed)
     # Choice among the M hypotheses: 'oracle' (privileged, diagnosis only: the true clearance of each flown
-    # polynomial instead of the predicted cost), 'snap' (paper: c*/c_k ≥ 0.95, then the least snap) or 'consistent'
+    # polynomial instead of the predicted cost), 'sgm' (the same with the obstacles of the drone's own SGM of
+    # the last second: not privileged), 'snap' (paper: c*/c_k ≥ 0.95, then the least snap) or 'consistent'
     # (c*/c_k ≥ 0.8, then the one nearest to the previous choice: no switching sides around a tree unless
     # the predicted cost says so)
     SELECT = 'snap'
@@ -309,6 +372,8 @@ class Rollout:
         fits = [self._fit(W[k], p, v, a, self._v_des) for k in range(len(W))]
         if self.SELECT == 'oracle':                          # privileged: true clearance (diagnosis only)
             k = oracle_index(fits, self.field)
+        elif self.SELECT == 'sgm':                           # own perception: clearance in its own SGM
+            k = perceived_index(fits, costs, self._perceived)
         else:
             k = choose(fits, costs, W, getattr(self, '_prev_W', None), self.SELECT)
         self._prev_W = W[k]
@@ -318,6 +383,7 @@ class Rollout:
     # ── episode ───────────────────────────────────────────────────────────
     def run(self):
         cfg, M = self.cfg, self.mission
+        self._perceived = None                        # SELECT = 'sgm': the episode's own perceived obstacles
         A, yaw0, v0 = M.start()
         sim = QuadSim(AGILE, pos=A, yaw=yaw0, seed=cfg.seed)
         sim.v = np.asarray(v0, float)
@@ -387,6 +453,10 @@ class Rollout:
                 elif self.pilot in ('blind', 'direct'):        # straight toward the goal, no perception
                     new = self._plan_points(F['blind'], p, v, a0, t, self.pilot)
                 elif use_student:
+                    if self.SELECT == 'sgm':
+                        if getattr(self, '_perceived', None) is None:
+                            self._perceived = PerceivedObstacles(n_frames=max(1, int(round(cfg.cam_hz))))
+                        self._perceived.add(sgm_points(cam['depth'], cfg.rig, (p, yaw, pitch, roll)))
                     new, W, costs = self.plan_student(depth, p, v, a0, R, yaw, omega, t)
                     n_student += 1
                     if self.trace is not None:

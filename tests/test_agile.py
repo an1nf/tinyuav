@@ -314,3 +314,22 @@ def test_oracle_selection_picks_the_free_flown_plan():
     k = oracle_index(fits, F)
     assert k in (1, 2)                                  # never the straight one through the trunk
     assert oracle_index(fits[:1], F) == 0               # nothing free: the most clearance
+
+
+def test_perceived_selection_uses_only_the_drones_own_sgm():
+    """--select sgm: obstacles are the cells the drone's SGM hit in ≥ 2 recent frames (a single speckle is
+    ignored); the plan through a perceived trunk is not chosen, whatever its predicted cost."""
+    from nanouav.agile.rollout import PerceivedObstacles, fit_plan, perceived_index
+    p, v = np.array([0.0, 0.0, 1.5]), np.array([5.0, 0.0, 0.0])
+    t = np.linspace(0.1, 1.0, 10)[:, None]
+    hyps = [np.c_[5 * t, 0 * t, 0 * t + 1.5], np.c_[5 * t, 1.5 * t ** 2, 0 * t + 1.5]]
+    fits = [fit_plan(P, p, v, np.zeros(3), 5.0) for P in hyps]
+    ang = np.linspace(0, 2 * np.pi, 40)
+    trunk = np.c_[4.0 + 0.3 * np.cos(ang), 0.3 * np.sin(ang), np.full(40, 1.5)]
+    obs = PerceivedObstacles(n_frames=5)
+    obs.add(np.array([[2.0, 0.0, 1.5]]))                          # a speckle, seen once: ignored
+    for _ in range(3):
+        obs.add(trunk)
+    assert obs.clearance(np.array([[2.0, 0.0, 1.5]])) > 1.0
+    assert perceived_index(fits, [0.0, 0.5], obs) == 1            # the straight plan's low cost does not save it
+    assert perceived_index(fits, [0.5, 0.0], PerceivedObstacles()) == 1   # nothing perceived: the paper's rule

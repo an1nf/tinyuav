@@ -263,6 +263,44 @@ tomas de control, cada error suyo cuenta.
 **Siguiente.** `--select oracle` (techo con las mismas hipótesis) y `--select consistent` (no cambiar de
 plan sin motivo) dicen, sin entrenar, cuánto vale arreglar cada una.
 
+## Elegir mejor entre las mismas hipótesis (2026-10-14)
+
+Mismo modelo (`student_fm_warehouse_fov`, 300 entornos) y mismos 10 entornos de prueba; solo cambia la regla
+para elegir entre las 3 hipótesis:
+
+| selección | 3 m/s | 5 m/s | 7 m/s | total |
+|---|---|---|---|---|
+| `snap` (paper: menor costo predicho, luego menor snap) | 3/10 | 8/10 | 6/10 | 17/30 |
+| **`oracle`** (holgura real del polinomio volado; privilegiado) | 7/10 | 7/10 | **10/10** | **24/30** |
+| `consistent` (mantener el plan anterior si su costo es parecido) | 2/10 | 5/10 | 7/10 | 14/30 |
+
+- **Con una elección perfecta, el mismo estudiante pasa de 17 a 24/30** ($p = 0.09$), y a 7 m/s no choca.
+  Las hipótesis son en su mayoría buenas: el cuello de botella es la cabeza de costo.
+- **Mantener el plan no ayuda** (14/30, $p = 0.61$). Los cambios de plan que `diagnose` marca no son
+  indecisión sin más, sino cambios hacia la hipótesis que la cabeza de costo puntúa mejor por error.
+- **Lo que queda con el oráculo** (6 choques) es el techo de estas hipótesis.
+
+**Versión no privilegiada: `--select sgm`.** Aplica la misma regla que el oráculo, pero con los obstáculos que
+el propio dron percibe. Son celdas de 0.15 m que su SGM tocó en ≥ 2 cuadros del último segundo, calculadas con
+su propia pose. Entre los planes con ≥ radio + 0.15 m de holgura percibida, elige con la regla del paper; si
+ninguno la tiene, el de más holgura.
+
+Es un híbrido: la red propone, la geometría propia elige. Se aparta del estudiante puramente de extremo a
+extremo del paper, pero no usa nada que el dron no tenga. El SGM sobre los obstáculos tiene un 5 % de error
+y un 65–92 % de cobertura (`r22 check`).
+
+**Comprobación en nuestro bosque** (CPU, el modelo pequeño G de R23, 10 bosques de prueba a 3 m/s):
+
+| selección | llega |
+|---|---|
+| `snap` | 4/10 |
+| `sgm` | 5/10 |
+| `oracle` | 6/10 |
+
+`sgm` queda entre los dos, como se esperaba. Son pocos vuelos y no es significativo: la prueba que cuenta es
+`r22 eval --select sgm` con el estudiante de 300 entornos. El cálculo cuesta unos 80 ms por cuadro en este
+CPU (búsqueda por fuerza bruta; un k-d tree lo bajaría si hiciera falta en tiempo real).
+
 ## Cómo correrlo
 
 ```bash

@@ -892,8 +892,9 @@ def main(argv=None):
         p.add_argument('--v', default='3,5,7' if name != 'video' else 3.0, type=str if name != 'video' else float)
         p.add_argument('--tscale', default='chord', choices=['chord', 'arc'])
         p.add_argument('--vcap', type=float, default=0.0)
-        p.add_argument('--select', default='snap', choices=['snap', 'consistent', 'oracle'],
-                       help="oracle: privileged choice by true clearance (diagnosis only)")
+        p.add_argument('--select', default='snap', choices=['snap', 'consistent', 'oracle', 'sgm'],
+                       help="oracle: privileged choice by true clearance (diagnosis only); sgm: by the clearance in "
+                            "the drone's own SGM of the last second (not privileged)")
         p.add_argument('--arena', action='store_true', help='the arena test forests (r22 arena) instead of the lines')
         if name == 'eval':
             p.add_argument('--pilots', default='gbl,student')

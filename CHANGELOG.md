@@ -3,6 +3,20 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.21.7] — 2026-10-14
+
+Sin cambios en los resultados por defecto.
+
+**R22, elegir mejor entre las mismas hipótesis.** Con el estudiante de 300 entornos, `--select oracle` da
+24/30 (`snap`: 17/30; a 7 m/s, 10/10), y `--select consistent` da 14/30. El cuello de botella es la cabeza
+de costo, no las hipótesis.
+
+### Añadido
+- `--select sgm` (R18 y R22): la regla del oráculo con los obstáculos del propio SGM del dron. Son celdas de
+  0.15 m vistas en ≥ 2 cuadros del último segundo, con su propia pose; no es privilegiado. Lo implementan
+  `rollout.sgm_points`, `PerceivedObstacles` y `perceived_index`. En nuestro bosque, con el modelo pequeño:
+  `snap` 4/10, `sgm` 5/10, `oracle` 6/10.
+
 ## [0.21.6] — 2026-10-13
 
 Sin cambios en los resultados; retoques del vídeo de percepción.
