@@ -337,6 +337,35 @@ En nuestro bosque, con el modelo pequeño, casi no pierde ninguno (0–2.6 %) y 
 - **Ninguna diferencia es significativa todavía.** Con 10 vuelos por velocidad, el intervalo de 95 % de cada
   total es ±0.17. Además, el mismo modo repetido varía en ±1–2 llegadas (`snap`: 17 y 16). Hace falta
   `--n 30` (90 vuelos por modo, ±0.10) para decidir.
+
+## 90 vuelos por modo: su propio SGM reemplaza la cabeza de costo (2026-10-14)
+
+`--n 30`: los 10 entornos de prueba de siempre y 20 más; mismo estudiante (`student_fm_warehouse_fov`, 300
+entornos).
+
+| selección | 3 m/s | 5 m/s | 7 m/s | total |
+|---|---|---|---|---|
+| `snap` (la regla del paper: costo predicho, luego menor snap) | 8/30 | 13/30 | 17/30 | 38/90 (42 %) |
+| **`sgm`** (el más suave entre los que su SGM ve libres) | **17/30** | **21/30** | **24/30** | **62/90 (69 %)** |
+| `oracle` (lo mismo con la holgura real; privilegiado) | 16/30 | 21/30 | 22/30 | 59/90 (66 %) |
+
+- **`sgm` le gana a la regla del paper por 24 llegadas de 90.** Por entornos emparejados, `sgm` llega donde
+  `snap` choca en 29 casos, y al revés en 5 (McNemar $p = 4 \cdot 10^{-5}$).
+- **`sgm` iguala al oráculo:** 62 contra 59 llegadas, 17 contra 14 casos exclusivos de cada uno ($p = 0.72$).
+  Su propio SGM basta para elegir como si supiera la verdad.
+- **La cabeza de costo es lo que fallaba,** no la percepción ni las hipótesis. Una regla geométrica sobre lo
+  que el dron ve la reemplaza sin reentrenar.
+- **Lo que queda** (28 de 90 choques, también ~31 con el oráculo) es el techo de estas hipótesis con este
+  horizonte de 1 s.
+- **La estimación de antes era optimista.** En los 10 entornos de siempre, `snap` dio 17/30 un día y 14/30
+  otro: con 10 vuelos por velocidad, ±2–3 llegadas es ruido.
+
+**Desde 0.22.0, `--select sgm` es el valor por defecto en `r22 eval`, `video`, `diagnose` y `dagger`.** En
+`dagger`, el estudiante vuela sus rondas con la misma regla con la que se evalúa, así que visita los estados
+del sistema que de verdad se despliega. R18 (nuestro simulador) sigue con `snap` por defecto, la regla del
+paper. Es un híbrido: la red propone 3 trayectorias y una regla geométrica sobre su propio SGM elige.
+Aparte de su pose, no usa nada que el dron no tenga. Calcularlo sobre el SGM añade ~45 % al tiempo de una
+evaluación.
  El cálculo cuesta unos 80 ms por cuadro en este
 CPU (búsqueda por fuerza bruta; un k-d tree lo bajaría si hiciera falta en tiempo real).
 

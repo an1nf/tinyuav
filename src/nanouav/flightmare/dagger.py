@@ -72,7 +72,7 @@ def _finish(path, r, items, labels):
 
 def run(client, arena_path, out, rig, n_envs=300, per_round=30, workers=6, epochs=3, batch=16, v_min=3.0,
         v_max=10.0, cam_hz=15.0, init_model=None, xi_start=1.0, xi_step=0.5, xi_max=6.0, base_seed=0,
-        train_kw=None, tag='fm', omega_ref='line', label_ref='gbl', log=print):
+        train_kw=None, tag='fm', omega_ref='line', label_ref='gbl', select='snap', log=print):
     from nanouav.agile import dagger as D
     from nanouav.agile.policy import train, write_meta
     from nanouav.agile.rollout import Config, Rollout
@@ -110,6 +110,7 @@ def run(client, arena_path, out, rig, n_envs=300, per_round=30, workers=6, epoch
                 cfg = Config(v_des=v, xi=xi, cam_hz=cam_hz, seed=i, rig=rig_v, omega_ref=omega_ref,
                              label_ref=label_ref)
                 R = Rollout(env, cfg, 'dagger', D._policy(model), label=True)
+                R.SELECT = select                   # how the student picks among its hypotheses when it flies
                 R.observer = FlightmareObserver(client, rig_v)
                 R.defer = []
                 te = time.time()

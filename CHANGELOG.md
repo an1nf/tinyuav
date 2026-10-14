@@ -3,6 +3,22 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.22.0] — 2026-10-14
+
+**Cambia la selección por defecto en R22.** `r22 eval`, `video`, `diagnose` y `dagger` usan `--select sgm`:
+el plan más suave entre los que el propio SGM del dron ve libres. Con 90 vuelos por modo en el almacén:
+- `sgm` 62/90;
+- `snap`, la regla del paper, 38/90 (McNemar $p = 4 \cdot 10^{-5}$);
+- `oracle` 59/90.
+
+R18 sigue con `snap`.
+
+### Cambiado
+- `r22 dagger --select {sgm,snap}`: el estudiante vuela sus rondas con la regla con la que se evalúa
+  (`flightmare.dagger.run(select=)`).
+- Los obstáculos percibidos (`PerceivedObstacles`) se actualizan en cada cuadro de cámara, también cuando el
+  experto vuela en DAgger.
+
 ## [0.21.10] — 2026-10-14
 
 Solo documentación: el 2 × 2 de selección en R22.

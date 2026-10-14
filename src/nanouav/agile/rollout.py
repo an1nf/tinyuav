@@ -430,6 +430,10 @@ class Rollout:
                     depth = downsample_depth(depth_full, cfg.net_size)
                     cam = {'gray': gray, 'depth': depth_full, 'depth_gt': depth_gt, 'pose': (p, yaw, pitch, roll),
                            'rig': cfg.rig, 'rgb': obs[3] if len(obs) > 3 else None}
+                if self.SELECT in ('sgm', 'sgm_cost') and cam is not None:   # its own SGM, every camera frame
+                    if self._perceived is None:
+                        self._perceived = PerceivedObstacles(n_frames=max(1, int(round(cfg.cam_hz))))
+                    self._perceived.add(sgm_points(cam['depth'], cfg.rig, (p, yaw, pitch, roll)))
                 F = M.frame(t, p, v, yaw, cam)
                 omega, ref, self._v_des, yaw_hold = F['omega'], F['ref'], F['v_des'], F.get('yaw')
                 lref = F.get('label_ref', ref)                  # the expert's labels (R23: may differ from ref)
@@ -462,10 +466,6 @@ class Rollout:
                 elif self.pilot in ('blind', 'direct'):        # straight toward the goal, no perception
                     new = self._plan_points(F['blind'], p, v, a0, t, self.pilot)
                 elif use_student:
-                    if self.SELECT in ('sgm', 'sgm_cost'):
-                        if getattr(self, '_perceived', None) is None:
-                            self._perceived = PerceivedObstacles(n_frames=max(1, int(round(cfg.cam_hz))))
-                        self._perceived.add(sgm_points(cam['depth'], cfg.rig, (p, yaw, pitch, roll)))
                     new, W, costs = self.plan_student(depth, p, v, a0, R, yaw, omega, t)
                     n_student += 1
                     if self.trace is not None:
