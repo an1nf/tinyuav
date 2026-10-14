@@ -3,6 +3,16 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.21.8] — 2026-10-14
+
+Sin cambios en los resultados. En el almacén, `--select sgm` da 16/30: igual que `snap` (17/30), lejos del
+oráculo (24/30).
+
+### Añadido
+- Con `--select sgm`, cada decisión guarda en `trace` la holgura que vio el propio SGM (`clear_seen`).
+  `diagnose.perception_errors` y `r22 diagnose` resumen contra la verdad cuántos planes que chocan vio
+  libres, cuántos libres vio bloqueados y cuántas veces voló uno con choque creyéndolo libre.
+
 ## [0.21.7] — 2026-10-14
 
 Sin cambios en los resultados por defecto.

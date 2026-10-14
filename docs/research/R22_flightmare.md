@@ -298,7 +298,17 @@ y un 65–92 % de cobertura (`r22 check`).
 | `oracle` | 6/10 |
 
 `sgm` queda entre los dos, como se esperaba. Son pocos vuelos y no es significativo: la prueba que cuenta es
-`r22 eval --select sgm` con el estudiante de 300 entornos. El cálculo cuesta unos 80 ms por cuadro en este
+`r22 eval --select sgm` con el estudiante de 300 entornos.
+
+**En el almacén, `--select sgm` da 5/10 · 5/10 · 6/10 = 16/30**: igual que `snap` (17/30), lejos del oráculo
+(24/30). Con su propio SGM no elige mejor que con la cabeza de costo. Para saber por qué, con `--select sgm`
+cada decisión guarda la holgura que vio su SGM junto a la real (`clear_seen`). `r22 diagnose --select sgm`
+resume tres medidas:
+- **perdidos:** cuántos planes que de verdad chocan vio libres;
+- **falsas alarmas:** cuántos libres vio bloqueados;
+- **elección con choque:** en cuántas decisiones voló uno con choque creyéndolo libre.
+
+En nuestro bosque, con el modelo pequeño, casi no pierde ninguno (0–2.6 %) y da 5–14 % de falsas alarmas. El cálculo cuesta unos 80 ms por cuadro en este
 CPU (búsqueda por fuerza bruta; un k-d tree lo bajaría si hiciera falta en tiempo real).
 
 ## Cómo correrlo

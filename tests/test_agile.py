@@ -333,3 +333,12 @@ def test_perceived_selection_uses_only_the_drones_own_sgm():
     assert obs.clearance(np.array([[2.0, 0.0, 1.5]])) > 1.0
     assert perceived_index(fits, [0.0, 0.5], obs) == 1            # the straight plan's low cost does not save it
     assert perceived_index(fits, [0.5, 0.0], PerceivedObstacles()) == 1   # nothing perceived: the paper's rule
+
+
+def test_perception_errors_compare_the_sgm_with_the_truth():
+    from nanouav.agile.diagnose import perception_errors
+    tr = [{'k': 0, 'clear': [0.1, 1.0], 'clear_seen': [0.8, 1.0]},     # saw free a plan that collides, chose it
+          {'k': 1, 'clear': [0.1, 1.0], 'clear_seen': [0.1, 0.2]}]     # saw the colliding one; a false alarm
+    e = perception_errors(tr)
+    assert e == {'missed': 0.5, 'false_alarm': 0.5, 'chose_colliding': 0.5, 'n_plans': 4}
+    assert perception_errors([{'k': 0, 'clear': [1.0]}]) is None       # not flown with --select sgm

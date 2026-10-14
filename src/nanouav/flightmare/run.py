@@ -813,6 +813,9 @@ def cmd_diagnose(a):
                  'chosen_right': round(float(np.mean([d['lat'][d['k']] < -0.3 for d in tr])), 2) if tr else None,
                  'sgm_valid': np.round(np.mean([d['sgm_valid'] for d in tr], 0), 3).tolist() if tr else None,
                  'sgm_err': round(float(np.nanmedian([d['sgm_err'] if d['sgm_err'] is not None else np.nan for d in tr])), 3) if tr else None}
+            pe = DG.perception_errors(tr)
+            if pe:
+                x['perception'] = pe
             if r['crashed']:
                 dg = DG.classify(env, tr, log, v)
                 x['class'] = dg['class']
@@ -821,7 +824,9 @@ def cmd_diagnose(a):
             res.append(x)
             print(f"v={v:g} env {i}: {'ok' if x['success'] else 'CRASH ' + x.get('class', '') if x['crashed'] else 'fail'}"
                   f"  drift {x['drift_mean_m']:+.2f} m (end {x['drift_end_m']:+.2f})  chosen left/right "
-                  f"{x['chosen_left']}/{x['chosen_right']}  SGM valid {x['sgm_valid']} err {x['sgm_err']}", flush=True)
+                  f"{x['chosen_left']}/{x['chosen_right']}  SGM valid {x['sgm_valid']} err {x['sgm_err']}"
+                  + (f"  SGM vs truth: missed {pe['missed']} false alarm {pe['false_alarm']} chose colliding "
+                     f"{pe['chose_colliding']}" if pe else ''), flush=True)
     client.close()
     json.dump(res, open(os.path.join(d_out, 'diag.json'), 'w'), indent=1)
     K = ('todas_chocan', 'cambio_de_plan', 'eligio_mal', 'plan_justo', 'seguimiento')
@@ -833,6 +838,12 @@ def cmd_diagnose(a):
               f' {np.mean([x["drift_mean_m"] for x in X]):+9.2f} '
               f'{np.mean([x["chosen_left"] for x in X]):4.2f}/{np.mean([x["chosen_right"] for x in X]):4.2f} '
               f'{np.mean([x["sgm_valid"][0] for x in X]):7.2f} {np.nanmedian([x["sgm_err"] for x in X]):7.3f}')
+    P = [x['perception'] for x in res if x.get('perception')]
+    if P:
+        m = lambda k: np.nanmean([p[k] if p[k] is not None else np.nan for p in P])
+        print(f"--select sgm, its own SGM against the truth: of the plans that truly collide it saw {m('missed'):.0%} "
+              f"as free; of the truly free ones it saw {m('false_alarm'):.0%} as blocked; {m('chose_colliding'):.1%} "
+              f"of its decisions flew a colliding plan it saw as free")
     print(f'→ {d_out}: diag.json and one PNG per crash (deriva: + = izquierda)')
 
 

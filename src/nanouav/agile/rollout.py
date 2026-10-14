@@ -251,12 +251,17 @@ class PerceivedObstacles:
         return float(np.sqrt(d2.min())) - 0.5 * self.cell
 
 
-def perceived_index(fits, costs, obstacles, margin=0.15):
+def perceived_clearance(fits, obstacles):
+    """Clearance of each flown polynomial (1 s) to the obstacles the drone perceives."""
+    tt = np.linspace(0, 1, 21)
+    return np.array([obstacles.clearance(TR.poly_eval(c, tt)) for c, _ in fits])
+
+
+def perceived_index(fits, costs, obstacles, margin=0.15, clear=None):
     """Choice with the drone's own perception: among the flown polynomials that keep ≥ radius + margin from
     the obstacles in its SGM, the paper's rule (predicted cost, then least snap); if none, the one with the
     most perceived clearance."""
-    tt = np.linspace(0, 1, 21)
-    clear = np.array([obstacles.clearance(TR.poly_eval(c, tt)) for c, _ in fits])
+    clear = perceived_clearance(fits, obstacles) if clear is None else clear
     ok = np.where(clear >= AGILE.radius + margin)[0]
     if not len(ok):
         return int(np.argmax(clear))
@@ -373,7 +378,8 @@ class Rollout:
         if self.SELECT == 'oracle':                          # privileged: true clearance (diagnosis only)
             k = oracle_index(fits, self.field)
         elif self.SELECT == 'sgm':                           # own perception: clearance in its own SGM
-            k = perceived_index(fits, costs, self._perceived)
+            self._seen = perceived_clearance(fits, self._perceived)
+            k = perceived_index(fits, costs, self._perceived, clear=self._seen)
         else:
             k = choose(fits, costs, W, getattr(self, '_prev_W', None), self.SELECT)
         self._prev_W = W[k]
@@ -470,6 +476,8 @@ class Rollout:
                                            'beta': round(float(fits[k_sel][1]), 3),
                                            'W': np.round(W, 2).tolist(), 'omega': np.round(omega, 3).tolist(),
                                            'att': [round(float(yaw), 4), round(float(pitch), 4), round(float(roll), 4)]})
+                        if self.SELECT == 'sgm':                 # what its own SGM said about each plan
+                            self.trace[-1]['clear_seen'] = [round(float(min(c, 99.0)), 3) for c in self._seen]
                         self._trace_stats(cam)
                         if self.trace_depth:
                             self._trace_images(depth, cam, gray)

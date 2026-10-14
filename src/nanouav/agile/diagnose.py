@@ -76,6 +76,24 @@ def _bearing(d, c):
     return float((ang + 180) % 360 - 180)
 
 
+def perception_errors(trace, margin=0.15):
+    """With --select sgm: how the drone's own SGM judged its plans against the truth, over every decision.
+    missed: share of truly colliding plans (true clearance < R_DRONE) it saw as free (≥ R_DRONE + margin);
+    false_alarm: share of truly free plans (≥ R_DRONE + margin) it saw as not free; chose_colliding: share of
+    decisions whose chosen plan truly collided while it saw it free."""
+    D = [d for d in trace if 'clear_seen' in d]
+    if not D:
+        return None
+    t = np.array([c for d in D for c in d['clear']])
+    sn = np.array([c for d in D for c in d['clear_seen']])
+    col, free = t < R_DRONE, t >= R_DRONE + margin
+    seen_free = sn >= R_DRONE + margin
+    ch = [(d['clear'][d['k']] < R_DRONE) and (d['clear_seen'][d['k']] >= R_DRONE + margin) for d in D]
+    return {'missed': round(float(seen_free[col].mean()), 3) if col.any() else None,
+            'false_alarm': round(float((~seen_free[free]).mean()), 3) if free.any() else None,
+            'chose_colliding': round(float(np.mean(ch)), 3), 'n_plans': int(len(t))}
+
+
 def classify(env, trace, log, v_des=None):
     tc = log[-1][0]
     p_c = np.array(log[-1][1:4])
