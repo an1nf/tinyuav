@@ -3,6 +3,20 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.21.6] — 2026-10-13
+
+Sin cambios en los resultados; retoques del vídeo de percepción.
+
+### Cambiado
+- **Mapa local.** Vuelve la nube de puntos del SGM propio del último segundo, coloreada por distancia como el
+  panel de profundidad y desvaneciéndose con la edad. El margen del dron es ahora un contorno tenue
+  alrededor de las celdas vistas en ≥ 3 cuadros.
+- **Bajo la cámara, solo el costo de choque predicho.** Una barra por hipótesis en su color, con su número
+  y su valor, y la elegida enmarcada; sin título, tiempo, velocidad ni β. El resultado del vuelo es un borde
+  verde o rojo en los últimos cuadros.
+- **Tipografía.** DejaVu Sans vía Pillow (acentos, «ω»), con OpenCV como respaldo. Una sola paleta oscura
+  y separadores finos entre paneles.
+
 ## [0.21.5] — 2026-10-13
 
 Sin cambios en los resultados; cambia el diseño de los vídeos de percepción.

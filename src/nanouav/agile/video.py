@@ -245,6 +245,51 @@ def from_gz(json_path, out, chase=True):
 
 
 # ── perception view: only what the drone has ─────────────────────────────────
+BG = (26, 24, 22)                                   # BGR, one dark background for every panel
+PANEL_TXT = (225, 225, 225)
+DIM_TXT = (150, 150, 150)
+_FONTS = {}
+
+
+def _font(size):
+    """DejaVu Sans (Pillow; matplotlib ships it too) for legible text with accents and Greek; None → cv2."""
+    if size not in _FONTS:
+        _FONTS[size] = None
+        try:
+            from PIL import ImageFont
+            cands = ['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']
+            try:
+                import matplotlib
+                cands.append(os.path.join(matplotlib.get_data_path(), 'fonts', 'ttf', 'DejaVuSans.ttf'))
+            except ImportError:
+                pass
+            for c in cands:
+                if os.path.exists(c):
+                    _FONTS[size] = ImageFont.truetype(c, size)
+                    break
+        except ImportError:
+            pass
+    return _FONTS[size]
+
+
+def _texts(img, items):
+    """Draw [(text, (x, y) top-left, size px, BGR)] on img in place, in one Pillow pass."""
+    if not items:
+        return img
+    if _font(12) is None:                              # no Pillow / font: OpenCV's Hershey
+        for t, (x, y), sz, col in items:
+            cv2.putText(img, t.replace('ω', 'w'), (int(x), int(y + sz)), cv2.FONT_HERSHEY_SIMPLEX, sz / 30, col, 1,
+                        cv2.LINE_AA)
+        return img
+    from PIL import Image, ImageDraw
+    pil = Image.fromarray(img[..., ::-1])
+    dr = ImageDraw.Draw(pil)
+    for t, (x, y), sz, col in items:
+        dr.text((int(x), int(y)), t, font=_font(sz), fill=(col[2], col[1], col[0]))
+    img[:] = np.asarray(pil)[..., ::-1]
+    return img
+
+
 D_VIS = 10.0                                        # m, depth colour scale (the SGM's range)
 
 
@@ -364,17 +409,19 @@ def _colorbar(img, x0, y0, hgt, wid=14):
     t = (_depth_t(z) * 255).astype(np.uint8)[:, None]
     img[y0:y0 + hgt, x0:x0 + wid] = np.repeat(cv2.applyColorMap(t, cv2.COLORMAP_INFERNO), wid, axis=1)
     frac = lambda m: math.log(D_VIS / m) / math.log(D_VIS / Z_NEAR)
+    labels = []
     for m in (0.5, 1, 2, 3, 5, 10):
         y = int(y0 + frac(m) * (hgt - 1))
-        cv2.line(img, (x0 + wid, y), (x0 + wid + 3, y), WHITE, 1)
-        cv2.putText(img, f'{m:g}', (x0 + wid + 5, y + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.36, WHITE, 1, cv2.LINE_AA)
+        cv2.line(img, (x0 + wid, y), (x0 + wid + 3, y), DIM_TXT, 1)
+        labels.append((f'{m:g}', (x0 + wid + 5, y - 7), 11, DIM_TXT))
+    return labels
 
 
 def _depth_panel(d, rig, w=480, h=360):
     dep = d['sgm'].astype(np.float32) / 1000.0
     col = _depth_rgb(dep, d.get('gray', d.get('img')))
     iw, ih = w - 44, int((w - 44) * rig.height / rig.width)
-    img = np.full((h, w, 3), 22, np.uint8)
+    img = np.full((h, w, 3), BG, np.uint8)
     y0 = (h - ih) // 2 + 8
     img[y0:y0 + ih, :iw] = cv2.resize(col, (iw, ih), interpolation=cv2.INTER_AREA)
     pose = (np.array(d['p']), *d['att'])
@@ -384,11 +431,10 @@ def _depth_panel(d, rig, w=480, h=360):
         ov = img.copy()
         _tunnel(ov, rig, pose, P, iw / rig.width, ih / rig.height, y0, (255, 230, 120), labels=False)
         cv2.addWeighted(ov, 0.7, img, 0.3, 0, img)
-    _colorbar(img, iw + 6, y0, ih)
+    labels = _colorbar(img, iw + 6, y0, ih)
     valid = float((dep > 0).mean())
-    cv2.putText(img, f'profundidad SGM (m) | {valid:.0%} con dato | sin dato: imagen atenuada', (8, 18),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.42, WHITE, 1, cv2.LINE_AA)
-    return img
+    return _texts(img, [('profundidad estéreo (SGM), m', (10, 6), 14, PANEL_TXT),
+                        (f'{valid:.0%} de la imagen con dato', (iw - 150, 8), 12, DIM_TXT)] + labels)
 
 
 def _sgm_points(d, rig, stride=4):
@@ -403,6 +449,9 @@ def _sgm_points(d, rig, stride=4):
     return O + (dirs * X[:, None]) @ Rc.T
 
 
+OMEGA_COL = (255, 200, 90)
+
+
 def _arrow(img, a, b, col, label=None, thick=2):
     cv2.arrowedLine(img, a, b, col, thick, cv2.LINE_AA, tipLength=0.18)
     if label:
@@ -414,9 +463,9 @@ def _local_map(hist, d, rig, w=480, h=360, ahead=10.0, v=None):
     flight height (± 0.6 m), with the margin the drone needs around them (its radius), the field of view,
     its trajectories, where it is told to go (ω) and its velocity. Nothing comes from a prior map."""
     from nanouav.agile import trajectory as TR
-    BG, FOV_BG, RING = (24, 24, 28), (44, 44, 52), (78, 78, 88)
+    FOV_BG, RING = (40, 37, 34), (70, 66, 62)
     img = np.full((h, w, 3), BG, np.uint8)
-    s = (h - 30) / ahead
+    s = (h - 64) / ahead
     p, yaw = np.array(d['p'], float), d['att'][0]
     o = (w / 2, h - 15)
     px = lambda x, y: (int(round(o[0] - y * s)), int(round(o[1] - x * s)))
@@ -424,40 +473,48 @@ def _local_map(hist, d, rig, w=480, h=360, ahead=10.0, v=None):
     wedge = np.array([px(0, 0)] + [px(ahead * 1.6 * math.cos(a), ahead * 1.6 * math.sin(a))
                                    for a in np.linspace(-half, half, 24)], np.int32)
     cv2.fillPoly(img, [wedge], FOV_BG, cv2.LINE_AA)
+    labels = []
     for r in (2, 4, 6, 8, 10):
         cv2.circle(img, px(0, 0), int(r * s), RING, 1, cv2.LINE_AA)
-        cv2.putText(img, f'{r} m', (px(r, 0)[0] + 3, px(r, 0)[1] + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (130, 130, 140), 1)
-    # obstacles: cells of 0.15 m seen in ≥ 3 of the last frames (SGM noise does not repeat), the newest
-    # brightest, and the margin the drone needs around them (its radius)
-    cell = 0.15
-    hits, last = {}, {}
-    n = len(hist)
+        labels.append((f'{r} m', (px(r, 0)[0] + 4, px(r, 0)[1] + 2), 11, DIM_TXT))
+    # obstacles: the drone's own SGM points of the last second as a cloud, coloured by distance like the depth
+    # panel and fading with age; around the cells seen in ≥ 3 frames (SGM noise does not repeat), a faint
+    # contour of the margin the drone needs (its radius)
+    cell, hits, n = 0.15, {}, len(hist)
+    cloud = []
     for age, P in enumerate(reversed(hist)):
         P = P[np.abs(P[:, 2] - p[2]) < 0.6]
         Q = TR.to_heading_frame(P, p, yaw)
         k = (Q[:, 0] > -1) & (Q[:, 0] < ahead + 1) & (np.abs(Q[:, 1]) < w / 2 / s)
-        for key in set(map(tuple, np.floor(Q[k][:, :2] / cell).astype(int))):
+        Q = Q[k]
+        cloud.append((age, Q))
+        for key in set(map(tuple, np.floor(Q[:, :2] / cell).astype(int))):
             hits[key] = hits.get(key, 0) + 1
-            last[key] = min(last.get(key, n), age)
-    occ = [(kx, ky) for (kx, ky), c in hits.items() if c >= min(3, n)]
+    occ = [key for key, c in hits.items() if c >= min(3, n)]
     if occ:
         mask = np.zeros((h, w), np.uint8)
-        shade = np.zeros((h, w), np.float32)
         for kx, ky in occ:
-            a0, b0 = px(kx * cell, (ky + 1) * cell), px((kx + 1) * cell, ky * cell)
-            cv2.rectangle(mask, a0, b0, 1, -1)
-            cv2.rectangle(shade, a0, b0, float(1.0 - last[(kx, ky)] / max(n, 1)), -1)
+            cv2.rectangle(mask, px(kx * cell, (ky + 1) * cell), px((kx + 1) * cell, ky * cell), 1, -1)
         rr = max(int(round(R_DRONE * s)), 1)
-        ker = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * rr + 1, 2 * rr + 1))
-        margin = cv2.dilate(mask, ker)
+        margin = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * rr + 1, 2 * rr + 1)))
         ov = img.copy()
-        ov[margin > 0] = (45, 45, 120)
-        cv2.addWeighted(ov, 0.45, img, 0.55, 0, img)
+        ov[margin > 0] = (70, 60, 130)
+        cv2.addWeighted(ov, 0.14, img, 0.86, 0, img)
         cnt, _ = cv2.findContours(margin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cv2.drawContours(img, cnt, -1, (70, 70, 170), 1, cv2.LINE_AA)
-        m = mask > 0
-        t = (0.45 + 0.55 * shade[m])[:, None]
-        img[m] = (np.array([110, 200, 255]) * t + np.array(BG) * (1 - t)).astype(np.uint8)
+        cv2.drawContours(img, cnt, -1, (120, 105, 200), 1, cv2.LINE_AA)
+    for age, Q in sorted(cloud, key=lambda x: -x[0]):  # oldest first, newest on top
+        if not len(Q):
+            continue
+        t = 0.42 + 0.58 * (_depth_t(np.hypot(Q[:, 0], Q[:, 1])) - 0.12) / 0.88     # the bright part of inferno
+        col = cv2.applyColorMap((t * 255).astype(np.uint8)[:, None], cv2.COLORMAP_INFERNO)[:, 0].astype(np.float32)
+        a_ = 0.3 + 0.7 * (1 - age / max(n, 1))
+        col = col * a_ + np.array(BG, np.float32) * (1 - a_)
+        u = np.round(o[0] - Q[:, 1] * s).astype(int)
+        v_ = np.round(o[1] - Q[:, 0] * s).astype(int)
+        ok = (u >= 1) & (u < w - 1) & (v_ >= 1) & (v_ < h - 1)
+        u, v_, col = u[ok], v_[ok], col[ok].astype(np.uint8)
+        for du, dv in ((0, 0), (-1, 0), (0, -1), (-1, -1)):      # 2 × 2 px dots
+            img[v_ + dv, u + du] = col
 
     # trajectories (colour = predicted collision cost), the chosen one as wide as the drone
     W, costs, k_sel = _hypotheses(d)
@@ -474,46 +531,47 @@ def _local_map(hist, d, rig, w=480, h=360, ahead=10.0, v=None):
         else:
             cv2.polylines(img, [line], False, col, 1, cv2.LINE_AA)
         if costs:
-            cv2.putText(img, str(k), tuple(line[-1] + [4, -2]), cv2.FONT_HERSHEY_SIMPLEX, 0.4, col, 1, cv2.LINE_AA)
+            labels.append((str(k), tuple(line[-1] + [5, -8]), 12, col))
     if d.get('omega') is not None:                     # where it is told to go
         om = TR.rotate_to_heading(np.asarray(d['omega'], float), yaw)
         nrm = max(float(np.linalg.norm(om[:2])), 1e-6)
-        _arrow(img, px(0, 0), px(2.5 * om[0] / nrm, 2.5 * om[1] / nrm), (255, 200, 80), 'w', 1)
+        tip_w = px(2.5 * om[0] / nrm, 2.5 * om[1] / nrm)
+        _arrow(img, px(0, 0), tip_w, OMEGA_COL, None, 1)
+        labels.append(('ω', (tip_w[0] + 4, tip_w[1] - 16), 15, OMEGA_COL))
     if v is not None:
         vh = TR.rotate_to_heading(np.asarray(v, float), yaw)
         _arrow(img, px(0, 0), px(0.4 * vh[0], 0.4 * vh[1]), WHITE, None, 2)
     tip = [px(0.5, 0), px(-0.25, 0.25), px(-0.25, -0.25)]
     cv2.fillPoly(img, [np.array(tip, np.int32)], ORANGE, cv2.LINE_AA)
-    cv2.putText(img, 'mapa local: su SGM (1 s) a su altura | rojo: margen del dron', (8, 18),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.42, (220, 220, 220), 1, cv2.LINE_AA)
-    cv2.putText(img, 'w: direccion a la meta   blanco: velocidad', (8, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.38,
-                (255, 200, 80), 1, cv2.LINE_AA)
-    return img
+    labels += [('mapa local', (10, 6), 14, PANEL_TXT),
+               ('su propio SGM del último segundo, a su altura', (10, 25), 11, DIM_TXT),
+               ('ω  dirección a la meta', (w - 150, 8), 11, OMEGA_COL),
+               ('—  margen del dron', (w - 150, 24), 11, (150, 135, 220))]
+    return _texts(img, labels)
 
 
 def _info_bar(d, v, t, title, result=None, w=800, h=120):
-    img = np.full((h, w, 3), 30, np.uint8)
+    """Only the network's predicted collision cost of each hypothesis: a bar per hypothesis in its colour,
+    the chosen one outlined."""
+    img = np.full((h, w, 3), BG, np.uint8)
     W, costs, k_sel = _hypotheses(d)
-    cv2.putText(img, title, (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, WHITE, 1, cv2.LINE_AA)
-    cv2.putText(img, f't = {t:5.2f} s   |v| = {np.linalg.norm(v):4.1f} m/s   beta = {d.get("beta", 1):.2f}',
-                (10, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.55, WHITE, 1, cv2.LINE_AA)
-    if costs:
-        cv2.putText(img, 'costo de choque predicho por la red', (10, 76), cv2.FONT_HERSHEY_SIMPLEX, 0.45, GRAY, 1)
-        for k, c in enumerate(costs):
-            x0 = 10 + k * 190
-            y0 = 86
-            L = int(150 * min(c / 0.3, 1.0))
-            cv2.rectangle(img, (x0, y0), (x0 + 150, y0 + 18), (70, 70, 70), 1)
-            cv2.rectangle(img, (x0, y0), (x0 + max(L, 1), y0 + 18), _cost_color(c), -1)
-            cv2.putText(img, f'{k}: {c:.2f}' + ('  <- elegida' if k == k_sel else ''), (x0 + 4, y0 + 14),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, WHITE, 1, cv2.LINE_AA)
-    else:
-        cv2.putText(img, 'piloto privilegiado: su plan de 1 s (cian)', (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                    (230, 200, 0), 1, cv2.LINE_AA)
-    if result:
-        cv2.putText(img, result, (470, 48), cv2.FONT_HERSHEY_SIMPLEX, 1.0,
-                    (60, 60, 230) if 'CHOQUE' in result else (60, 200, 60), 2, cv2.LINE_AA)
-    return img
+    if not costs:
+        return img
+    n, pad = len(costs), 24
+    cw = (w - pad * (n + 1)) // n
+    items = []
+    for k, c in enumerate(costs):
+        x0, y0, bh = pad + k * (cw + pad), 46, 30
+        col = _cost_color(c)
+        cv2.rectangle(img, (x0, y0), (x0 + cw, y0 + bh), (55, 52, 50), -1)
+        L = int(cw * min(c / 0.3, 1.0))
+        if L > 0:
+            cv2.rectangle(img, (x0, y0), (x0 + L, y0 + bh), col, -1)
+        if k == k_sel:
+            cv2.rectangle(img, (x0 - 3, y0 - 3), (x0 + cw + 3, y0 + bh + 3), WHITE, 2, cv2.LINE_AA)
+        items += [(str(k), (x0, y0 - 24), 15, col if k != k_sel else WHITE),
+                  (f'{c:.2f}', (x0 + cw - 44, y0 - 22), 14, PANEL_TXT if k == k_sel else DIM_TXT)]
+    return _texts(img, items)
 
 
 def render_perception(log, trace, rig, fn, fps=15.0, result=None, title=''):
@@ -531,6 +589,11 @@ def render_perception(log, trace, rig, fn, fps=15.0, result=None, title=''):
         left = np.vstack([_camera_hud(d, rig), _info_bar(d, v, d['t'], title, result if last else None)])
         right = np.vstack([_depth_panel(d, rig), _local_map(hist, d, rig, v=v)])
         frame = np.hstack([left, right])
+        frame[:, 799:801] = (12, 12, 12)
+        frame[359:361, 800:] = (12, 12, 12)
+        frame[599:601, :800] = (12, 12, 12)
+        if last and result:                            # the outcome: green or red border, no text
+            cv2.rectangle(frame, (2, 2), (797, 597), (70, 190, 70) if 'EXITO' in result else (60, 60, 220), 4)
         wr.write(frame)
     for _ in range(int(fps * 1.5)):
         wr.write(frame)
