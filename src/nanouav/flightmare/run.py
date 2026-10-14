@@ -509,7 +509,8 @@ def cmd_eval(a):
                 table.setdefault(f'{p}_v{v:g}', []).append(r)
                 print(f"{p:8s} v={v:g} env {i}: {'ok' if r['success'] else 'CRASH' if r['crashed'] else 'fail'} "
                       f"{r['time_s']:.1f} s" + (f"  hit {r['crash']}" if r.get('crash') else ''), flush=True)
-    tag = (os.path.splitext(os.path.basename(model))[0] if model else 'pilots') + (f'_{a.tag}' if a.tag else '')
+    tag = (os.path.splitext(os.path.basename(model))[0] if model else 'pilots') + (f'_{a.tag}' if a.tag else '') + \
+        (f'_{a.select}' if getattr(a, 'select', 'snap') != 'snap' else '')
     fn = os.path.join(out, f"eval_{'arena_' if a.arena else ''}{a.scene}_{tag}.json")
     json.dump(table, open(fn, 'w'), indent=1)
     print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s}')
@@ -783,7 +784,7 @@ def cmd_diagnose(a):
     rig = rig_of(a)
     client = make_client(a, calib, n_objects=a.n_objects, rig=rig)
     model = os.path.abspath(a.model)
-    tag = os.path.splitext(os.path.basename(model))[0]
+    tag = os.path.splitext(os.path.basename(model))[0] + (f'_{a.select}' if a.select != 'snap' else '')
     d_out = os.path.join(out, f'diag_arena_{tag}')
     os.makedirs(d_out, exist_ok=True)
     res = []
@@ -891,7 +892,8 @@ def main(argv=None):
         p.add_argument('--v', default='3,5,7' if name != 'video' else 3.0, type=str if name != 'video' else float)
         p.add_argument('--tscale', default='chord', choices=['chord', 'arc'])
         p.add_argument('--vcap', type=float, default=0.0)
-        p.add_argument('--select', default='snap', choices=['snap', 'consistent'])
+        p.add_argument('--select', default='snap', choices=['snap', 'consistent', 'oracle'],
+                       help="oracle: privileged choice by true clearance (diagnosis only)")
         p.add_argument('--arena', action='store_true', help='the arena test forests (r22 arena) instead of the lines')
         if name == 'eval':
             p.add_argument('--pilots', default='gbl,student')

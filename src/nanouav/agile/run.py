@@ -167,7 +167,7 @@ def main():
             p.add_argument('--tscale', default='chord', choices=['chord', 'arc'],
                            help='time scale from the straight distance (chord, ≤ 0.17.1) or the path length (arc)')
             p.add_argument('--vcap', type=float, default=0.0, help='peak speed of a plan ≤ vcap · v (0: no cap)')
-            p.add_argument('--select', default='snap', choices=['snap', 'consistent'],
+            p.add_argument('--select', default='snap', choices=['snap', 'consistent', 'oracle'],
                            help='choice among the hypotheses (consistent: keep the side unless the cost says so)')
         if name in ('dagger', 'train'):
             p.add_argument('--kind', default='train', choices=['train', 'gap'])

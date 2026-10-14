@@ -190,8 +190,20 @@ def fit_plan(P, p, v, a, v_des, proj='scaled', tscale='chord', v_cap=None):
     return coef, beta
 
 
+def oracle_index(fits, field, margin=0.15):
+    """Privileged choice (diagnosis only): among the flown polynomials that keep ≥ radius + margin from every
+    obstacle, the least snap; if none, the one with the most clearance. With the student's own hypotheses it
+    gives the ceiling of a perfect cost head and selection."""
+    tt = np.linspace(0, 1, 21)
+    clear = np.array([float(field(TR.poly_eval(c, tt)).min()) for c, _ in fits])
+    ok = np.where(clear >= AGILE.radius + margin)[0]
+    if not len(ok):
+        return int(np.argmax(clear))
+    return int(ok[np.argmin([TR.snap_cost(fits[k][0]) for k in ok])])
+
+
 def choose(fits, costs, W, prev=None, mode='snap'):
-    """Index of the hypothesis to fly (see `Rollout.SELECT`)."""
+    """Index of the hypothesis to fly (see `Rollout.SELECT`; 'oracle' is chosen in `Rollout.plan_student`)."""
     if mode == 'consistent' and prev is not None:
         c = np.asarray(costs, float) + 1e-3
         ok = np.where(c.min() / c >= 0.8)[0]
@@ -213,7 +225,8 @@ class Rollout:
     # student at v_des = 10 happened at 12–19 m/s.
     TSCALE = 'chord'
     V_CAP = None                 # e.g. 1.3: lower β until the plan's peak speed ≤ V_CAP · v_des (or the current speed)
-    # Choice among the M hypotheses: 'snap' (paper: c*/c_k ≥ 0.95, then the least snap) or 'consistent'
+    # Choice among the M hypotheses: 'oracle' (privileged, diagnosis only: the true clearance of each flown
+    # polynomial instead of the predicted cost), 'snap' (paper: c*/c_k ≥ 0.95, then the least snap) or 'consistent'
     # (c*/c_k ≥ 0.8, then the one nearest to the previous choice: no switching sides around a tree unless
     # the predicted cost says so)
     SELECT = 'snap'
@@ -294,7 +307,10 @@ class Rollout:
         trajs, costs = self.policy(depth, TR.rotate_to_heading(v, yaw), R.ravel(), TR.rotate_to_heading(omega, yaw))
         W = TR.from_heading_frame(trajs, p, yaw)
         fits = [self._fit(W[k], p, v, a, self._v_des) for k in range(len(W))]
-        k = choose(fits, costs, W, getattr(self, '_prev_W', None), self.SELECT)
+        if self.SELECT == 'oracle':                          # privileged: true clearance (diagnosis only)
+            k = oracle_index(fits, self.field)
+        else:
+            k = choose(fits, costs, W, getattr(self, '_prev_W', None), self.SELECT)
         self._prev_W = W[k]
         self._last_sel = (k, fits)
         return TR.Plan(fits[k][0], t, fits[k][1], source='student'), W, costs

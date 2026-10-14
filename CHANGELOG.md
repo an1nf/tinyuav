@@ -3,6 +3,25 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.21.4] — 2026-10-13
+
+Sin cambios en los resultados por defecto.
+
+**R22 tras 300 entornos** (etiquetas de R18, focal corregida): `eval` da 3/10, 8/10 y 6/10. En las rondas,
+el éxito sube hasta 21/30 en la 5 (ξ = 3) y luego baja a 11–14/30. `diagnose` reparte los 14 choques así:
+- ninguno `todas_chocan`: siempre había una hipótesis libre;
+- 8 `cambio_de_plan`;
+- 6 `eligio_mal`.
+
+El cuello de botella es elegir y sostener el plan, no la percepción ni las hipótesis.
+
+### Añadido
+- `--select oracle` en `eval` y `diagnose` (R18 y R22): elige con la holgura real de cada polinomio volado
+  (privilegiado, solo diagnóstico, `rollout.oracle_index`). Con las hipótesis del propio estudiante, da el
+  techo de una cabeza de costo y una selección perfectas.
+- Los resultados de `r22 eval` y `r22 diagnose` llevan el modo de selección en el nombre si no es `snap`, para
+  no pisar los de `snap`.
+
 ## [0.21.3] — 2026-10-13
 
 Solo documentación. R22 con la focal corregida: 20/30 con las etiquetas de R18 (antes 9/30). Las etiquetas

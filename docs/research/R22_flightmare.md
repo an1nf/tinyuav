@@ -229,6 +229,40 @@ mismo campo de visión que envía, y los troncos son exactos.
 - Los choques que quedan son contra troncos, a 1.3–1.7 m de altura y sin deriva. Varios ocurren en los
   primeros 1.5–2.3 s, contra un tronco cerca de la salida.
 
+## 300 entornos con las etiquetas de R18 (2026-10-13)
+
+`--label-ref gbl --tag fm_warehouse_fov`: 10 rondas, 25 856 muestras, ξ de 1 a 5.5 m.
+
+| ronda | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ξ (m) | 1.0 | 1.5 | 2.0 | 2.5 | 3.0 | 3.5 | 4.0 | 4.5 | 5.0 | 5.5 |
+| éxito | 10/30 | 18/30 | 14/30 | 18/30 | **21/30** | 12/30 | 12/30 | 11/30 | 14/30 | 14/30 |
+| estudiante | 80 % | 84 % | 92 % | 95 % | 97 % | 96 % | 96 % | 98 % | 99 % | 98 % |
+
+En las rondas, el éxito cae cuando ξ pasa de 3 m y el estudiante vuela casi todo el episodio: con menos
+tomas de control, cada error suyo cuenta.
+
+**`eval`.** 3/10 · 8/10 · 6/10 = 17/30. Tras 2 rondas había dado 20/30: ocho rondas más no mejoraron.
+
+**`diagnose`** (otra corrida del mismo `eval`: 16/30):
+
+| v | éxito | todas chocan | cambio de plan | eligió mal | deriva media |
+|---|---|---|---|---|---|
+| 3 | 4/10 | 0 | 2 | 4 | −0.33 m |
+| 5 | 6/10 | 0 | 2 | 2 | +0.95 m |
+| 7 | 6/10 | 0 | 4 | 0 | +0.61 m |
+
+- **En ningún choque estaban todas las hipótesis en colisión.** La red propone una salida libre: la
+  percepción y la imitación bastan para eso. Es al revés de R18 en nuestro simulador, donde dominaba
+  «todas chocan».
+- **Falla la decisión:**
+  - en 6 choques eligió una hipótesis con choque habiendo una libre (la cabeza de costo);
+  - en 8 volaba planes libres y cambió a uno con choque (indecisión).
+- La deriva es pequeña (−0.3 a +1 m de media) y el lado elegido está equilibrado.
+
+**Siguiente.** `--select oracle` (techo con las mismas hipótesis) y `--select consistent` (no cambiar de
+plan sin motivo) dicen, sin entrenar, cuánto vale arreglar cada una.
+
 ## Cómo correrlo
 
 ```bash

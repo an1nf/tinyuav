@@ -299,3 +299,18 @@ def test_model_sidecar_carries_the_omega_convention(tmp_path):
     assert omega_of(m) == 'line'                    # R18–R22 models: no sidecar
     write_meta(m, omega_ref='goal', label_ref='ctg')
     assert omega_of(m) == 'goal'
+
+
+def test_oracle_selection_picks_the_free_flown_plan():
+    """--select oracle (diagnosis only): the hypothesis whose flown polynomial keeps clear of the obstacles,
+    whatever the predicted costs say."""
+    from nanouav.agile.rollout import fit_plan, oracle_index
+    w = World([Cylinder(5.0, 0.0, 0.3, 0.0, 4.0, Texture("noise"))], Plane(Texture("noise")))
+    F = Field(w, ground=False)
+    p, v = np.array([0.0, 0.0, 1.5]), np.array([5.0, 0.0, 0.0])
+    t = np.linspace(0.1, 1.0, 10)[:, None]
+    hyps = [np.c_[5 * t, 0 * t, 0 * t + 1.5], np.c_[5 * t, 1.5 * t ** 2, 0 * t + 1.5], np.c_[5 * t, -2 * t ** 2, 0 * t + 1.5]]
+    fits = [fit_plan(P, p, v, np.zeros(3), 5.0) for P in hyps]
+    k = oracle_index(fits, F)
+    assert k in (1, 2)                                  # never the straight one through the trunk
+    assert oracle_index(fits[:1], F) == 0               # nothing free: the most clearance
