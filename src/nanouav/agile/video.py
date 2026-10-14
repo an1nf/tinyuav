@@ -333,34 +333,61 @@ def _tunnel(img, rig, pose, P, sx, sy, oy, col, half=(R_DRONE, 0.12), steps=(2, 
         cv2.polylines(img, [pts], False, col, 2, cv2.LINE_AA)
 
 
+Z_NEAR = 0.5                                        # m, brightest colour of the depth scale
+
+
+def _depth_t(dep):
+    """Depth (m) → colour coordinate in [0, 1] on a log scale from D_VIS (dark) to Z_NEAR (bright), near
+    bright as in the paper's figures: every doubling of distance gets the same share of the colours."""
+    t = np.log(D_VIS / np.clip(dep, Z_NEAR, D_VIS)) / math.log(D_VIS / Z_NEAR)
+    return 0.12 + 0.88 * t                            # the far end stays dark purple, not black
+
+
+def _depth_rgb(dep, img=None):
+    """SGM depth (m, 0 = none) → BGR (inferno). Where there is no depth the camera image shows through, dimmed
+    and cooled, so the scene stays readable and it is plain which parts the drone measured."""
+    col = cv2.applyColorMap((_depth_t(dep) * 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
+    if img is not None:
+        g = img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        g = cv2.resize(g, (dep.shape[1], dep.shape[0]), interpolation=cv2.INTER_AREA).astype(np.float32)
+        base = np.stack([g * 0.30 + 16, g * 0.26 + 12, g * 0.24 + 10], -1).astype(np.uint8)
+    else:
+        base = np.full(col.shape, 40, np.uint8)
+    hole = dep <= 0
+    col[hole] = base[hole]
+    return col
+
+
 def _colorbar(img, x0, y0, hgt, wid=14):
-    v = 1 - np.arange(hgt) / (hgt - 1)                     # top: far (10 m)
-    col = cv2.applyColorMap(((1 - v) * 255).astype(np.uint8)[:, None], cv2.COLORMAP_TURBO)   # (hgt, 1, 3)
-    img[y0:y0 + hgt, x0:x0 + wid] = np.repeat(col, wid, axis=1)
-    for m in (0, 2, 4, 6, 8, 10):
-        y = int(y0 + (1 - m / D_VIS) * (hgt - 1))
-        cv2.putText(img, f'{m}', (x0 + wid + 3, y + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.38, WHITE, 1, cv2.LINE_AA)
+    """Bar of the log depth scale, near (0.5 m) at the bottom."""
+    z = D_VIS * (Z_NEAR / D_VIS) ** np.linspace(0, 1, hgt)       # top: far
+    t = (_depth_t(z) * 255).astype(np.uint8)[:, None]
+    img[y0:y0 + hgt, x0:x0 + wid] = np.repeat(cv2.applyColorMap(t, cv2.COLORMAP_INFERNO), wid, axis=1)
+    frac = lambda m: math.log(D_VIS / m) / math.log(D_VIS / Z_NEAR)
+    for m in (0.5, 1, 2, 3, 5, 10):
+        y = int(y0 + frac(m) * (hgt - 1))
+        cv2.line(img, (x0 + wid, y), (x0 + wid + 3, y), WHITE, 1)
+        cv2.putText(img, f'{m:g}', (x0 + wid + 5, y + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.36, WHITE, 1, cv2.LINE_AA)
 
 
 def _depth_panel(d, rig, w=480, h=360):
-    from nanouav.follow.estimate import project
     dep = d['sgm'].astype(np.float32) / 1000.0
-    v = np.clip(dep / D_VIS, 0, 1)
-    col = cv2.applyColorMap(((1 - v) * 255).astype(np.uint8), cv2.COLORMAP_TURBO)
-    col[dep <= 0] = (45, 45, 45)
+    col = _depth_rgb(dep, d.get('gray', d.get('img')))
     iw, ih = w - 44, int((w - 44) * rig.height / rig.width)
-    img = np.full((h, w, 3), 25, np.uint8)
+    img = np.full((h, w, 3), 22, np.uint8)
     y0 = (h - ih) // 2 + 8
-    img[y0:y0 + ih, :iw] = cv2.resize(col, (iw, ih), interpolation=cv2.INTER_NEAREST)
+    img[y0:y0 + ih, :iw] = cv2.resize(col, (iw, ih), interpolation=cv2.INTER_AREA)
     pose = (np.array(d['p']), *d['att'])
     W, costs, k_sel = _hypotheses(d)
     if W:
         P = np.vstack([np.array(d['p'], float), W[k_sel]])
-        _tunnel(img, rig, pose, P, iw / rig.width, ih / rig.height, y0, WHITE, labels=False)
+        ov = img.copy()
+        _tunnel(ov, rig, pose, P, iw / rig.width, ih / rig.height, y0, (255, 230, 120), labels=False)
+        cv2.addWeighted(ov, 0.7, img, 0.3, 0, img)
     _colorbar(img, iw + 6, y0, ih)
     valid = float((dep > 0).mean())
-    cv2.putText(img, f'profundidad SGM (m) | {valid:.0%} con dato | gris = sin dato', (8, 18),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.45, WHITE, 1, cv2.LINE_AA)
+    cv2.putText(img, f'profundidad SGM (m) | {valid:.0%} con dato | sin dato: imagen atenuada', (8, 18),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.42, WHITE, 1, cv2.LINE_AA)
     return img
 
 
@@ -376,42 +403,91 @@ def _sgm_points(d, rig, stride=4):
     return O + (dirs * X[:, None]) @ Rc.T
 
 
-def _local_map(hist, d, rig, w=480, h=360, ahead=10.0):
-    """Top view in the drone's heading frame (forward up) of its own SGM points of the last frames at its
-    flight height (± 0.6 m), with the trajectories. Nothing comes from a prior map."""
+def _arrow(img, a, b, col, label=None, thick=2):
+    cv2.arrowedLine(img, a, b, col, thick, cv2.LINE_AA, tipLength=0.18)
+    if label:
+        cv2.putText(img, label, (b[0] + 4, b[1] - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.45, col, 1, cv2.LINE_AA)
+
+
+def _local_map(hist, d, rig, w=480, h=360, ahead=10.0, v=None):
+    """Top view in the drone's heading frame (forward up) of its own SGM points of the last second at its
+    flight height (± 0.6 m), with the margin the drone needs around them (its radius), the field of view,
+    its trajectories, where it is told to go (ω) and its velocity. Nothing comes from a prior map."""
     from nanouav.agile import trajectory as TR
-    img = np.full((h, w, 3), 238, np.uint8)
+    BG, FOV_BG, RING = (24, 24, 28), (44, 44, 52), (78, 78, 88)
+    img = np.full((h, w, 3), BG, np.uint8)
     s = (h - 30) / ahead
     p, yaw = np.array(d['p'], float), d['att'][0]
-    px = lambda x, y: (int(round(w / 2 - y * s)), int(round(h - 15 - x * s)))
+    o = (w / 2, h - 15)
+    px = lambda x, y: (int(round(o[0] - y * s)), int(round(o[1] - x * s)))
+    half = rig.hfov / 2
+    wedge = np.array([px(0, 0)] + [px(ahead * 1.6 * math.cos(a), ahead * 1.6 * math.sin(a))
+                                   for a in np.linspace(-half, half, 24)], np.int32)
+    cv2.fillPoly(img, [wedge], FOV_BG, cv2.LINE_AA)
     for r in (2, 4, 6, 8, 10):
-        cv2.circle(img, px(0, 0), int(r * s), (215, 215, 215), 1, cv2.LINE_AA)
-        cv2.putText(img, f'{r} m', (px(r, 0)[0] + 3, px(r, 0)[1] + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, GRAY, 1)
-    for a in (-math.pi / 4, math.pi / 4):
-        cv2.line(img, px(0, 0), px(ahead * math.cos(a), ahead * math.sin(a)), (200, 200, 150), 1, cv2.LINE_AA)
+        cv2.circle(img, px(0, 0), int(r * s), RING, 1, cv2.LINE_AA)
+        cv2.putText(img, f'{r} m', (px(r, 0)[0] + 3, px(r, 0)[1] + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (130, 130, 140), 1)
+    # obstacles: cells of 0.15 m seen in ≥ 3 of the last frames (SGM noise does not repeat), the newest
+    # brightest, and the margin the drone needs around them (its radius)
+    cell = 0.15
+    hits, last = {}, {}
+    n = len(hist)
     for age, P in enumerate(reversed(hist)):
         P = P[np.abs(P[:, 2] - p[2]) < 0.6]
         Q = TR.to_heading_frame(P, p, yaw)
-        k = (Q[:, 0] > -1) & (Q[:, 0] < ahead) & (np.abs(Q[:, 1]) < w / 2 / s)
-        g = int(40 + 25 * age)
-        for x, y in Q[k][:, :2]:
-            c = px(x, y)
-            img[max(c[1] - 1, 0):c[1] + 1, max(c[0] - 1, 0):c[0] + 1] = (g, g, g)
+        k = (Q[:, 0] > -1) & (Q[:, 0] < ahead + 1) & (np.abs(Q[:, 1]) < w / 2 / s)
+        for key in set(map(tuple, np.floor(Q[k][:, :2] / cell).astype(int))):
+            hits[key] = hits.get(key, 0) + 1
+            last[key] = min(last.get(key, n), age)
+    occ = [(kx, ky) for (kx, ky), c in hits.items() if c >= min(3, n)]
+    if occ:
+        mask = np.zeros((h, w), np.uint8)
+        shade = np.zeros((h, w), np.float32)
+        for kx, ky in occ:
+            a0, b0 = px(kx * cell, (ky + 1) * cell), px((kx + 1) * cell, ky * cell)
+            cv2.rectangle(mask, a0, b0, 1, -1)
+            cv2.rectangle(shade, a0, b0, float(1.0 - last[(kx, ky)] / max(n, 1)), -1)
+        rr = max(int(round(R_DRONE * s)), 1)
+        ker = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * rr + 1, 2 * rr + 1))
+        margin = cv2.dilate(mask, ker)
+        ov = img.copy()
+        ov[margin > 0] = (45, 45, 120)
+        cv2.addWeighted(ov, 0.45, img, 0.55, 0, img)
+        cnt, _ = cv2.findContours(margin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(img, cnt, -1, (70, 70, 170), 1, cv2.LINE_AA)
+        m = mask > 0
+        t = (0.45 + 0.55 * shade[m])[:, None]
+        img[m] = (np.array([110, 200, 255]) * t + np.array(BG) * (1 - t)).astype(np.uint8)
+
+    # trajectories (colour = predicted collision cost), the chosen one as wide as the drone
     W, costs, k_sel = _hypotheses(d)
     for k in sorted(range(len(W)), key=lambda k: k == k_sel):
         Q = TR.to_heading_frame(np.vstack([p, W[k]]), p, yaw)
-        col = (200, 160, 0) if not costs else _cost_color(costs[k])
+        col = CYAN if not costs else _cost_color(costs[k])
+        line = np.array([px(x, y) for x, y, _ in Q], np.int32)
         if k == k_sel:
             L, R = _ribbon(Q)
             poly = np.array([px(x, y) for x, y, _ in L] + [px(x, y) for x, y, _ in R[::-1]], np.int32)
-            _blend_poly(img, poly, col, 0.5)
-            cv2.polylines(img, [np.array([px(x, y) for x, y, _ in Q], np.int32)], False, col, 2, cv2.LINE_AA)
+            _blend_poly(img, poly, col, 0.6)
+            cv2.polylines(img, [poly], True, col, 1, cv2.LINE_AA)
+            cv2.polylines(img, [line], False, WHITE, 1, cv2.LINE_AA)
         else:
-            cv2.polylines(img, [np.array([px(x, y) for x, y, _ in Q], np.int32)], False, col, 1, cv2.LINE_AA)
+            cv2.polylines(img, [line], False, col, 1, cv2.LINE_AA)
+        if costs:
+            cv2.putText(img, str(k), tuple(line[-1] + [4, -2]), cv2.FONT_HERSHEY_SIMPLEX, 0.4, col, 1, cv2.LINE_AA)
+    if d.get('omega') is not None:                     # where it is told to go
+        om = TR.rotate_to_heading(np.asarray(d['omega'], float), yaw)
+        nrm = max(float(np.linalg.norm(om[:2])), 1e-6)
+        _arrow(img, px(0, 0), px(2.5 * om[0] / nrm, 2.5 * om[1] / nrm), (255, 200, 80), 'w', 1)
+    if v is not None:
+        vh = TR.rotate_to_heading(np.asarray(v, float), yaw)
+        _arrow(img, px(0, 0), px(0.4 * vh[0], 0.4 * vh[1]), WHITE, None, 2)
     tip = [px(0.5, 0), px(-0.25, 0.25), px(-0.25, -0.25)]
     cv2.fillPoly(img, [np.array(tip, np.int32)], ORANGE, cv2.LINE_AA)
-    cv2.putText(img, 'mapa local: solo su SGM del ultimo 0.5 s, a su altura', (8, 18), cv2.FONT_HERSHEY_SIMPLEX,
-                0.45, (40, 40, 40), 1, cv2.LINE_AA)
+    cv2.putText(img, 'mapa local: su SGM (1 s) a su altura | rojo: margen del dron', (8, 18),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.42, (220, 220, 220), 1, cv2.LINE_AA)
+    cv2.putText(img, 'w: direccion a la meta   blanco: velocidad', (8, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.38,
+                (255, 200, 80), 1, cv2.LINE_AA)
     return img
 
 
@@ -445,7 +521,7 @@ def render_perception(log, trace, rig, fn, fps=15.0, result=None, title=''):
     W, H = 1280, 720
     wr = _writer(fn, fps, (W, H))
     L = np.array([row[:7] for row in log], float)
-    hist = deque(maxlen=max(1, int(round(0.5 * fps))))
+    hist = deque(maxlen=max(1, int(round(1.0 * fps))))
     frame = None
     for i, d in enumerate(trace):
         j = min(int(np.searchsorted(L[:, 0], d['t'])), len(L) - 1)
@@ -453,7 +529,7 @@ def render_perception(log, trace, rig, fn, fps=15.0, result=None, title=''):
         hist.append(_sgm_points(d, rig))
         last = i == len(trace) - 1
         left = np.vstack([_camera_hud(d, rig), _info_bar(d, v, d['t'], title, result if last else None)])
-        right = np.vstack([_depth_panel(d, rig), _local_map(hist, d, rig)])
+        right = np.vstack([_depth_panel(d, rig), _local_map(hist, d, rig, v=v)])
         frame = np.hstack([left, right])
         wr.write(frame)
     for _ in range(int(fps * 1.5)):

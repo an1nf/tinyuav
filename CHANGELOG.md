@@ -3,6 +3,25 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.21.5] — 2026-10-13
+
+Sin cambios en los resultados; cambia el diseño de los vídeos de percepción.
+
+### Cambiado
+- **Panel de profundidad.**
+  - Colores inferno en escala logarítmica de 0.5 a 10 m: cerca, brillante; lejos, morado oscuro, como en
+    las figuras del paper. Antes era TURBO lineal.
+  - Donde no hay SGM se ve la imagen de la cámara atenuada, en vez de gris plano.
+  - Barra de color en la misma escala.
+- **Mapa local.**
+  - Fondo oscuro y campo de visión sombreado.
+  - 1 s de SGM propio, en celdas de 0.15 m que cuentan solo si se vieron en ≥ 3 cuadros (el ruido del SGM no
+    se repite).
+  - El margen del radio del dron alrededor de los obstáculos.
+  - Las hipótesis con su número, la elegida del ancho del dron.
+  - Flechas de la dirección a la meta (ω) y de la velocidad.
+- Las entradas de `trace` guardan ω (`omega`).
+
 ## [0.21.4] — 2026-10-13
 
 Sin cambios en los resultados por defecto.

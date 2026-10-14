@@ -398,7 +398,7 @@ class Rollout:
                                            'k': int(k_sel), 'costs': np.round(costs, 4).tolist(),
                                            'clear': np.round(clear, 3).tolist(), 'lat': np.round(lat, 2).tolist(),
                                            'beta': round(float(fits[k_sel][1]), 3),
-                                           'W': np.round(W, 2).tolist(),
+                                           'W': np.round(W, 2).tolist(), 'omega': np.round(omega, 3).tolist(),
                                            'att': [round(float(yaw), 4), round(float(pitch), 4), round(float(roll), 4)]})
                         self._trace_stats(cam)
                         if self.trace_depth:
@@ -410,6 +410,7 @@ class Rollout:
                     self.trace.append({'t': round(t, 3), 'p': np.round(p, 3).tolist(), 'v': np.round(v, 3).tolist(),
                                        'k': 0, 'costs': [], 'clear': [round(float(self.field(W1).min()), 3)],
                                        'W': [np.round(W1, 2).tolist()], 'beta': round(float(new.beta), 3),
+                                       'omega': np.round(omega, 3).tolist(),
                                        'att': [round(float(yaw), 4), round(float(pitch), 4), round(float(roll), 4)],
                                        'pilot': self.pilot})
                     if self.trace_depth:
