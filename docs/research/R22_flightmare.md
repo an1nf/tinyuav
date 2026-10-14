@@ -369,6 +369,37 @@ evaluación.
  El cálculo cuesta unos 80 ms por cuadro en este
 CPU (búsqueda por fuerza bruta; un k-d tree lo bajaría si hiciera falta en tiempo real).
 
+## Más DAgger volando con `sgm`, y R18 con `sgm` (2026-10-14)
+
+**Rondas 11–15** (450 entornos, ξ = 6, el estudiante elige con `sgm` mientras vuela):
+
+| ronda | 11 | 12 | 13 | 14 | 15 |
+|---|---|---|---|---|---|
+| éxito en las rondas | 19/30 | 22/30 | 23/30 | 23/30 | 16/30 |
+
+Con `snap`, las rondas 6–10 daban 11–14/30. Las rondas suben porque el estudiante vuela mejor con `sgm`,
+no porque haya aprendido más.
+
+**`eval --n 30` tras 15 rondas:** 12/30 · 22/30 · 24/30 = 58/90, contra 62/90 tras 10 rondas. Emparejados por
+entorno, 17 casos favorecen a 10 rondas y 13 a 15 ($p = 0.59$): sin cambio. Más datos con la misma receta no
+mueven el resultado. 3 m/s sigue siendo lo peor: 7 de sus 18 choques ocurren en los primeros 4 s.
+
+**R18 en nuestro simulador con `--select sgm`** (`student_train`, 850 entornos):
+
+| v | 3 | 5 | 7 | 10 | total |
+|---|---|---|---|---|---|
+| `sgm` | 6/10 | 8/10 | 7/10 | 7/10 | **28/40** |
+| `snap` (R18, 0.17) | 3/10 | 6/10 | 7/10 | 6/10 | 22/40 |
+| ciego | | | | | 16/40 |
+
+Es la primera vez que el estudiante de R18 le gana claramente al ciego ($p = 0.013$); frente a `snap`, +6
+($p = 0.25$). El hallazgo de Flightmare se repite en nuestro simulador, aunque allí dominaba «todas chocan».
+
+**Siguiente: `--lookahead`.** Con el oráculo quedan ~30 de 90 choques. `diagnose` los clasificaba como
+`cambio_de_plan`: planes libres en su segundo de horizonte que terminan apuntando a un tronco. Con
+`--lookahead L`, un plan cuenta como libre solo si también lo es su continuación a su velocidad final durante
+L s (≥ el radio del dron, sin margen). Se decide solo al elegir: no hay que reentrenar.
+
 ## Cómo correrlo
 
 ```bash

@@ -3,6 +3,17 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.22.1] — 2026-10-14
+
+Sin cambios en los resultados por defecto.
+- **R22, 15 rondas de DAgger volando con `sgm`:** 58/90 (con 10 rondas, 62/90): sin cambio.
+- **R18 con `--select sgm`:** 28/40, frente a `snap` 22/40 y el ciego 16/40.
+
+### Añadido
+- `--lookahead L` (`eval`, `video`, `diagnose` de R18 y R22) para `sgm` y `oracle`: el plan solo cuenta como
+  libre si su continuación a su velocidad final durante L s también lo es (`rollout.extension`,
+  `with_lookahead`). Los archivos llevan `_la<L>` en el nombre.
+
 ## [0.22.0] — 2026-10-14
 
 **Cambia la selección por defecto en R22.** `r22 eval`, `video`, `diagnose` y `dagger` usan `--select sgm`:

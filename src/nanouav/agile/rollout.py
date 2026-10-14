@@ -201,11 +201,12 @@ def _among_free(fits, clear, margin=0.15, costs=None):
     return int(ok[TR.select([fits[k][0] for k in ok], [costs[k] for k in ok])])
 
 
-def oracle_index(fits, field, margin=0.15, costs=None):
+def oracle_index(fits, field, margin=0.15, costs=None, lookahead=0.0):
     """Privileged choice (diagnosis only) by the true clearance of each flown polynomial (see `_among_free`).
     With the student's own hypotheses it gives the ceiling of a perfect cost head and selection."""
     tt = np.linspace(0, 1, 21)
     clear = np.array([float(field(TR.poly_eval(c, tt)).min()) for c, _ in fits])
+    clear = with_lookahead(clear, fits, lambda X: float(field(X).min()), lookahead, margin)
     return _among_free(fits, clear, margin, costs)
 
 
@@ -258,6 +259,24 @@ class PerceivedObstacles:
         return float(np.sqrt(d2.min())) - 0.5 * self.cell
 
 
+def extension(fit, lookahead, n=8):
+    """Points of the plan continued beyond its end at its final velocity for `lookahead` s (real time)."""
+    coef, beta = fit
+    p1 = TR.poly_eval(coef, [1.0])[0]
+    v1 = TR.poly_eval(coef, [1.0], 1)[0] * beta
+    s = np.linspace(lookahead / n, lookahead, n)
+    return p1 + s[:, None] * v1
+
+
+def with_lookahead(clear, fits, clear_of, lookahead, margin=0.15):
+    """Effective clearance of each plan when its continuation must also be free (≥ the drone's radius, without
+    the margin): min(plan clearance, continuation clearance + margin). lookahead = 0: unchanged."""
+    if not lookahead:
+        return np.asarray(clear, float)
+    ext = np.array([clear_of(extension(f, lookahead)) for f in fits])
+    return np.minimum(np.asarray(clear, float), ext + margin)
+
+
 def perceived_clearance(fits, obstacles):
     """Clearance of each flown polynomial (1 s) to the obstacles the drone perceives."""
     tt = np.linspace(0, 1, 21)
@@ -301,6 +320,9 @@ class Rollout:
     # (c*/c_k ≥ 0.8, then the one nearest to the previous choice: no switching sides around a tree unless
     # the predicted cost says so)
     SELECT = 'snap'
+    # 'sgm' / 'oracle': a plan is free only if also its continuation at its final velocity for LOOKAHEAD s is
+    # (≥ the drone's radius): against plans that are free for their 1 s but end pointing into a trunk
+    LOOKAHEAD = 0.0
 
     def __init__(self, env, cfg, pilot='gbl', policy=None, label=False, expert_kw=None, gref=None, mission=None):
         self.env, self.cfg, self.pilot, self.policy, self.label = env, cfg, pilot, policy, label
@@ -379,10 +401,12 @@ class Rollout:
         W = TR.from_heading_frame(trajs, p, yaw)
         fits = [self._fit(W[k], p, v, a, self._v_des) for k in range(len(W))]
         if self.SELECT in ('oracle', 'oracle_cost'):        # privileged: true clearance (diagnosis only)
-            k = oracle_index(fits, self.field, costs=costs if self.SELECT == 'oracle_cost' else None)
+            k = oracle_index(fits, self.field, costs=costs if self.SELECT == 'oracle_cost' else None,
+                             lookahead=self.LOOKAHEAD)
         elif self.SELECT in ('sgm', 'sgm_cost'):             # own perception: clearance in its own SGM
             self._seen = perceived_clearance(fits, self._perceived)
-            k = perceived_index(fits, costs if self.SELECT == 'sgm_cost' else None, self._perceived, clear=self._seen)
+            eff = with_lookahead(self._seen, fits, self._perceived.clearance, self.LOOKAHEAD)
+            k = perceived_index(fits, costs if self.SELECT == 'sgm_cost' else None, self._perceived, clear=eff)
         else:
             k = choose(fits, costs, W, getattr(self, '_prev_W', None), self.SELECT)
         self._prev_W = W[k]

@@ -28,9 +28,11 @@ def _out(a):
 
 def opts_of(a):
     """Rollout options from the command line → (dict, file-name suffix of the non-default ones)."""
-    o = {'proj': getattr(a, 'proj', 'scaled'), 'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select}
+    o = {'proj': getattr(a, 'proj', 'scaled'), 'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select,
+         'lookahead': getattr(a, 'lookahead', 0.0)}
     suf = ''.join([f"_{o['proj']}" if o['proj'] != 'scaled' else '', f"_{o['tscale']}" if o['tscale'] != 'chord' else '',
-                   f"_cap{o['vcap']:g}" if o['vcap'] else '', f"_{o['select']}" if o['select'] != 'snap' else ''])
+                   f"_cap{o['vcap']:g}" if o['vcap'] else '', f"_{o['select']}" if o['select'] != 'snap' else '',
+                   f"_la{o['lookahead']:g}" if o['lookahead'] else ''])
     return o, suf
 
 
@@ -39,6 +41,7 @@ def apply_opts(R, o):
     R.TSCALE = o.get('tscale', 'chord')
     R.V_CAP = o.get('vcap') or None
     R.SELECT = o.get('select', 'snap')
+    R.LOOKAHEAD = float(o.get('lookahead') or 0.0)
     return R
 
 
@@ -167,6 +170,9 @@ def main():
             p.add_argument('--tscale', default='chord', choices=['chord', 'arc'],
                            help='time scale from the straight distance (chord, ≤ 0.17.1) or the path length (arc)')
             p.add_argument('--vcap', type=float, default=0.0, help='peak speed of a plan ≤ vcap · v (0: no cap)')
+            p.add_argument('--lookahead', type=float, default=0.0,
+                           help='sgm/oracle: also the continuation of each plan at its final velocity for this many '
+                                'seconds must be free')
             p.add_argument('--select', default='snap', choices=['snap', 'consistent', 'oracle', 'sgm', 'oracle_cost', 'sgm_cost'],
                            help='choice among the hypotheses (consistent: keep the side unless the cost says so)')
         if name in ('dagger', 'train'):

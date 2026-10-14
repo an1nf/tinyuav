@@ -434,7 +434,7 @@ def _episode(a, env, i, pilot, v, client, calib, model, trace=False, rig=None):
     om = omega_of(model) if pilot == 'student' and model else 'line'
     cfg = Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, omega_ref=om, **({'rig': rig} if rig is not None else {}))
     R = Rollout(env, cfg, pilot, dagger._policy(model) if pilot == 'student' else None)
-    apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select})
+    apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select, 'lookahead': a.lookahead})
     obs = None
     if pilot == 'student' or trace:
         if client.n_objects:
@@ -510,7 +510,8 @@ def cmd_eval(a):
                 print(f"{p:8s} v={v:g} env {i}: {'ok' if r['success'] else 'CRASH' if r['crashed'] else 'fail'} "
                       f"{r['time_s']:.1f} s" + (f"  hit {r['crash']}" if r.get('crash') else ''), flush=True)
     tag = (os.path.splitext(os.path.basename(model))[0] if model else 'pilots') + (f'_{a.tag}' if a.tag else '') + \
-        (f'_{a.select}' if getattr(a, 'select', 'snap') != 'snap' else '')
+        (f'_{a.select}' if getattr(a, 'select', 'snap') != 'snap' else '') + \
+        (f'_la{a.lookahead:g}' if getattr(a, 'lookahead', 0) else '')
     fn = os.path.join(out, f"eval_{'arena_' if a.arena else ''}{a.scene}_{tag}.json")
     json.dump(table, open(fn, 'w'), indent=1)
     print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s}')
@@ -784,7 +785,8 @@ def cmd_diagnose(a):
     rig = rig_of(a)
     client = make_client(a, calib, n_objects=a.n_objects, rig=rig)
     model = os.path.abspath(a.model)
-    tag = os.path.splitext(os.path.basename(model))[0] + (f'_{a.select}' if a.select != 'snap' else '')
+    tag = os.path.splitext(os.path.basename(model))[0] + (f'_{a.select}' if a.select != 'snap' else '') + \
+        (f'_la{a.lookahead:g}' if a.lookahead else '')
     d_out = os.path.join(out, f'diag_arena_{tag}')
     os.makedirs(d_out, exist_ok=True)
     res = []
@@ -800,7 +802,7 @@ def cmd_diagnose(a):
             from nanouav.agile.policy import omega_of
             R = Rollout(env, Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, rig=rv, omega_ref=omega_of(model)),
                         'student', dagger._policy(model))
-            apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select})
+            apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select, 'lookahead': a.lookahead})
             R.observer = FlightmareObserver(client, rv, calib)
             R.trace = []
             r, _, log = R.run()
@@ -908,6 +910,9 @@ def main(argv=None):
                             "sees free (not privileged; 62/90 in the warehouse against 38/90 for snap, the paper's "
                             "predicted-cost rule); oracle: the same with the true clearance (privileged, diagnosis "
                             "only); *_cost: the predicted-cost rule among the free ones")
+        p.add_argument('--lookahead', type=float, default=0.0,
+                       help='sgm/oracle: also the continuation of each plan at its final velocity for this many seconds '
+                            'must be free (against plans that end pointing into a trunk)')
         p.add_argument('--arena', action='store_true', help='the arena test forests (r22 arena) instead of the lines')
         if name == 'eval':
             p.add_argument('--pilots', default='gbl,student')

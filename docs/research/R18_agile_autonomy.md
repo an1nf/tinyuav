@@ -127,6 +127,7 @@ student_polish`) pule los pesos sin recolectar nada nuevo.
 | `student_train` (última ronda de DAgger) | 2/10 | 8/10 | 7/10 | 5/10 | 22/40 |
 | `student_polish` (10 épocas más, lr 3e-4 → 1e-5, mejor época = 6) | 4/10 | 4/10 | 8/10 | 7/10 | 23/40 |
 | `student_train`, proyección corregida (0.17.0) | 3/10 | 6/10 | 7/10 | 6/10 | 22/40 |
+| `student_train`, `--select sgm` (0.22.0: elige con su propio SGM, ver R22) | 6/10 | 8/10 | 7/10 | 7/10 | **28/40** |
 | `student_polish`, proyección corregida (0.17.0) | 4/10 | 5/10 | 3/10 | 4/10 | 16/40 |
 | sin percepción (`blind`) | | | | | 16/40 |
 

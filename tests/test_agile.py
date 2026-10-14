@@ -343,3 +343,21 @@ def test_perception_errors_compare_the_sgm_with_the_truth():
     e = perception_errors(tr)
     assert e == {'missed': 0.5, 'false_alarm': 0.5, 'chose_colliding': 0.5, 'n_plans': 4}
     assert perception_errors([{'k': 0, 'clear': [1.0]}]) is None       # not flown with --select sgm
+
+
+def test_lookahead_rejects_a_plan_that_ends_pointing_into_a_trunk():
+    """--lookahead: a plan free for its 1 s whose continuation at its final velocity hits a trunk is not free."""
+    from nanouav.agile.rollout import PerceivedObstacles, fit_plan, perceived_index, perceived_clearance, with_lookahead
+    p, v = np.array([0.0, 0.0, 1.5]), np.array([5.0, 0.0, 0.0])
+    t = np.linspace(0.1, 1.0, 10)[:, None]
+    hyps = [np.c_[5 * t, 0 * t, 0 * t + 1.5], np.c_[5 * t, 2.0 * t ** 2, 0 * t + 1.5]]
+    fits = [fit_plan(P, p, v, np.zeros(3), 5.0) for P in hyps]
+    ang = np.linspace(0, 2 * np.pi, 40)
+    obs = PerceivedObstacles(n_frames=3)
+    for _ in range(3):
+        obs.add(np.c_[6.5 + 0.3 * np.cos(ang), 0.3 * np.sin(ang), np.full(40, 1.5)])   # 1.2 m past the straight plan
+    seen = perceived_clearance(fits, obs)
+    assert seen[0] > 0.35                                          # within 1 s, both plans look free
+    assert perceived_index(fits, None, obs, clear=seen) == 0       # … and the straight one is the smoothest
+    eff = with_lookahead(seen, fits, obs.clearance, 0.5)
+    assert perceived_index(fits, None, obs, clear=eff) == 1        # its continuation hits the trunk
