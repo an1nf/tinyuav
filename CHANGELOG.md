@@ -3,6 +3,16 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.21.10] — 2026-10-14
+
+Solo documentación: el 2 × 2 de selección en R22.
+- `oracle` 24/30 y `oracle_cost` 19/30 (holgura real).
+- `sgm` 20/30 y `sgm_cost` 16/30 (su propio SGM).
+- `snap` 17/30 (la regla del paper sobre las 3 hipótesis).
+
+Regla y percepción suman unas 4 llegadas cada una. Ninguna diferencia es significativa con 10 vuelos por
+velocidad.
+
 ## [0.21.9] — 2026-10-14
 
 **Cambia `--select sgm`.** Ahora elige como el oráculo: el plan más suave (menor snap) entre los que su

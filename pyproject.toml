@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nanouav"
-version = "0.21.9"
+version = "0.21.10"
 description = "Monocular-depth + ToF obstacle avoidance for nano-UAVs: simulation, training and Gazebo evaluation"
 readme = "README.md"
 requires-python = ">=3.10"

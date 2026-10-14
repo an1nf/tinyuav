@@ -320,6 +320,23 @@ En nuestro bosque, con el modelo pequeño, casi no pierde ninguno (0–2.6 %) y 
   - `sgm` pasa a elegir como el oráculo (el más suave entre los que su SGM ve libres);
   - `sgm_cost` es el de antes (16/30);
   - `oracle_cost` es la holgura real con la regla del costo.
+
+**El 2 × 2** (mismo estudiante, mismos 10 entornos; llegadas a 3 · 5 · 7 m/s):
+
+| | el más suave entre los libres | costo de la red entre los libres |
+|---|---|---|
+| holgura real (privilegiado) | `oracle`: 7 · 7 · 10 = **24/30** | `oracle_cost`: 6 · 7 · 6 = 19/30 |
+| su propio SGM | `sgm`: 5 · 7 · 8 = **20/30** | `sgm_cost`: 5 · 5 · 6 = 16/30 |
+| sin filtro (la regla del paper sobre las 3) | `snap`: 3 · 8 · 6 = 17/30 | |
+
+- **Los dos efectos suman y pesan parecido.** Elegir el más suave en vez de usar el costo de la red suma 4–5
+  llegadas: juntando las dos filas, 44/60 contra 35/60 ($p = 0.12$). Ver con la verdad en vez de con su SGM suma
+  otras 4: juntando las dos columnas, 43/60 contra 36/60 ($p = 0.25$).
+- **`sgm` es la mejor variante sin información privilegiada:** 20/30 contra 17/30 de la regla del paper, sin
+  reentrenar.
+- **Ninguna diferencia es significativa todavía.** Con 10 vuelos por velocidad, el intervalo de 95 % de cada
+  total es ±0.17. Además, el mismo modo repetido varía en ±1–2 llegadas (`snap`: 17 y 16). Hace falta
+  `--n 30` (90 vuelos por modo, ±0.10) para decidir.
  El cálculo cuesta unos 80 ms por cuadro en este
 CPU (búsqueda por fuerza bruta; un k-d tree lo bajaría si hiciera falta en tiempo real).
 
