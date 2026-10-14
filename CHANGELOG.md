@@ -3,6 +3,19 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.22.2] — 2026-10-14
+
+Sin cambios en los resultados: solo el vídeo de percepción.
+
+### Cambiado
+- Etiquetas que ya no se pisan:
+  - sobre la cámara, en DejaVu con borde oscuro;
+  - «0.4 s» y «1.0 s» fuera de la esquina superior derecha de cada marco del túnel, la lejana solo si cabe;
+  - el índice de cada hipótesis solo si no choca con otra etiqueta;
+  - en el mapa local, el índice solo para planes de más de 1.2 m y lejos de ω y de los demás índices.
+- Los anillos del mapa local se rotulan a la derecha del campo de visión, fuera de la trayectoria y de las
+  flechas.
+
 ## [0.22.1] — 2026-10-14
 
 Sin cambios en los resultados por defecto.

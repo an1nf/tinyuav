@@ -272,8 +272,9 @@ def _font(size):
     return _FONTS[size]
 
 
-def _texts(img, items):
-    """Draw [(text, (x, y) top-left, size px, BGR)] on img in place, in one Pillow pass."""
+def _texts(img, items, outline=0):
+    """Draw [(text, (x, y) top-left, size px, BGR)] on img in place, in one Pillow pass; outline > 0 puts a
+    dark edge of that width around the letters (text over the camera image)."""
     if not items:
         return img
     if _font(12) is None:                              # no Pillow / font: OpenCV's Hershey
@@ -285,9 +286,15 @@ def _texts(img, items):
     pil = Image.fromarray(img[..., ::-1])
     dr = ImageDraw.Draw(pil)
     for t, (x, y), sz, col in items:
-        dr.text((int(x), int(y)), t, font=_font(sz), fill=(col[2], col[1], col[0]))
+        dr.text((int(x), int(y)), t, font=_font(sz), fill=(col[2], col[1], col[0]),
+                stroke_width=outline, stroke_fill=(12, 12, 12))
     img[:] = np.asarray(pil)[..., ::-1]
     return img
+
+
+def _free_spot(xy, taken, dx=26, dy=14):
+    """True if a label at xy keeps clear of every label already placed (boxes of dx × dy px)."""
+    return all(abs(xy[0] - a) > dx or abs(xy[1] - b) > dy for a, b in taken)
 
 
 D_VIS = 10.0                                        # m, depth colour scale (the SGM's range)
@@ -329,25 +336,34 @@ def _camera_hud(d, rig, w=800, h=600):
     pose = (np.array(d['p']), *d['att'])
     W, costs, k_sel = _hypotheses(d)
     p0 = np.array(d['p'], float)
+    items, idx = [], []
     for k in sorted(range(len(W)), key=lambda k: k == k_sel):
         P = np.vstack([p0, W[k]])
         priv = not costs
         col = (230, 200, 0) if priv else _cost_color(costs[k])
         if k == k_sel:                                   # the chosen trajectory: a tunnel of drone-sized frames
-            _tunnel(img, rig, pose, P, sx, sy, 0, col)
+            items += _tunnel(img, rig, pose, P, sx, sy, 0, col)
         else:                                           # the other hypotheses: thin centre lines
             uv, X = project(rig, pose, P)
             ok = X > 0.4
             if ok.sum() >= 2:
                 pts = np.array([[int((u + 0.5) * sx), int((v + 0.5) * sy)] for u, v in uv[ok]], np.int32)
                 cv2.polylines(img, [pts], False, col, 1, cv2.LINE_AA)
-                cv2.putText(img, f'{k}', tuple(pts[-1] + [4, 0]), cv2.FONT_HERSHEY_SIMPLEX, 0.45, col, 1, cv2.LINE_AA)
-    return img
+                if 0 <= pts[-1][0] < w and 0 <= pts[-1][1] < h:
+                    xy = (int(np.clip(pts[-1][0] + 5, 2, w - 14)), int(np.clip(pts[-1][1] - 9, 2, h - 18)))
+                    idx.append((str(k), xy, 13, col))
+    taken = [it[1] for it in items]                     # the time labels first, then the indices that fit
+    for it in idx:
+        if _free_spot(it[1], taken, dx=22, dy=16):
+            items.append(it)
+            taken.append(it[1])
+    return _texts(img, items, outline=2)
 
 
 def _tunnel(img, rig, pose, P, sx, sy, oy, col, half=(R_DRONE, 0.12), steps=(2, 4, 6, 8, 10), labels=True):
     """Chosen trajectory as a 'tunnel in the sky': the drone's cross-section (2·R_DRONE wide) every 0.2 s,
-    in perspective, joined at the corners; the nearest frames thicker."""
+    in perspective, joined at the corners; the nearest frames thicker. Returns the time labels (0.4 s, 1.0 s)
+    as text items, outside each frame's top-right corner, the far one only if it does not crowd the near one."""
     from nanouav.follow.estimate import project
     d = np.gradient(P[:, :2], axis=0)
     n = np.stack([-d[:, 1], d[:, 0]], 1)
@@ -364,18 +380,24 @@ def _tunnel(img, rig, pose, P, sx, sy, oy, col, half=(R_DRONE, 0.12), steps=(2, 
     for (j0, a), (j1, b) in zip(frames, frames[1:]):
         for q in range(4):
             cv2.line(img, tuple(a[q]), tuple(b[q]), col, 1, cv2.LINE_AA)
+    items, taken = [], []
+    H_, W_ = img.shape[:2]
     for i, (j, q) in enumerate(frames):
         if i == 0:
             _blend_poly(img, q, col, 0.25)
         cv2.polylines(img, [q], True, col, 3 if i < 2 else 2, cv2.LINE_AA)
         if labels and j in (4, 10):
-            cv2.putText(img, f'{j / 10:.1f} s', tuple(q[0] + [6, 0]), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1,
-                        cv2.LINE_AA)
+            tr = q[np.argmax(q[:, 0] - q[:, 1])]             # top-right corner on screen, whatever the roll
+            xy = (int(np.clip(tr[0] + 5, 2, W_ - 40)), int(np.clip(tr[1] - 16, 2, H_ - 18)))
+            if _free_spot(xy, taken, dx=40, dy=16):
+                items.append((f'{j / 10:.1f} s', xy, 12, (235, 235, 235)))
+                taken.append(xy)
     uv, X = project(rig, pose, P)
     ok = X > 0.5
     if ok.sum() >= 2:
         pts = np.array([[int((u + 0.5) * sx), int(oy + (v + 0.5) * sy)] for u, v in uv[ok]], np.int32)
         cv2.polylines(img, [pts], False, col, 2, cv2.LINE_AA)
+    return items
 
 
 Z_NEAR = 0.5                                        # m, brightest colour of the depth scale
@@ -474,9 +496,11 @@ def _local_map(hist, d, rig, w=480, h=360, ahead=10.0, v=None):
                                    for a in np.linspace(-half, half, 24)], np.int32)
     cv2.fillPoly(img, [wedge], FOV_BG, cv2.LINE_AA)
     labels = []
-    for r in (2, 4, 6, 8, 10):
+    a_lab = -(half + math.radians(7))                  # ring labels just right of the field of view, off the
+    for r in (2, 4, 6, 8, 10):                         # flight path and the arrows
         cv2.circle(img, px(0, 0), int(r * s), RING, 1, cv2.LINE_AA)
-        labels.append((f'{r} m', (px(r, 0)[0] + 4, px(r, 0)[1] + 2), 11, DIM_TXT))
+        x, y = px(r * math.cos(a_lab), r * math.sin(a_lab))
+        labels.append((f'{r} m', (min(x + 3, w - 32), y - 13), 11, DIM_TXT))
     # obstacles: the drone's own SGM points of the last second as a cloud, coloured by distance like the depth
     # panel and fading with age; around the cells seen in ≥ 3 frames (SGM noise does not repeat), a faint
     # contour of the margin the drone needs (its radius)
@@ -516,8 +540,15 @@ def _local_map(hist, d, rig, w=480, h=360, ahead=10.0, v=None):
         for du, dv in ((0, 0), (-1, 0), (0, -1), (-1, -1)):      # 2 × 2 px dots
             img[v_ + dv, u + du] = col
 
-    # trajectories (colour = predicted collision cost), the chosen one as wide as the drone
+    # trajectories (colour = predicted collision cost), the chosen one as wide as the drone; an index label
+    # only where it has room (not on the drone, the ω label or another index)
     W, costs, k_sel = _hypotheses(d)
+    taken = [px(0, 0)]
+    if d.get('omega') is not None:
+        om = TR.rotate_to_heading(np.asarray(d['omega'], float), yaw)
+        nrm = max(float(np.linalg.norm(om[:2])), 1e-6)
+        tip_w = px(2.5 * om[0] / nrm, 2.5 * om[1] / nrm)
+        taken.append((tip_w[0] + 4, tip_w[1] - 16))
     for k in sorted(range(len(W)), key=lambda k: k == k_sel):
         Q = TR.to_heading_frame(np.vstack([p, W[k]]), p, yaw)
         col = CYAN if not costs else _cost_color(costs[k])
@@ -530,12 +561,11 @@ def _local_map(hist, d, rig, w=480, h=360, ahead=10.0, v=None):
             cv2.polylines(img, [line], False, WHITE, 1, cv2.LINE_AA)
         else:
             cv2.polylines(img, [line], False, col, 1, cv2.LINE_AA)
-        if costs:
-            labels.append((str(k), tuple(line[-1] + [5, -8]), 12, col))
+        xy = (int(line[-1][0] + 5), int(line[-1][1] - 8))
+        if costs and np.hypot(*Q[-1, :2]) > 1.2 and _free_spot(xy, taken, dx=22, dy=16):
+            labels.append((str(k), xy, 12, col))
+            taken.append(xy)
     if d.get('omega') is not None:                     # where it is told to go
-        om = TR.rotate_to_heading(np.asarray(d['omega'], float), yaw)
-        nrm = max(float(np.linalg.norm(om[:2])), 1e-6)
-        tip_w = px(2.5 * om[0] / nrm, 2.5 * om[1] / nrm)
         _arrow(img, px(0, 0), tip_w, OMEGA_COL, None, 1)
         labels.append(('ω', (tip_w[0] + 4, tip_w[1] - 16), 15, OMEGA_COL))
     if v is not None:
