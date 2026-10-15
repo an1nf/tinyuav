@@ -483,7 +483,9 @@ R22, sin nada privilegiado y sin reentrenar.
 ## Un piloto sin red con el mismo sensor (R24, 2026-10-15)
 
 En nuestro simulador, un piloto reactivo sin red y sin nada privilegiado (`--pilots reactive`) llega en 37
-de 40 vuelos, frente a 28 de nuestro estudiante. Ver [R24](R24_reactivo_sin_red.md). En el almacén:
+de 40 vuelos, frente a 28 de nuestro estudiante. **En el almacén llega en 84/90**: 29, 29 y 26 de 30 a 3, 5 y
+7 m/s. El estudiante con `--keep` llega en 69/90; emparejado por entorno, 17 casos frente a 2
+($p = 7 \cdot 10^{-4}$). Con `--fan`, el estudiante no mejora (68/90). Ver [R24](R24_reactivo_sin_red.md).
 
 ```bash
 nanouav run r22 eval --arena --scene warehouse --pilots reactive --v 3,5,7 --n 30 --edge --tag n30

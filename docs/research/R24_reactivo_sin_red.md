@@ -63,6 +63,37 @@ de 40).
   que el dron mide y no soltar un plan libre. Es el mismo hallazgo de R22, ahora sin red.
 - **La latencia de decidir no cambia el resultado:** 25 de 30 con 80 ms frente a 24 de 30 con 50 ms.
 
+## En Flightmare: el almacén de R22 (2026-10-15)
+
+Las mismas 90 arenas (30 por velocidad) donde el estudiante con `--keep` llegaba en 69:
+
+| piloto | 3 m/s | 5 m/s | 7 m/s | total |
+|---|---|---|---|---|
+| **reactivo** `--edge` (sin red) | **29/30** | **29/30** | **26/30** | **84/90 (93 %)** |
+| estudiante `sgm --keep` | 21/30 | 24/30 | 24/30 | 69/90 |
+| estudiante `sgm --keep --fan --edge` | 24/30 | 23/30 | 21/30 | 68/90 |
+| oráculo (privilegiado, modelo de 10 rondas) | 16/30 | 21/30 | 22/30 | 59/90 |
+| estudiante con la regla del paper (`snap`) | 8/30 | 13/30 | 17/30 | 38/90 |
+
+**Emparejado por entorno**, el reactivo gana a todos:
+
+| frente a | entornos (solo el reactivo / solo el otro) | McNemar |
+|---|---|---|
+| estudiante `--keep` | 17 / 2 | $p = 7 \cdot 10^{-4}$ |
+| estudiante `--fan` | 18 / 2 | $p = 4 \cdot 10^{-4}$ |
+| oráculo | 27 / 2 | |
+| regla del paper | 47 / 1 | |
+
+La tasa de choque es de 0.2, 0.4 y 2.5 %/s, frente a 1.5–5.7 %/s del estudiante.
+
+- **Sin red, el mismo sensor y nada privilegiado, el reactivo es el mejor piloto que hemos tenido en
+  Flightmare.** Supera también al oráculo, que elegía con la verdad entre las 3 hipótesis de la red. Las
+  propuestas de la red eran el límite, no la elección.
+- **`--fan` no ayuda al estudiante** (15 frente a 16 entornos, $p = 1$). Probar el abanico solo cuando
+  ninguna hipótesis está libre llega tarde: el reactivo lo usa en cada cuadro.
+- **Lo que queda está a 7 m/s y casi todo al arrancar.** Los entornos 12 y 18 chocan a los 0.9 s también con
+  el estudiante: el vuelo empieza a 7 m/s con un tronco a pocos metros y sin historia de percepción.
+
 ## Qué se probó para la percepción
 
 **`--tilt`.** El sensor del paper inclinado 30° hacia arriba a ≥ 7 m/s, como ya se hacía en R22. Sin él, a

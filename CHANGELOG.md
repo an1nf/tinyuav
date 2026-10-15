@@ -3,6 +3,17 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.26.1] — 2026-10-15
+
+Sin cambios en el código: resultados y documentación.
+- **R24 en Flightmare (almacén, 90 vuelos):** el piloto `reactive --edge`, sin red y sin nada privilegiado,
+  llega en 84/90 (29, 29 y 26 de 30 a 3, 5 y 7 m/s).
+  - Estudiante `sgm --keep`: 69/90; emparejado, 17 frente a 2 ($p = 7 \cdot 10^{-4}$).
+  - Oráculo: 59/90.
+  - Regla del paper: 38/90.
+- `--fan` no mejora al estudiante: 68/90.
+- `docs/research/R24`, `R22`, `fundamentos.md`; registro de la corrida en `docs/research/r24/flightmare/`.
+
 ## [0.26.0] — 2026-10-15
 
 Sin cambios en los resultados por defecto.

@@ -1,0 +1,208 @@
+(.venv) pcvision@pcvision-HSI:~/Project_UAV/nanouav$ export NANOUAV_FLIGHTMARE=~/flightmare_unity/RPG_Flightmare.x86_64
+nanouav run r22 eval --arena --scene warehouse --pilots reactive --v 3,5,7 --n 30 --edge --tag n30 && \
+nanouav run r22 eval --arena --scene warehouse --pilots student --model results/r22/student_fm_warehouse_fov.keras --v 3,5,7 --n 30 --fan --edge --tag n30_r15
+started /home/pcvision/flightmare_unity/RPG_Flightmare.x86_64 (pid 1514142, log /home/pcvision/Project_UAV/nanouav/results/r22/unity.log)
+calib.json: fov_deg 90.0 (old probe) ignored → 73.74° (focal of the rig)
+waiting for Flightmare (warehouse, scene 0, 2022 binary) on ports 10253/10254 …
+connected
+reactive v=3 env 0: ok 13.5 s
+reactive v=3 env 1: ok 13.8 s
+reactive v=3 env 2: ok 13.5 s
+reactive v=3 env 3: ok 14.1 s
+reactive v=3 env 4: ok 13.5 s
+reactive v=3 env 5: ok 13.6 s
+reactive v=3 env 6: ok 13.6 s
+reactive v=3 env 7: ok 14.5 s
+reactive v=3 env 8: ok 13.7 s
+reactive v=3 env 9: ok 13.8 s
+reactive v=3 env 10: ok 13.5 s
+reactive v=3 env 11: ok 13.5 s
+reactive v=3 env 12: ok 13.7 s
+reactive v=3 env 13: ok 14.1 s
+reactive v=3 env 14: ok 14.0 s
+reactive v=3 env 15: ok 13.6 s
+reactive v=3 env 16: ok 13.5 s
+reactive v=3 env 17: ok 13.8 s
+reactive v=3 env 18: ok 14.7 s
+reactive v=3 env 19: ok 13.9 s
+reactive v=3 env 20: ok 13.5 s
+reactive v=3 env 21: ok 13.6 s
+reactive v=3 env 22: CRASH 6.1 s  hit {'at': [-2.09, -1.64, 1.94], 'what': 'trunk', 'dist': 0.219, 'obstacle': [-1.58, -1.6, 2.88], 'above_ground': 2.07}
+reactive v=3 env 23: ok 13.5 s
+reactive v=3 env 24: ok 13.5 s
+reactive v=3 env 25: ok 13.7 s
+reactive v=3 env 26: ok 13.8 s
+reactive v=3 env 27: ok 13.7 s
+reactive v=3 env 28: ok 13.6 s
+reactive v=3 env 29: ok 13.6 s
+reactive v=5 env 0: ok 8.1 s
+reactive v=5 env 1: ok 8.2 s
+reactive v=5 env 2: ok 8.2 s
+reactive v=5 env 3: ok 8.2 s
+reactive v=5 env 4: ok 8.2 s
+reactive v=5 env 5: ok 8.1 s
+reactive v=5 env 6: ok 8.1 s
+reactive v=5 env 7: ok 8.2 s
+reactive v=5 env 8: ok 8.6 s
+reactive v=5 env 9: ok 8.3 s
+reactive v=5 env 10: ok 8.3 s
+reactive v=5 env 11: ok 8.1 s
+reactive v=5 env 12: ok 8.3 s
+reactive v=5 env 13: ok 8.4 s
+reactive v=5 env 14: CRASH 5.1 s  hit {'at': [7.99, 2.03, 1.59], 'what': 'trunk', 'dist': 0.338, 'obstacle': [8.55, 1.63, 2.88], 'above_ground': 1.71}
+reactive v=5 env 15: ok 8.1 s
+reactive v=5 env 16: ok 8.1 s
+reactive v=5 env 17: ok 8.2 s
+reactive v=5 env 18: ok 9.5 s
+reactive v=5 env 19: ok 8.3 s
+reactive v=5 env 20: ok 8.1 s
+reactive v=5 env 21: ok 8.2 s
+reactive v=5 env 22: ok 9.3 s
+reactive v=5 env 23: ok 8.4 s
+reactive v=5 env 24: ok 8.1 s
+reactive v=5 env 25: ok 8.1 s
+reactive v=5 env 26: ok 8.3 s
+reactive v=5 env 27: ok 8.2 s
+reactive v=5 env 28: ok 8.2 s
+reactive v=5 env 29: ok 8.2 s
+reactive v=7 env 0: ok 5.8 s
+reactive v=7 env 1: ok 6.2 s
+reactive v=7 env 2: ok 6.1 s
+reactive v=7 env 3: ok 6.2 s
+reactive v=7 env 4: ok 5.9 s
+reactive v=7 env 5: ok 5.8 s
+reactive v=7 env 6: ok 5.8 s
+reactive v=7 env 7: ok 5.9 s
+reactive v=7 env 8: ok 6.2 s
+reactive v=7 env 9: ok 5.8 s
+reactive v=7 env 10: ok 5.9 s
+reactive v=7 env 11: ok 5.8 s
+reactive v=7 env 12: CRASH 0.9 s  hit {'at': [-9.8, 1.3, 1.69], 'what': 'trunk', 'dist': 0.175, 'obstacle': [-9.34, 1.68, 2.88], 'above_ground': 1.82}
+reactive v=7 env 13: ok 6.2 s
+reactive v=7 env 14: CRASH 3.5 s  hit {'at': [7.98, 1.82, 1.45], 'what': 'trunk', 'dist': 0.315, 'obstacle': [8.55, 1.63, 2.88], 'above_ground': 1.57}
+reactive v=7 env 15: ok 5.8 s
+reactive v=7 env 16: ok 5.8 s
+reactive v=7 env 17: ok 5.9 s
+reactive v=7 env 18: CRASH 0.9 s  hit {'at': [-8.7, -1.01, 1.5], 'what': 'trunk', 'dist': 0.236, 'obstacle': [-8.2, -0.68, 2.88], 'above_ground': 1.62}
+reactive v=7 env 19: ok 6.0 s
+reactive v=7 env 20: ok 5.8 s
+reactive v=7 env 21: CRASH 1.9 s  hit {'at': [-2.05, -0.23, 1.52], 'what': 'trunk', 'dist': 0.212, 'obstacle': [-1.6, 0.12, 2.88], 'above_ground': 1.65}
+reactive v=7 env 22: ok 6.2 s
+reactive v=7 env 23: ok 5.8 s
+reactive v=7 env 24: ok 5.8 s
+reactive v=7 env 25: ok 5.8 s
+reactive v=7 env 26: ok 6.2 s
+reactive v=7 env 27: ok 6.4 s
+reactive v=7 env 28: ok 5.8 s
+reactive v=7 env 29: ok 5.8 s
+pilot          v  success  crash    %/s    %/m  dec_ms
+reactive     3.0  29/30        1    0.2   0.08    17.5
+reactive     5.0  29/30        1    0.4   0.08    17.2
+reactive     7.0  26/30        4    2.5   0.37    18.5
+→ /home/pcvision/Project_UAV/nanouav/results/r22/eval_arena_warehouse_pilots_n30_sgm_keep_edge.json  (1532 s)
+started /home/pcvision/flightmare_unity/RPG_Flightmare.x86_64 (pid 1546437, log /home/pcvision/Project_UAV/nanouav/results/r22/unity.log)
+calib.json: fov_deg 90.0 (old probe) ignored → 73.74° (focal of the rig)
+waiting for Flightmare (warehouse, scene 0, 2022 binary) on ports 10253/10254 …
+connected
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1792080023.502776 1545951 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+W0000 00:00:1792080025.966009 1545951 gpu_bfc_allocator.cc:47] Overriding orig_value setting because the TF_FORCE_GPU_ALLOW_GROWTH environment variable is set. Original config value was false.
+I0000 00:00:1792080025.966209 1545951 gpu_device.cc:2043] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 10780 MB memory:  -> device: 0, name: NVIDIA TITAN X (Pascal), pci bus id: 0000:01:00.0, compute capability: 6.1
+I0000 00:00:1792080029.549645 1546704 cuda_dnn.cc:461] Loaded cuDNN version 90300
+student  v=3 env 0: CRASH 2.9 s  hit {'at': [-6.88, -1.59, 1.47], 'what': 'trunk', 'dist': 0.291, 'obstacle': [-6.61, -2.14, 2.88], 'above_ground': 1.6}
+student  v=3 env 1: ok 15.3 s
+student  v=3 env 2: ok 15.0 s
+student  v=3 env 3: ok 16.0 s
+student  v=3 env 4: ok 15.5 s
+student  v=3 env 5: ok 15.0 s
+student  v=3 env 6: ok 14.6 s
+student  v=3 env 7: ok 14.5 s
+student  v=3 env 8: ok 14.8 s
+student  v=3 env 9: ok 14.9 s
+student  v=3 env 10: ok 14.4 s
+student  v=3 env 11: CRASH 12.8 s  hit {'at': [20.18, 0.75, 1.48], 'what': 'trunk', 'dist': 0.198, 'obstacle': [20.7, 0.96, 2.88], 'above_ground': 1.61}
+student  v=3 env 12: ok 15.2 s
+student  v=3 env 13: ok 14.7 s
+student  v=3 env 14: CRASH 9.3 s  hit {'at': [8.14, 1.23, 1.73], 'what': 'trunk', 'dist': 0.214, 'obstacle': [8.55, 1.63, 2.88], 'above_ground': 1.85}
+student  v=3 env 15: ok 14.8 s
+student  v=3 env 16: ok 14.2 s
+student  v=3 env 17: ok 15.0 s
+student  v=3 env 18: CRASH 4.9 s  hit {'at': [-1.51, 0.58, 1.21], 'what': 'trunk', 'dist': 0.246, 'obstacle': [-1.31, 1.14, 2.88], 'above_ground': 1.34}
+student  v=3 env 19: ok 11.8 s
+student  v=3 env 20: CRASH 11.5 s  hit {'at': [13.21, -2.72, 0.74], 'what': 'trunk', 'dist': 0.309, 'obstacle': [13.67, -2.16, 2.88], 'above_ground': 0.86}
+student  v=3 env 21: ok 15.2 s
+student  v=3 env 22: CRASH 2.5 s  hit {'at': [-9.13, 1.72, 1.66], 'what': 'trunk', 'dist': 0.233, 'obstacle': [-8.65, 1.39, 2.88], 'above_ground': 1.78}
+student  v=3 env 23: ok 14.6 s
+student  v=3 env 24: ok 14.5 s
+student  v=3 env 25: ok 15.0 s
+student  v=3 env 26: ok 15.6 s
+student  v=3 env 27: ok 14.2 s
+student  v=3 env 28: ok 15.2 s
+student  v=3 env 29: ok 16.0 s
+student  v=5 env 0: CRASH 3.7 s  hit {'at': [0.76, -1.37, 1.53], 'what': 'trunk', 'dist': 0.279, 'obstacle': [1.34, -0.96, 2.88], 'above_ground': 1.65}
+student  v=5 env 1: ok 8.2 s
+student  v=5 env 2: ok 8.5 s
+student  v=5 env 3: ok 7.6 s
+student  v=5 env 4: ok 8.6 s
+student  v=5 env 5: ok 8.4 s
+student  v=5 env 6: ok 8.8 s
+student  v=5 env 7: ok 8.7 s
+student  v=5 env 8: CRASH 5.9 s  hit {'at': [14.59, 1.55, 1.49], 'what': 'trunk', 'dist': 0.352, 'obstacle': [15.28, 1.36, 2.88], 'above_ground': 1.62}
+student  v=5 env 9: ok 8.7 s
+student  v=5 env 10: CRASH 5.8 s  hit {'at': [12.77, -2.32, 1.51], 'what': 'trunk', 'dist': 0.34, 'obstacle': [13.41, -2.08, 2.88], 'above_ground': 1.63}
+student  v=5 env 11: ok 8.6 s
+student  v=5 env 12: ok 8.4 s
+student  v=5 env 13: ok 8.4 s
+student  v=5 env 14: ok 7.6 s
+student  v=5 env 15: ok 8.5 s
+student  v=5 env 16: ok 8.6 s
+student  v=5 env 17: ok 8.7 s
+student  v=5 env 18: CRASH 8.3 s  hit {'at': [24.29, -0.61, 1.3], 'what': 'trunk', 'dist': 0.185, 'obstacle': [24.59, -0.17, 2.88], 'above_ground': 1.43}
+student  v=5 env 19: ok 7.7 s
+student  v=5 env 20: ok 8.6 s
+student  v=5 env 21: ok 8.6 s
+student  v=5 env 22: ok 8.2 s
+student  v=5 env 23: CRASH 5.5 s  hit {'at': [11.41, -0.8, 1.25], 'what': 'trunk', 'dist': 0.215, 'obstacle': [11.46, -1.36, 2.88], 'above_ground': 1.37}
+student  v=5 env 24: ok 8.6 s
+student  v=5 env 25: ok 8.6 s
+student  v=5 env 26: CRASH 3.6 s  hit {'at': [1.35, 1.54, 1.54], 'what': 'trunk', 'dist': 0.23, 'obstacle': [1.91, 1.84, 2.88], 'above_ground': 1.66}
+student  v=5 env 27: ok 8.5 s
+student  v=5 env 28: ok 8.5 s
+student  v=5 env 29: CRASH 7.9 s  hit {'at': [20.04, -1.73, 1.05], 'what': 'trunk', 'dist': 0.157, 'obstacle': [20.32, -1.29, 2.88], 'above_ground': 1.18}
+student  v=7 env 0: ok 6.1 s
+student  v=7 env 1: ok 6.0 s
+student  v=7 env 2: ok 6.4 s
+student  v=7 env 3: CRASH 3.5 s  hit {'at': [7.48, 0.24, 1.39], 'what': 'trunk', 'dist': 0.396, 'obstacle': [8.21, 0.07, 2.88], 'above_ground': 1.51}
+student  v=7 env 4: ok 6.1 s
+student  v=7 env 5: ok 6.2 s
+student  v=7 env 6: ok 6.2 s
+student  v=7 env 7: ok 6.1 s
+student  v=7 env 8: CRASH 2.9 s  hit {'at': [3.26, -1.14, 1.54], 'what': 'trunk', 'dist': 0.437, 'obstacle': [3.99, -1.31, 2.88], 'above_ground': 1.66}
+student  v=7 env 9: ok 6.2 s
+student  v=7 env 10: ok 5.9 s
+student  v=7 env 11: ok 6.3 s
+student  v=7 env 12: CRASH 0.8 s  hit {'at': [-9.96, 1.92, 1.56], 'what': 'trunk', 'dist': 0.319, 'obstacle': [-9.34, 1.68, 2.88], 'above_ground': 1.69}
+student  v=7 env 13: ok 6.2 s
+student  v=7 env 14: CRASH 2.3 s  hit {'at': [-0.44, 0.25, 1.45], 'what': 'trunk', 'dist': 0.312, 'obstacle': [0.09, -0.33, 2.88], 'above_ground': 1.57}
+student  v=7 env 15: ok 6.2 s
+student  v=7 env 16: CRASH 3.1 s  hit {'at': [5.04, 1.17, 1.5], 'what': 'trunk', 'dist': 0.371, 'obstacle': [5.39, 0.45, 2.88], 'above_ground': 1.62}
+student  v=7 env 17: CRASH 5.8 s  hit {'at': [22.17, 0.59, 1.65], 'what': 'trunk', 'dist': 0.423, 'obstacle': [22.87, 0.42, 2.88], 'above_ground': 1.78}
+student  v=7 env 18: ok 6.1 s
+student  v=7 env 19: ok 5.6 s
+student  v=7 env 20: ok 6.1 s
+student  v=7 env 21: CRASH 4.7 s  hit {'at': [15.47, -0.46, 1.43], 'what': 'trunk', 'dist': 0.374, 'obstacle': [16.12, -0.39, 2.88], 'above_ground': 1.55}
+student  v=7 env 22: CRASH 2.2 s  hit {'at': [-1.14, 4.18, 1.4], 'what': 'trunk', 'dist': 0.254, 'obstacle': [-0.63, 3.72, 2.88], 'above_ground': 1.53}
+student  v=7 env 23: ok 6.1 s
+student  v=7 env 24: ok 6.1 s
+student  v=7 env 25: ok 6.2 s
+student  v=7 env 26: CRASH 2.7 s  hit {'at': [2.33, -0.82, 1.32], 'what': 'trunk', 'dist': 0.175, 'obstacle': [2.63, -1.32, 2.88], 'above_ground': 1.45}
+student  v=7 env 27: ok 6.2 s
+student  v=7 env 28: ok 6.1 s
+student  v=7 env 29: ok 6.2 s
+pilot          v  success  crash    %/s    %/m  dec_ms
+student      3.0  24/30        6    1.5   0.46    19.7
+student      5.0  23/30        7    3.0   0.60    18.7
+student      7.0  21/30        9    5.7   0.86    18.4
+→ /home/pcvision/Project_UAV/nanouav/results/r22/eval_arena_warehouse_student_fm_warehouse_fov_n30_r15_sgm_keep_fan_edge.json  (1428 s)
+(.venv) pcvision@pcvision-HSI:~/Project_UAV/nanouav$ 

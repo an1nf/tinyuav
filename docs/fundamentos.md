@@ -1,6 +1,6 @@
 # Fundamentos de nanouav
 
-*2026-10-15 · nanouav 0.25.0.* Este documento explica, en un solo lugar, **qué** se ha construido, **por
+*2026-10-15 · nanouav 0.26.1.* Este documento explica, en un solo lugar, **qué** se ha construido, **por
 qué** funciona así (las razones matemáticas) y **cómo** está organizado el proyecto. Los informes de cada
 iteración (`docs/research/R*.md`) tienen los detalles y los números de cada experimento; aquí se reúne lo
 que los sostiene.
@@ -622,9 +622,13 @@ Flightmare sin Unity.
 
 ## 7. Estado actual y lo que sigue
 
-**Dónde estamos (R22, 0.24.0).** El estudiante de 300 entornos llega en **69 de 90 vuelos** en el almacén:
-21/30, 24/30 y 24/30 a 3, 5 y 7 m/s. Elige con su propio SGM (`sgm`) y no suelta un plan libre (`--keep`).
-El experto privilegiado y τ_gbl llegan siempre.
+**Dónde estamos (0.26.1).** En el almacén de Flightmare, el **piloto reactivo sin red** (R24) llega en
+**84 de 90 vuelos**: 29/30, 29/30 y 26/30 a 3, 5 y 7 m/s.
+- El mejor estudiante (`sgm --keep`) llega en 69/90; emparejado, 17 casos frente a 2, $p = 7 \cdot 10^{-4}$.
+- Con la regla del paper, el estudiante llega en 38/90.
+
+En nuestro bosque, el reactivo llega en 37/40 (39/40 con VGA). El experto privilegiado y τ_gbl llegan
+siempre.
 
 **Lo que se aprendió, en orden:**
 1. **Geometría antes que aprendizaje.** El mal estudiante inicial era sobre todo una focal equivocada en
@@ -646,7 +650,10 @@ El experto privilegiado y τ_gbl llegan siempre.
    se estanca en 24–25 de 30. Es el límite de R4: el alcance de 10 m del estéreo es 1 s de vuelo.
 
 **Lo que queda:**
-- **Medir el reactivo en Flightmare** contra el 69/90 del estudiante, y el híbrido estudiante + `--fan`.
+- **10 m/s en Flightmare** con el reactivo, y el arranque a 7 m/s: sus fallos, como los del estudiante,
+  ocurren casi todos en el primer segundo.
+- **R25 (física diferenciable, Zhang et al. 2025):** entrenarla en la GPU para ver si una política aprendida
+  supera al reactivo.
 - **7 m/s.** 5 de sus 6 choques llegan en los primeros 2.5 s: el vuelo arranca ya a la velocidad objetivo,
   con troncos desde 2.5 m y sin historia de percepción. Hay que medir si es un artefacto del protocolo de
   salida (`r22 diagnose` con `--keep`).
