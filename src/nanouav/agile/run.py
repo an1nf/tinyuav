@@ -74,7 +74,8 @@ def _eval_job(job):
         kw['rig'] = dataclasses.replace(rig, tilt_up_deg=30.0 if (job.get('tilt') and job['v'] >= 7.0 - 1e-6) else 0.0)
     cfg = Config(v_des=job['v'], cam_hz=job['cam_hz'], seed=job['seed'], omega_ref=om, latency=job.get('latency') or 0.05,
                  **kw)
-    pol = dagger._policy(job.get('model')) if job['pilot'] == 'student' else None
+    pol = dagger._policy(job.get('model')) if job['pilot'] == 'student' else \
+        (job.get('model') if job['pilot'] == 'diffphys' else None)      # diffphys: the model path
     try:
         R = Rollout(env, cfg, job['pilot'], pol)
         apply_opts(R, job)
@@ -179,7 +180,7 @@ def main():
             p.add_argument('--world', default='forest', choices=['forest', 'gap'])
             p.add_argument('--v', type=float, default=3.0)
             p.add_argument('--seed', type=int, default=1000)
-            p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl', 'blind', 'reactive'])
+            p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl', 'blind', 'reactive', 'diffphys'])
             p.add_argument('--no-chase', dest='chase', action='store_false', help='skip the chase camera (faster)')
             p.add_argument('--debug-map', action='store_true',
                            help='old panels with the true map (default: only what the drone perceives)')

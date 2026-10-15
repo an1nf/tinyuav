@@ -658,6 +658,7 @@ class Rollout:
         self._perceived = None                        # SELECT = 'sgm': the episode's own perceived obstacles
         self._flying = self._kept = self._old = self._fanned = None   # KEEP / FAN: the plan being flown, …
         self._blind, sel_ms = None, []                                   # decision time of the pilot (ms)
+        self._dp = None                                                  # R25: the recurrent policy (fresh state)
         A, yaw0, v0 = M.start()
         sim = QuadSim(AGILE, pos=A, yaw=yaw0, seed=cfg.seed)
         sim.v = np.asarray(v0, float)
@@ -683,7 +684,7 @@ class Rollout:
                 a0 = {'plan': plan.ref(t)[2] if plan is not None else np.zeros(3), 'zero': np.zeros(3),
                       'meas': sim.acc}[self.A0_MODE]
                 depth = cam = None
-                need_depth = self.label or self.pilot in ('student', 'dagger', 'reactive') or \
+                need_depth = self.label or self.pilot in ('student', 'dagger', 'reactive', 'diffphys') or \
                     (self.record_cam and self.trace is not None)
                 if need_depth or M.needs_camera:
                     if self.observer is not None:
@@ -732,6 +733,17 @@ class Rollout:
                     new = self.plan_expert(ref, p, v, a0, t)
                 elif self.pilot in ('blind', 'direct'):        # straight toward the goal, no perception
                     new = self._plan_points(F['blind'], p, v, a0, t, self.pilot)
+                elif self.pilot == 'diffphys':                 # R25: acceleration from the recurrent policy
+                    if getattr(self, '_dp', None) is None:
+                        from nanouav.agile.diffphys import DiffPhysPilot
+                        self._dp = DiffPhysPilot(self.policy)
+                    gd = np.asarray(self.env.goal, float) - p
+                    t_d = time.perf_counter()
+                    acc = self._dp(cam['depth'], p, v, R, gd / max(float(np.linalg.norm(gd)), 1e-6), yaw, self._v_des)
+                    sel_ms.append(1000 * (time.perf_counter() - t_d))
+                    coef = np.zeros((3, 6))
+                    coef[:, 0], coef[:, 1], coef[:, 2] = p, v, 0.5 * acc
+                    new = TR.Plan(coef, t, 1.0, source='diffphys')
                 elif self.pilot == 'reactive':                 # no network: candidates around ω on its own SGM
                     self._flying, self._blind = (pending[-1][1] if pending else plan), F['blind']
                     t_d = time.perf_counter()

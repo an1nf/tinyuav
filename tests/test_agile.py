@@ -523,3 +523,26 @@ def test_soft_clearance_cost_prefers_the_wider_gap():
     assert fan_cost(W, ref)[0] == pytest.approx(fan_cost(W, ref)[1])
     J = fan_cost(W, ref, clear=[0.36, 1.2], w_clear=2.0)
     assert J[0] > J[1] + 1.5
+
+
+def test_diffphys_simulator_gives_gradients_and_images():
+    """R25: the differentiable point mass runs, its loss has gradients for the policy, the clearance is
+    analytic, and the deployed depth input min-pools the SGM (holes → far)."""
+    tf = pytest.importorskip('tensorflow')
+    from nanouav.agile import diffphys as DP
+    rng = np.random.default_rng(0)
+    cx, cy, rr = DP.forest_batch(rng, 2)
+    d, n = DP.clearance(tf.constant([[cx[0, 0] + rr[0, 0] + 0.5, cy[0, 0], 1.5], [0.0, 0.0, 0.3]]),
+                        tf.constant(cx), tf.constant(cy), tf.constant(rr))
+    assert float(d[0]) <= 0.5 + 1e-4 and float(d[1]) <= 0.3 + 1e-5      # beside a trunk; near the ground
+    pol = DP.build_policy(hidden=16)
+    with tf.GradientTape() as tape:
+        loss, m = DP.rollout_loss(pol, tf.constant(cx), tf.constant(cy), tf.constant(rr), [4.0, 6.0], T=5)
+    g = tape.gradient(loss, pol.trainable_variables)
+    assert np.isfinite(m['loss']) and float(tf.linalg.global_norm(g)) > 0
+    dep = np.full((240, 320), 8.0, np.float32)
+    dep[:20, :20] = 2.0
+    dep[100:120, 100:120] = 0.0
+    x = DP.DiffPhysPilot.depth_input(dep)
+    assert x.shape == (12, 16) and x[0, 0] == pytest.approx(0.5) and x[6, 6] == pytest.approx(1 / 8)
+    assert x[5, 5] == pytest.approx(1 / DP.D_MAX)            # a block with no depth reads as far

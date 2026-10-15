@@ -3,6 +3,19 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.26.0] — 2026-10-15
+
+Sin cambios en los resultados por defecto.
+
+### Añadido
+- **R25, física diferenciable** (Zhang et al. 2025): `nanouav.agile.diffphys`, `nanouav run r25 train`.
+  - simulador de masa puntual en TensorFlow con distancia analítica y profundidad de 16 × 12 por rayos;
+  - pérdida de velocidad, choque (barrera más velocidad de acercamiento), aceleración y jerk;
+  - política CNN + GRU;
+  - piloto `diffphys` en `r18 eval`, con su propio SGM.
+- **Prueba de concepto en CPU** (700 iteraciones): 10, 9, 9 y 1 de 10 a 3, 5, 7 y 10 m/s, sin pasar de
+  ~4.4 m/s. Falta entrenarla como el paper en la GPU (ver R25).
+
 ## [0.25.0] — 2026-10-15
 
 Sin cambios en los resultados por defecto (todo lo nuevo va tras banderas).
