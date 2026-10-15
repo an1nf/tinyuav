@@ -446,6 +446,40 @@ cada choque, cuántas decisiones no tenían ninguna hipótesis libre y cuántas 
 en curso. Se mide sin `--keep`, así que dice si el caso ocurre antes de probar la regla. `r22 eval` imprime la
 tasa de choque por segundo y por metro, y `r22 compare A.json B.json` empareja dos corridas por entorno.
 
+## Seguir con el plan libre: 69/90 (2026-10-15)
+
+`--keep`, mismo estudiante (15 rondas), `--n 30`:
+
+| selección | 3 m/s | 5 m/s | 7 m/s | total | choques por segundo (3 · 5 · 7 m/s) |
+|---|---|---|---|---|---|
+| `sgm` | 12/30 | 22/30 | 24/30 | 58/90 | 6.0 · 3.7 · 3.6 %/s |
+| **`sgm --keep`** | **21/30** | **24/30** | 24/30 | **69/90 (77 %)** | 2.3 · 2.6 · 3.8 %/s |
+
+**Contra las corridas del mismo modelo** (entornos donde solo llega `--keep` / solo llega la otra):
+
+| corrida | casos | McNemar |
+|---|---|---|
+| `sgm` | 21 / 10 | $p = 0.07$ |
+| `sgm`, solo a 3 m/s | 12 / 3 | $p = 0.035$ |
+| `--lookahead 0.5`, que no cambiaba nada | 22 / 6 | $p = 0.004$ |
+| `--lookahead 1.0` | 21 / 6 | $p = 0.006$ |
+
+**Contra el oráculo sin `--keep`** (privilegiado, modelo de 10 rondas): 69 contra 59 llegadas. Es el mejor resultado de
+R22, sin nada privilegiado y sin reentrenar.
+
+- **La ganancia está donde se predijo.** Es grande a 3 m/s, donde hay más decisiones por metro (+9), y nula a
+  7 m/s (24 → 24).
+- **La tasa por segundo ya no es constante:** 2.3, 2.6 y 3.8 %/s. Ahora crece con la velocidad, como cabe
+  esperar y como en el paper. La causa dominante a baja velocidad era soltar un plan que seguía libre porque
+  ninguna de las 3 hipótesis nuevas lo estaba.
+- **Lo que queda a 7 m/s ocurre al arrancar:** 5 de sus 6 choques llegan en los primeros 2.5 s. El vuelo
+  empieza ya a la velocidad objetivo (`GoalMission.start`), con troncos desde 2.5 m del punto de partida y
+  sin historia de percepción. A 7 m/s, un tronco a 4 m deja menos de 0.6 s.
+
+**Desde 0.24.0, `--keep` es el valor por defecto en `r22 eval`, `video`, `diagnose` y `dagger`**
+(`--no-keep` para ≤ 0.23). R18 no cambia: allí `snap` es el valor por defecto, y `--keep` solo actúa con
+`sgm` u `oracle`.
+
 ## Cómo correrlo
 
 ```bash

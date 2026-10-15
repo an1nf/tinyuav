@@ -3,6 +3,20 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.24.0] — 2026-10-15
+
+**Cambia el valor por defecto en R22.** `r22 eval`, `video`, `diagnose` y `dagger` usan `--keep`
+(`--no-keep` para ≤ 0.23). Con 90 vuelos en el almacén y el mismo estudiante:
+- `sgm --keep`: 21/30, 24/30 y 24/30 a 3, 5 y 7 m/s, 69/90;
+- `sgm`: 58/90 (emparejados, 21 frente a 10 entornos, $p = 0.07$; a 3 m/s, 12 frente a 3, $p = 0.035$);
+- frente a las dos corridas con `--lookahead`: 22/6 y 21/6 ($p = 0.004$ y $0.006$).
+
+La tasa de choque por segundo pasa de 6.0, 3.7 y 3.6 %/s a 2.3, 2.6 y 3.8 %/s: ya no es constante, crece con
+la velocidad. R18 sigue con `snap`.
+
+### Cambiado
+- `flightmare.dagger.run(keep=)`: el estudiante vuela sus rondas con la regla con la que se evalúa.
+
 ## [0.23.0] — 2026-10-14
 
 Sin cambios en los resultados por defecto.

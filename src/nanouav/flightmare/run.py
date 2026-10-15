@@ -653,7 +653,8 @@ def cmd_dagger(a):
     m = FD.run(cl, arena_path, out, rig, n_envs=a.envs, per_round=a.per_round, workers=a.workers, epochs=a.epochs,
                batch=a.batch, v_min=a.v_min, v_max=a.v_max, cam_hz=a.cam_hz,
                init_model=os.path.abspath(a.init) if a.init else None, xi_start=a.xi_start, xi_step=a.xi_step,
-               train_kw=tk, tag=a.tag or _dagger_tag(a), omega_ref=a.omega, label_ref=a.label_ref, select=a.select)
+               train_kw=tk, tag=a.tag or _dagger_tag(a), omega_ref=a.omega, label_ref=a.label_ref, select=a.select,
+               keep=a.keep)
     cl.close()
     print('student →', m)
 
@@ -935,14 +936,15 @@ def main(argv=None):
         p.add_argument('--select', default='sgm', choices=['snap', 'consistent', 'oracle', 'sgm', 'oracle_cost', 'sgm_cost'],
                        help="sgm (default since 0.22.0): the least snap among the plans its own SGM of the last second "
                             "sees free (not privileged; 62/90 in the warehouse against 38/90 for snap, the paper's "
-                            "predicted-cost rule); oracle: the same with the true clearance (privileged, diagnosis "
-                            "only); *_cost: the predicted-cost rule among the free ones")
+                            "predicted-cost rule; 69/90 with --keep); oracle: the same with the true clearance "
+                            "(privileged, diagnosis only); *_cost: the predicted-cost rule among the free ones")
         p.add_argument('--lookahead', type=float, default=0.0,
                        help='sgm/oracle: also the continuation of each plan at its final velocity for this many seconds '
                             'must be free (against plans that end pointing into a trunk)')
-        p.add_argument('--keep', action='store_true',
+        p.add_argument('--keep', action=argparse.BooleanOptionalAction, default=True,
                        help='sgm/oracle: when none of the new hypotheses is free, go on flying the current plan if what '
-                            'is left of it (≥ 0.3 s) still is')
+                            'is left of it (≥ 0.3 s) still is (default since 0.24.0: 69/90 in the warehouse against '
+                            '58/90 without it; --no-keep: ≤ 0.23)')
         p.add_argument('--arena', action='store_true', help='the arena test forests (r22 arena) instead of the lines')
         if name == 'eval':
             p.add_argument('--pilots', default='gbl,student')
@@ -995,6 +997,9 @@ def main(argv=None):
     p.add_argument('--select', default='sgm', choices=['snap', 'sgm'],
                    help="how the student picks among its hypotheses while it flies the DAgger rounds (the states it "
                         "visits): sgm (default since 0.22.0, what is evaluated) or snap (≤ 0.21)")
+    p.add_argument('--keep', action=argparse.BooleanOptionalAction, default=True,
+                   help='with sgm: fly on the current plan when no new hypothesis is free and it still is, as evaluated '
+                        '(default since 0.24.0; --no-keep: ≤ 0.23)')
     for q in sub.choices.values():
         q.add_argument('--results', dest='out', default='', help='results directory (default results/r22)')
         q.add_argument('--scene', default='forest')
