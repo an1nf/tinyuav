@@ -321,10 +321,14 @@ def _blend_poly(img, pts, color, alpha):
     cv2.addWeighted(ov, alpha, img, 1 - alpha, 0, img)
 
 
+KEPT_COL = (235, 235, 235)                          # --keep: the previous plan, flown on
+
+
 def _hypotheses(d):
+    """→ (hypotheses, predicted costs, index of the chosen one: −1 if it flew on the previous plan, --keep)."""
     W = [np.asarray(w, float) for w in d['W']]
     costs = list(d.get('costs') or [])
-    return W, costs, int(d.get('k', 0))
+    return W, costs, -1 if d.get('kept') else int(d.get('k', 0))
 
 
 def _camera_hud(d, rig, w=800, h=600):
@@ -352,6 +356,8 @@ def _camera_hud(d, rig, w=800, h=600):
                 if 0 <= pts[-1][0] < w and 0 <= pts[-1][1] < h:
                     xy = (int(np.clip(pts[-1][0] + 5, 2, w - 14)), int(np.clip(pts[-1][1] - 9, 2, h - 18)))
                     idx.append((str(k), xy, 13, col))
+    if d.get('W_kept'):                                  # --keep: the tunnel is the previous plan, flown on
+        items += _tunnel(img, rig, pose, np.vstack([p0, d['W_kept']]), sx, sy, 0, KEPT_COL)
     taken = [it[1] for it in items]                     # the time labels first, then the indices that fit
     for it in idx:
         if _free_spot(it[1], taken, dx=22, dy=16):
@@ -449,7 +455,7 @@ def _depth_panel(d, rig, w=480, h=360):
     pose = (np.array(d['p']), *d['att'])
     W, costs, k_sel = _hypotheses(d)
     if W:
-        P = np.vstack([np.array(d['p'], float), W[k_sel]])
+        P = np.vstack([np.array(d['p'], float), d['W_kept'] if d.get('W_kept') else W[k_sel]])
         ov = img.copy()
         _tunnel(ov, rig, pose, P, iw / rig.width, ih / rig.height, y0, (255, 230, 120), labels=False)
         cv2.addWeighted(ov, 0.7, img, 0.3, 0, img)
@@ -565,6 +571,12 @@ def _local_map(hist, d, rig, w=480, h=360, ahead=10.0, v=None):
         if costs and np.hypot(*Q[-1, :2]) > 1.2 and _free_spot(xy, taken, dx=22, dy=16):
             labels.append((str(k), xy, 12, col))
             taken.append(xy)
+    if d.get('W_kept'):                                 # --keep: flying on the previous plan
+        Q = TR.to_heading_frame(np.vstack([p, d['W_kept']]), p, yaw)
+        L, R = _ribbon(Q)
+        poly = np.array([px(x, y) for x, y, _ in L] + [px(x, y) for x, y, _ in R[::-1]], np.int32)
+        _blend_poly(img, poly, KEPT_COL, 0.45)
+        cv2.polylines(img, [poly], True, KEPT_COL, 1, cv2.LINE_AA)
     if d.get('omega') is not None:                     # where it is told to go
         _arrow(img, px(0, 0), tip_w, OMEGA_COL, None, 1)
         labels.append(('ω', (tip_w[0] + 4, tip_w[1] - 16), 15, OMEGA_COL))

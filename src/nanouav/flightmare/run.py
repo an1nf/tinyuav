@@ -434,7 +434,8 @@ def _episode(a, env, i, pilot, v, client, calib, model, trace=False, rig=None):
     om = omega_of(model) if pilot == 'student' and model else 'line'
     cfg = Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, omega_ref=om, **({'rig': rig} if rig is not None else {}))
     R = Rollout(env, cfg, pilot, dagger._policy(model) if pilot == 'student' else None)
-    apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select, 'lookahead': a.lookahead})
+    apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select, 'lookahead': a.lookahead,
+                   'keep': getattr(a, 'keep', False)})
     obs = None
     if pilot == 'student' or trace:
         if client.n_objects:
@@ -511,17 +512,29 @@ def cmd_eval(a):
                       f"{r['time_s']:.1f} s" + (f"  hit {r['crash']}" if r.get('crash') else ''), flush=True)
     tag = (os.path.splitext(os.path.basename(model))[0] if model else 'pilots') + (f'_{a.tag}' if a.tag else '') + \
         (f'_{a.select}' if getattr(a, 'select', 'snap') != 'snap' else '') + \
-        (f'_la{a.lookahead:g}' if getattr(a, 'lookahead', 0) else '')
+        (f'_la{a.lookahead:g}' if getattr(a, 'lookahead', 0) else '') + ('_keep' if getattr(a, 'keep', False) else '')
     fn = os.path.join(out, f"eval_{'arena_' if a.arena else ''}{a.scene}_{tag}.json")
     json.dump(table, open(fn, 'w'), indent=1)
-    print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s}')
+    # crash rate per second and per metre of flight (R22: constant per second across speeds — the slow
+    # flights crash more because they last longer)
+    print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s} {"%/s":>6s} {"%/m":>6s}')
     for p in pilots:
         for v in speeds:
             R = table[f'{p}_v{v:g}']
-            print(f'{p:10s} {v:5.1f} {sum(r["success"] for r in R):3d}/{len(R):<4d} {sum(r["crashed"] for r in R):6d}')
+            k, T = sum(r['crashed'] for r in R), sum(r['time_s'] for r in R)
+            D = sum(r['time_s'] * r['mean_speed'] for r in R)
+            print(f'{p:10s} {v:5.1f} {sum(r["success"] for r in R):3d}/{len(R):<4d} {k:6d} '
+                  f'{100 * k / max(T, 1e-9):6.1f} {100 * k / max(D, 1e-9):6.2f}')
     print(f'→ {fn}  ({time.time() - t0:.0f} s)')
     if client:
         client.close()
+
+
+def cmd_compare(a):
+    """Runs of `eval` over the same environments: arrivals, crash rates, and each run against the first,
+    paired by environment (exact McNemar)."""
+    from nanouav.agile.stats import compare
+    compare(a.files)
 
 
 def cmd_video(a):
@@ -786,7 +799,7 @@ def cmd_diagnose(a):
     client = make_client(a, calib, n_objects=a.n_objects, rig=rig)
     model = os.path.abspath(a.model)
     tag = os.path.splitext(os.path.basename(model))[0] + (f'_{a.select}' if a.select != 'snap' else '') + \
-        (f'_la{a.lookahead:g}' if a.lookahead else '')
+        (f'_la{a.lookahead:g}' if a.lookahead else '') + ('_keep' if a.keep else '')
     d_out = os.path.join(out, f'diag_arena_{tag}')
     os.makedirs(d_out, exist_ok=True)
     res = []
@@ -802,7 +815,8 @@ def cmd_diagnose(a):
             from nanouav.agile.policy import omega_of
             R = Rollout(env, Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, rig=rv, omega_ref=omega_of(model)),
                         'student', dagger._policy(model))
-            apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select, 'lookahead': a.lookahead})
+            apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select, 'lookahead': a.lookahead,
+                   'keep': getattr(a, 'keep', False)})
             R.observer = FlightmareObserver(client, rv, calib)
             R.trace = []
             r, _, log = R.run()
@@ -818,17 +832,24 @@ def cmd_diagnose(a):
             pe = DG.perception_errors(tr)
             if pe:
                 x['perception'] = pe
+            ks = DG.keep_stats(tr)
+            if ks:
+                x['keep'] = ks
             if r['crashed']:
                 dg = DG.classify(env, tr, log, v)
                 x['class'] = dg['class']
                 x['in_view'] = dg['in_view_0.5s']
+                x['keep_1s'] = dg['keep_1s']
                 DG.plot(env, tr, log, dg, os.path.join(d_out, f'v{v:g}_env{i}.png'))
             res.append(x)
             print(f"v={v:g} env {i}: {'ok' if x['success'] else 'CRASH ' + x.get('class', '') if x['crashed'] else 'fail'}"
                   f"  drift {x['drift_mean_m']:+.2f} m (end {x['drift_end_m']:+.2f})  chosen left/right "
                   f"{x['chosen_left']}/{x['chosen_right']}  SGM valid {x['sgm_valid']} err {x['sgm_err']}"
                   + (f"  SGM vs truth: missed {pe['missed']} false alarm {pe['false_alarm']} chose colliding "
-                     f"{pe['chose_colliding']}" if pe else ''), flush=True)
+                     f"{pe['chose_colliding']}" if pe else '')
+                  + (f"  last 1 s: none free {x['keep_1s']['none_free']}/{x['keep_1s']['n']}, old plan still free "
+                     f"{x['keep_1s']['old_free']} (truly {x['keep_1s']['old_truly_free']}), kept {x['keep_1s']['kept']}"
+                     if x.get('keep_1s') else ''), flush=True)
     client.close()
     json.dump(res, open(os.path.join(d_out, 'diag.json'), 'w'), indent=1)
     K = ('todas_chocan', 'cambio_de_plan', 'eligio_mal', 'plan_justo', 'seguimiento')
@@ -846,6 +867,12 @@ def cmd_diagnose(a):
         print(f"--select sgm, its own SGM against the truth: of the plans that truly collide it saw {m('missed'):.0%} "
               f"as free; of the truly free ones it saw {m('false_alarm'):.0%} as blocked; {m('chose_colliding'):.1%} "
               f"of its decisions flew a colliding plan it saw as free")
+    KS = [x['keep_1s'] for x in res if x.get('keep_1s')]
+    if KS:
+        tot = {k: sum(q[k] for q in KS) for k in ('none_free', 'old_free', 'old_truly_free', 'kept', 'n')}
+        print(f"last second before each crash ({len(KS)} crashes, {tot['n']} decisions): none of the new plans free in "
+              f"{tot['none_free']}; of those, what was left of the plan being flown still free in {tot['old_free']} "
+              f"(truly free {tot['old_truly_free']}); kept (--keep) {tot['kept']}")
     print(f'→ {d_out}: diag.json and one PNG per crash (deriva: + = izquierda)')
 
 
@@ -913,6 +940,9 @@ def main(argv=None):
         p.add_argument('--lookahead', type=float, default=0.0,
                        help='sgm/oracle: also the continuation of each plan at its final velocity for this many seconds '
                             'must be free (against plans that end pointing into a trunk)')
+        p.add_argument('--keep', action='store_true',
+                       help='sgm/oracle: when none of the new hypotheses is free, go on flying the current plan if what '
+                            'is left of it (≥ 0.3 s) still is')
         p.add_argument('--arena', action='store_true', help='the arena test forests (r22 arena) instead of the lines')
         if name == 'eval':
             p.add_argument('--pilots', default='gbl,student')
@@ -925,6 +955,8 @@ def main(argv=None):
             p.add_argument('--line', type=int, default=0, help='line (or arena environment) index')
             p.add_argument('--debug-map', action='store_true',
                            help='old panels with the true map (default: only what the drone perceives)')
+    p = sub.add_parser('compare', help='eval JSONs over the same environments, paired against the first')
+    p.add_argument('files', nargs='+', help='eval_*.json (the first is the reference)')
     p = sub.add_parser('fake')
     p.add_argument('--world', default='forest', choices=['forest', 'gap', 'arena'])
     p.add_argument('--seed', type=int, default=1000)
@@ -990,7 +1022,7 @@ def main(argv=None):
     return {'probe': cmd_probe, 'cloud': cmd_cloud, 'scan': cmd_scan, 'survey': cmd_survey, 'arena': cmd_arena,
             'check': cmd_check, 'diagnose': cmd_diagnose,
             'dagger': cmd_dagger, 'lines': cmd_lines, 'eval': cmd_eval, 'video': cmd_video,
-            'fake': cmd_fake}[a.cmd](a)
+            'fake': cmd_fake, 'compare': cmd_compare}[a.cmd](a)
 
 
 if __name__ == '__main__':

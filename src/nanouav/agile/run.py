@@ -29,10 +29,10 @@ def _out(a):
 def opts_of(a):
     """Rollout options from the command line → (dict, file-name suffix of the non-default ones)."""
     o = {'proj': getattr(a, 'proj', 'scaled'), 'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select,
-         'lookahead': getattr(a, 'lookahead', 0.0)}
+         'lookahead': getattr(a, 'lookahead', 0.0), 'keep': getattr(a, 'keep', False)}
     suf = ''.join([f"_{o['proj']}" if o['proj'] != 'scaled' else '', f"_{o['tscale']}" if o['tscale'] != 'chord' else '',
                    f"_cap{o['vcap']:g}" if o['vcap'] else '', f"_{o['select']}" if o['select'] != 'snap' else '',
-                   f"_la{o['lookahead']:g}" if o['lookahead'] else ''])
+                   f"_la{o['lookahead']:g}" if o['lookahead'] else '', '_keep' if o['keep'] else ''])
     return o, suf
 
 
@@ -42,6 +42,7 @@ def apply_opts(R, o):
     R.V_CAP = o.get('vcap') or None
     R.SELECT = o.get('select', 'snap')
     R.LOOKAHEAD = float(o.get('lookahead') or 0.0)
+    R.KEEP = bool(o.get('keep', False))
     return R
 
 
@@ -173,6 +174,9 @@ def main():
             p.add_argument('--lookahead', type=float, default=0.0,
                            help='sgm/oracle: also the continuation of each plan at its final velocity for this many '
                                 'seconds must be free')
+            p.add_argument('--keep', action='store_true',
+                           help='sgm/oracle: when none of the new hypotheses is free, go on flying the current plan '
+                                'if what is left of it (≥ 0.3 s) still is')
             p.add_argument('--select', default='snap', choices=['snap', 'consistent', 'oracle', 'sgm', 'oracle_cost', 'sgm_cost'],
                            help='choice among the hypotheses (consistent: keep the side unless the cost says so)')
         if name in ('dagger', 'train'):

@@ -361,3 +361,66 @@ def test_lookahead_rejects_a_plan_that_ends_pointing_into_a_trunk():
     assert perceived_index(fits, None, obs, clear=seen) == 0       # … and the straight one is the smoothest
     eff = with_lookahead(seen, fits, obs.clearance, 0.5)
     assert perceived_index(fits, None, obs, clear=eff) == 1        # its continuation hits the trunk
+
+
+def test_keep_flies_on_a_free_plan_when_no_new_one_is():
+    """--keep: when none of the new hypotheses is free but what is left of the plan being flown (≥ 0.3 s) still
+    is, the drone goes on flying it instead of the new one with the most clearance."""
+    from nanouav.agile.rollout import fit_plan, keep_previous, remainder
+    p, v = np.array([0.0, 0.0, 1.5]), np.array([5.0, 0.0, 0.0])
+    t = np.linspace(0.1, 1.0, 10)[:, None]
+    coef, beta = fit_plan(np.c_[5 * t, 0 * t, 0 * t + 1.5], p, v, np.zeros(3), 5.0)
+    old = TR.Plan(coef, 0.0, beta)
+    X, left = remainder(old, 0.25)
+    assert X[0] == pytest.approx(old.ref(0.25)[0]) and left == pytest.approx(1 / beta - 0.25)
+    assert keep_previous([0.1, 0.2], 0.6, left)              # nothing new is free, the old plan still is
+    assert not keep_previous([0.5, 0.1], 0.6, left)          # a new free plan: fly it
+    assert not keep_previous([0.1], 0.6, 0.2)                # too little of the old plan left
+    assert not keep_previous([0.1], 0.2, left)               # the old plan is not free either
+
+
+def test_keep_in_the_closed_loop():
+    """A stub student that alternates a plan around a trunk and plans straight into it: without --keep it
+    takes the colliding ones (the diagnosis marks the old plan as still free); with --keep it flies on."""
+    from nanouav.agile.envs import Env
+    from nanouav.agile.rollout import Config, Rollout
+    from nanouav.agile.stereo import StereoRig
+    tex = Texture('noise', albedo=0.7, albedo2=0.2, scale=0.05, seed=3)
+    w = World([Cylinder(2.2, 0.0, 0.3, 0.0, 4.0, tex)], Plane(Texture('noise', scale=0.1, seed=1)))
+    e = Env('keep', w, np.array([0.0, 0.0, 1.5]), np.array([20.0, 0.0, 1.5]), {}, True)
+    t = np.linspace(0.1, 1.0, 10)[:, None]
+    around = np.stack([np.c_[3 * t, 1.5 * t ** 2, 0 * t], np.c_[3 * t, 1.8 * t ** 2, 0 * t]])
+    into = np.stack([np.c_[3 * t, 0 * t, 0 * t], np.c_[3 * t, 0.05 * t, 0 * t]])
+    out = {}
+    for keep in (False, True):
+        n = [0]
+
+        def policy(depth, v, R, omega):
+            n[0] += 1
+            return (around if n[0] % 2 else into), np.array([0.1, 0.1])
+        R = Rollout(e, Config(v_des=3.0, seed=0, t_max=1.0, rig=StereoRig(width=160, height=120, num_disp=32)),
+                    'student', policy)
+        R.SELECT, R.KEEP, R.trace = 'oracle', keep, []
+        R.run()
+        out[keep] = R.trace
+    assert not any(d.get('kept') for d in out[False])
+    assert any(d.get('old_free') for d in out[False])        # the case --keep acts on happens
+    kept = [d for d in out[True] if d.get('kept')]
+    assert kept and all(d['none_free'] and d['old_free'] and d['clear_kept'] >= 0.2 for d in kept)
+
+
+def test_compare_pairs_runs_by_environment(tmp_path):
+    """r22 compare: arrivals per run, and the second run against the first paired by environment (McNemar)."""
+    import json
+    from nanouav.agile.stats import compare, mcnemar, rates
+    assert mcnemar(0, 0) == 1.0 and mcnemar(29, 5) < 1e-4 and mcnemar(10, 15) == pytest.approx(0.424, abs=1e-3)
+    mk = lambda ok: {'student_v3': [{'line': i, 'success': s, 'crashed': not s, 'time_s': 10.0, 'mean_speed': 3.0}
+                                    for i, s in enumerate(ok)]}
+    a, b = tmp_path / 'a.json', tmp_path / 'b.json'
+    json.dump(mk([1, 1, 0, 0]), open(a, 'w'))
+    json.dump(mk([1, 0, 1, 1]), open(b, 'w'))
+    lines = []
+    s = compare([str(a), str(b)], out=lines.append)
+    assert s['b.json']['student_v3'][:2] == (2, 1) and s['b.json']['total'][:2] == (2, 1)
+    assert rates(mk([1, 0])['student_v3']) == pytest.approx((0.05, 1 / 60))
+    assert len(lines) == 4

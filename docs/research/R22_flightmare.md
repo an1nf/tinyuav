@@ -365,9 +365,8 @@ entornos).
 del sistema que de verdad se despliega. R18 (nuestro simulador) sigue con `snap` por defecto, la regla del
 paper. Es un híbrido: la red propone 3 trayectorias y una regla geométrica sobre su propio SGM elige.
 Aparte de su pose, no usa nada que el dron no tenga. Calcularlo sobre el SGM añade ~45 % al tiempo de una
-evaluación.
- El cálculo cuesta unos 80 ms por cuadro en este
-CPU (búsqueda por fuerza bruta; un k-d tree lo bajaría si hiciera falta en tiempo real).
+evaluación. El cálculo cuesta unos 80 ms por cuadro en este CPU (búsqueda por fuerza bruta; un k-d tree lo
+bajaría si hiciera falta en tiempo real).
 
 ## Más DAgger volando con `sgm`, y R18 con `sgm` (2026-10-14)
 
@@ -399,6 +398,53 @@ Es la primera vez que el estudiante de R18 le gana claramente al ciego ($p = 0.0
 `cambio_de_plan`: planes libres en su segundo de horizonte que terminan apuntando a un tronco. Con
 `--lookahead L`, un plan cuenta como libre solo si también lo es su continuación a su velocidad final durante
 L s (≥ el radio del dron, sin margen). Se decide solo al elegir: no hay que reentrenar.
+
+## Mirar más allá no ayuda; los choques van por segundo, no por metro (2026-10-14)
+
+**`--lookahead`**, mismo estudiante (15 rondas), `--n 30`:
+
+| selección | 3 m/s | 5 m/s | 7 m/s | total |
+|---|---|---|---|---|
+| `sgm` | 12/30 | 22/30 | 24/30 | 58/90 |
+| `sgm --lookahead 0.5` | 12/30 | 17/30 | 24/30 | 53/90 |
+| `sgm --lookahead 1.0` | 12/30 | 17/30 | 25/30 | 54/90 |
+
+Emparejados por entorno contra `sgm`: 10 frente a 15 casos ($p = 0.42$) y 13 frente a 17 ($p = 0.58$). **Sin
+efecto: `--lookahead` queda en 0.** La hipótesis de «planes libres que terminan apuntando a un tronco» no
+explica los choques.
+
+**El ruido entre corridas es grande.** `--lookahead 0.5` y `1.0`, casi la misma regla, discrepan en 27 de los
+90 entornos; 10 y 15 rondas, en 30. Un mismo entorno llega en una corrida y choca en la siguiente. Con ~30
+casos discordantes, McNemar solo ve diferencias de unas 12 llegadas de 90. Lo que se ha medido como
+diferencia real (`sgm` contra `snap`, +24) está muy por encima; lo demás desde 0.22.0, no.
+
+**Por qué 3 m/s es lo peor.** Tasa de choque por segundo de vuelo y por metro, juntando las 4 corridas con
+`sgm` (120 vuelos por velocidad) y la de cada otro modo (30):
+
+| selección | 3 m/s | 5 m/s | 7 m/s | | 3 m/s | 5 m/s | 7 m/s |
+|---|---|---|---|---|---|---|---|
+| `snap` | 8.5 %/s | 9.3 %/s | 8.6 %/s | | 3.1 %/m | 2.0 %/m | 1.3 %/m |
+| `sgm` | 5.4 %/s | 5.0 %/s | 3.4 %/s | | 2.0 %/m | 1.1 %/m | 0.5 %/m |
+| `oracle` | 4.3 %/s | 4.1 %/s | 4.9 %/s | | 1.6 %/m | 0.9 %/m | 0.7 %/m |
+
+Por segundo, la tasa es casi la misma a toda velocidad, con cualquier selección. Por metro, cae entre 2.3 y 4
+veces de 3 a 7 m/s. Los vuelos lentos chocan más porque duran más (15 s contra 6 s), no
+porque sean más difíciles: a 3 m/s el dron pasa menos de la mitad de troncos por segundo que a 7 m/s y aun
+así choca igual de seguido. **El fallo va con las decisiones (15 por segundo), no con los obstáculos.** Es lo
+contrario del paper, donde el éxito baja con la velocidad.
+
+Encaja con `diagnose --select sgm` (0.22.0): casi todos sus choques son `cambio_de_plan`, y «eligió un plan
+que chocaba viéndolo libre» es ~0 %. El dron vuela planes libres hasta ~0.35 s antes. Entonces ninguna de las
+3 hipótesis nuevas está libre en su propio SGM, y vuela la de más holgura, que choca. En cada cuadro el plan
+en curso se reemplaza por una de las 3 nuevas, aunque ninguna esté libre y lo que queda del plan en curso sí
+lo esté.
+
+**Siguiente: `--keep`** (0.23.0). Cuando ninguna hipótesis nueva está libre y lo que queda del plan en curso
+(≥ 0.3 s) sí, sigue volando ese plan; nunca cambia un plan libre por uno que no lo está. Cada cuadro le da a la
+red otra oportunidad desde un punto de vista nuevo. `diagnose` cuenta ahora, en el último segundo antes de
+cada choque, cuántas decisiones no tenían ninguna hipótesis libre y cuántas de ellas tenían aún libre el plan
+en curso. Se mide sin `--keep`, así que dice si el caso ocurre antes de probar la regla. `r22 eval` imprime la
+tasa de choque por segundo y por metro, y `r22 compare A.json B.json` empareja dos corridas por entorno.
 
 ## Cómo correrlo
 

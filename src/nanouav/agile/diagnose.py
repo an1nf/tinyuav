@@ -76,6 +76,23 @@ def _bearing(d, c):
     return float((ang + 180) % 360 - 180)
 
 
+def sel_clear(d):
+    """True clearance of the plan flown after decision d (the kept one with --keep)."""
+    return d['clear_kept'] if d.get('kept') else d['clear'][d['k']]
+
+
+def keep_stats(trace, t_end=None, window=None):
+    """Decisions where none of the new hypotheses was free (in the selector's own judgment) while what was
+    left of the plan being flown (≥ 0.3 s) still was: the case --keep acts on. Over the decisions in
+    [t_end − window, t_end] if given. → {'none_free', 'old_free', 'old_truly_free', 'kept', 'n'} or None."""
+    D = [d for d in trace if 'none_free' in d and (t_end is None or t_end - window <= d['t'] <= t_end)]
+    if not D:
+        return None
+    return {'none_free': sum(d['none_free'] for d in D), 'old_free': sum(d['old_free'] for d in D),
+            'old_truly_free': sum(d['old_free'] and d['old_clear'] >= R_DRONE for d in D),
+            'kept': sum(bool(d.get('kept')) for d in D), 'n': len(D)}
+
+
 def perception_errors(trace, margin=0.15):
     """With --select sgm: how the drone's own SGM judged its plans against the truth, over every decision.
     missed: share of truly colliding plans (true clearance < R_DRONE) it saw as free (≥ R_DRONE + margin);
@@ -88,7 +105,8 @@ def perception_errors(trace, margin=0.15):
     sn = np.array([c for d in D for c in d['clear_seen']])
     col, free = t < R_DRONE, t >= R_DRONE + margin
     seen_free = sn >= R_DRONE + margin
-    ch = [(d['clear'][d['k']] < R_DRONE) and (d['clear_seen'][d['k']] >= R_DRONE + margin) for d in D]
+    ch = [(sel_clear(d) < R_DRONE) and ((d['seen_kept'] if d.get('kept') else d['clear_seen'][d['k']]) >= R_DRONE + margin)
+          for d in D]
     return {'missed': round(float(seen_free[col].mean()), 3) if col.any() else None,
             'false_alarm': round(float((~seen_free[free]).mean()), 3) if free.any() else None,
             'chose_colliding': round(float(np.mean(ch)), 3), 'n_plans': int(len(t))}
@@ -99,11 +117,11 @@ def classify(env, trace, log, v_des=None):
     p_c = np.array(log[-1][1:4])
     last = [d for d in trace if tc - 0.5 <= d['t'] <= tc]
     early = [d for d in trace if tc - 1.0 <= d['t'] <= tc - 0.35] or last[:2]
-    if all(d['clear'][d['k']] >= R_DRONE for d in last):
-        cls = 'plan_justo' if any(d['clear'][d['k']] < R_DRONE + 0.15 for d in last) else 'seguimiento'
+    if all(sel_clear(d) >= R_DRONE for d in last):
+        cls = 'plan_justo' if any(sel_clear(d) < R_DRONE + 0.15 for d in last) else 'seguimiento'
     elif not any(max(d['clear']) >= R_DRONE + 0.15 for d in early):
         cls = 'todas_chocan'
-    elif np.mean([d['clear'][d['k']] >= R_DRONE + 0.1 for d in early]) >= 0.5:
+    elif np.mean([sel_clear(d) >= R_DRONE + 0.1 for d in early]) >= 0.5:
         cls = 'cambio_de_plan'
     else:
         cls = 'eligio_mal'
@@ -122,8 +140,9 @@ def classify(env, trace, log, v_des=None):
             'v_max_1s': round(v_max1, 2), 'overspeed': bool(v_des and v_max1 > 1.25 * v_des),
             'obstacle': kind, 'obstacle_r': radius, 'n_decisions_0.5s': len(last),
             'bearing_deg': round(bear[-1], 1) if bear else None, 'in_view_0.5s': seen,
-            'sel_clear_early': [d['clear'][d['k']] for d in early], 'best_clear_early': [max(d['clear']) for d in early],
-            'sel_clear_0.5s': [d['clear'][d['k']] for d in last], 'best_clear_0.5s': [max(d['clear']) for d in last]}
+            'sel_clear_early': [sel_clear(d) for d in early], 'best_clear_early': [max(d['clear']) for d in early],
+            'sel_clear_0.5s': [sel_clear(d) for d in last], 'best_clear_0.5s': [max(d['clear']) for d in last],
+            'keep_1s': keep_stats(trace, tc, 1.0)}
 
 
 def plot(env, trace, log, diag, fn):
@@ -196,5 +215,11 @@ def run(model, out, world='forest', speeds=(3.0,), n=10, seed0=1000, workers=4, 
         beta = np.median([x['beta_med'] for x in L if x['beta_med'] is not None])
         print(f'{v:5.1f} {sum(x["result"]["success"] for x in L):3d}/{len(L):<2d} {len(D):7d} ' +
               ' '.join(f'{c[k]:14d}' for k in K) + f' {over:14d} {unseen:11d} {fl:7.1f} {beta:6.2f}')
+    KS = [x['diag']['keep_1s'] for x in res if x['diag'] and x['diag'].get('keep_1s')]
+    if KS:
+        tot = {k: sum(q[k] for q in KS) for k in ('none_free', 'old_free', 'old_truly_free', 'kept', 'n')}
+        print(f"last second before each crash ({len(KS)} crashes, {tot['n']} decisions): none of the new plans free in "
+              f"{tot['none_free']}; of those, what was left of the plan being flown still free in {tot['old_free']} "
+              f"(truly free {tot['old_truly_free']}); kept (--keep) {tot['kept']}")
     print(f'→ {d}  ({time.time() - t0:.0f} s): diag.json and one PNG per crash')
     return res

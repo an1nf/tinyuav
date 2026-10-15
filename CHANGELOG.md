@@ -3,6 +3,26 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.23.0] — 2026-10-14
+
+Sin cambios en los resultados por defecto.
+- **R22, `--lookahead` 0.5 y 1.0:** 53/90 y 54/90 frente a 58/90 sin él, con el mismo modelo (emparejados,
+  $p = 0.42$ y $0.58$). Sin efecto: queda en 0.
+- **R22, choques por segundo:** con cualquier selección, la tasa de choque por segundo de vuelo es casi la
+  misma a 3, 5 y 7 m/s (`sgm` 5.4, 5.0 y 3.4 %/s; `snap` 8.5, 9.3 y 8.6 %/s); por metro cae con la velocidad.
+  3 m/s es lo peor porque el vuelo dura más, no porque sea más difícil.
+
+### Añadido
+- `--keep` (`eval`, `video` y `diagnose` de R18 y R22) para `sgm` y `oracle`. Cuando ninguna hipótesis
+  nueva está libre y lo que queda del plan en curso (≥ 0.3 s) sí, el dron sigue volándolo
+  (`rollout.keep_previous`, `remainder`). Los archivos llevan `_keep` en el nombre. En el vídeo, el plan
+  conservado se dibuja en blanco.
+- `diagnose`: en el último segundo antes de cada choque, cuántas decisiones no tenían ninguna hipótesis libre
+  y en cuántas el plan en curso seguía libre (`diagnose.keep_stats`); se mide también sin `--keep`.
+- `r22 eval` imprime la tasa de choque por segundo y por metro de vuelo.
+- `r22 compare A.json B.json …`: aciertos y tasas de cada corrida, y cada una contra la primera emparejada por
+  entorno (McNemar exacto; `agile.stats`).
+
 ## [0.22.2] — 2026-10-14
 
 Sin cambios en los resultados: solo el vídeo de percepción.

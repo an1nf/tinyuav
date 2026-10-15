@@ -201,13 +201,30 @@ def _among_free(fits, clear, margin=0.15, costs=None):
     return int(ok[TR.select([fits[k][0] for k in ok], [costs[k] for k in ok])])
 
 
+def oracle_clearance(fits, field, margin=0.15, lookahead=0.0):
+    """True clearance of each flown polynomial (privileged), with its continuation if lookahead > 0."""
+    tt = np.linspace(0, 1, 21)
+    clear = np.array([float(field(TR.poly_eval(c, tt)).min()) for c, _ in fits])
+    return with_lookahead(clear, fits, lambda X: float(field(X).min()), lookahead, margin)
+
+
 def oracle_index(fits, field, margin=0.15, costs=None, lookahead=0.0):
     """Privileged choice (diagnosis only) by the true clearance of each flown polynomial (see `_among_free`).
     With the student's own hypotheses it gives the ceiling of a perfect cost head and selection."""
-    tt = np.linspace(0, 1, 21)
-    clear = np.array([float(field(TR.poly_eval(c, tt)).min()) for c, _ in fits])
-    clear = with_lookahead(clear, fits, lambda X: float(field(X).min()), lookahead, margin)
-    return _among_free(fits, clear, margin, costs)
+    return _among_free(fits, oracle_clearance(fits, field, margin, lookahead), margin, costs)
+
+
+def remainder(plan, t, n=11):
+    """The part of `plan` still ahead at time t: n points from there to its end, and its duration (s)."""
+    tau0 = float(np.clip((t - plan.t0) * plan.beta, 0.0, plan.horizon))
+    return TR.poly_eval(plan.coef, np.linspace(tau0, plan.horizon, n)), (plan.horizon - tau0) / plan.beta
+
+
+def keep_previous(clear_new, clear_old, left, margin=0.15, min_left=0.3):
+    """--keep: go on flying the plan being flown when none of the new hypotheses is free (clearance ≥ radius
+    + margin) but what is left of it (≥ min_left s) still is. Never swap a free plan for one that is not."""
+    free = AGILE.radius + margin
+    return bool(left >= min_left and clear_old >= free and float(np.max(clear_new)) < free)
 
 
 def sgm_points(depth, rig, pose, stride=4):
@@ -323,6 +340,9 @@ class Rollout:
     # 'sgm' / 'oracle': a plan is free only if also its continuation at its final velocity for LOOKAHEAD s is
     # (≥ the drone's radius): against plans that are free for their 1 s but end pointing into a trunk
     LOOKAHEAD = 0.0
+    # 'sgm' / 'oracle': when none of the M new hypotheses is free, go on flying the current plan if what is
+    # left of it (≥ 0.3 s) still is, instead of the new one with the most clearance (`keep_previous`)
+    KEEP = False
 
     def __init__(self, env, cfg, pilot='gbl', policy=None, label=False, expert_kw=None, gref=None, mission=None):
         self.env, self.cfg, self.pilot, self.policy, self.label = env, cfg, pilot, policy, label
@@ -400,23 +420,42 @@ class Rollout:
         trajs, costs = self.policy(depth, TR.rotate_to_heading(v, yaw), R.ravel(), TR.rotate_to_heading(omega, yaw))
         W = TR.from_heading_frame(trajs, p, yaw)
         fits = [self._fit(W[k], p, v, a, self._v_des) for k in range(len(W))]
+        eff, clear_of = None, None
         if self.SELECT in ('oracle', 'oracle_cost'):        # privileged: true clearance (diagnosis only)
-            k = oracle_index(fits, self.field, costs=costs if self.SELECT == 'oracle_cost' else None,
-                             lookahead=self.LOOKAHEAD)
+            eff = oracle_clearance(fits, self.field, lookahead=self.LOOKAHEAD)
+            k = _among_free(fits, eff, costs=costs if self.SELECT == 'oracle_cost' else None)
+            clear_of = lambda X: float(self.field(X).min())
         elif self.SELECT in ('sgm', 'sgm_cost'):             # own perception: clearance in its own SGM
             self._seen = perceived_clearance(fits, self._perceived)
             eff = with_lookahead(self._seen, fits, self._perceived.clearance, self.LOOKAHEAD)
             k = perceived_index(fits, costs if self.SELECT == 'sgm_cost' else None, self._perceived, clear=eff)
+            clear_of = self._perceived.clearance
         else:
             k = choose(fits, costs, W, getattr(self, '_prev_W', None), self.SELECT)
         self._prev_W = W[k]
         self._last_sel = (k, fits)
+        self._kept, self._old = None, None
+        old = getattr(self, '_flying', None)
+        if eff is not None and old is not None and old.source == 'student' and (self.KEEP or self.trace is not None):
+            X, left = remainder(old, t + self.cfg.latency)   # from when the new plan would take over
+            c_old = clear_of(X)
+            if self.LOOKAHEAD:
+                c_old = min(c_old, clear_of(extension((old.coef, old.beta), self.LOOKAHEAD)) + 0.15)
+            would = keep_previous(eff, c_old, left)
+            # diagnosis, with or without --keep: none of the new plans free while what is left of the one
+            # being flown still is (the case --keep acts on)
+            self._old = {'none_free': bool(float(np.max(eff)) < AGILE.radius + 0.15), 'old_free': would,
+                         'old_left': round(float(left), 3), 'X': X}
+            if self.KEEP and would:
+                self._kept = (X, c_old)
+                return old, W, costs
         return TR.Plan(fits[k][0], t, fits[k][1], source='student'), W, costs
 
     # ── episode ───────────────────────────────────────────────────────────
     def run(self):
         cfg, M = self.cfg, self.mission
         self._perceived = None                        # SELECT = 'sgm': the episode's own perceived obstacles
+        self._flying = self._kept = self._old = None  # KEEP: the plan being flown, whether it was kept
         A, yaw0, v0 = M.start()
         sim = QuadSim(AGILE, pos=A, yaw=yaw0, seed=cfg.seed)
         sim.v = np.asarray(v0, float)
@@ -490,6 +529,7 @@ class Rollout:
                 elif self.pilot in ('blind', 'direct'):        # straight toward the goal, no perception
                     new = self._plan_points(F['blind'], p, v, a0, t, self.pilot)
                 elif use_student:
+                    self._flying = pending[-1][1] if pending else plan   # the plan the new one would replace
                     new, W, costs = self.plan_student(depth, p, v, a0, R, yaw, omega, t)
                     n_student += 1
                     if self.trace is not None:
@@ -505,6 +545,16 @@ class Rollout:
                                            'att': [round(float(yaw), 4), round(float(pitch), 4), round(float(roll), 4)]})
                         if self.SELECT in ('sgm', 'sgm_cost'):   # what its own SGM said about each plan
                             self.trace[-1]['clear_seen'] = [round(float(min(c, 99.0)), 3) for c in self._seen]
+                        if self._old is not None:             # the plan it would replace (see KEEP)
+                            o = self._old
+                            self.trace[-1].update(none_free=o['none_free'], old_free=o['old_free'],
+                                                  old_left=o['old_left'],
+                                                  old_clear=round(float(self.field(o['X']).min()), 3))
+                        if self._kept is not None:            # --keep: it flew on the previous plan
+                            X, c_old = self._kept
+                            self.trace[-1].update(kept=True, W_kept=np.round(X[1:], 2).tolist(),
+                                                  clear_kept=round(float(self.field(X).min()), 3),
+                                                  seen_kept=round(float(min(c_old, 99.0)), 3))
                         self._trace_stats(cam)
                         if self.trace_depth:
                             self._trace_images(depth, cam, gray)
