@@ -91,6 +91,8 @@ La tasa de choque es de 0.2, 0.4 y 2.5 %/s, frente a 1.5–5.7 %/s del estudiant
   propuestas de la red eran el límite, no la elección.
 - **`--fan` no ayuda al estudiante** (15 frente a 16 entornos, $p = 1$). Probar el abanico solo cuando
   ninguna hipótesis está libre llega tarde: el reactivo lo usa en cada cuadro.
+- **A 10 m/s, 20/30** (9.3 %/s). La mitad de los fallos, 5 de 10, ocurre en los primeros 1.6 s.
+  El paper reporta ~60 % para su estudiante en su bosque simulado.
 - **Lo que queda está a 7 m/s y casi todo al arrancar.** Los entornos 12 y 18 chocan a los 0.9 s también con
   el estudiante: el vuelo empieza a 7 m/s con un tronco a pocos metros y sin historia de percepción.
 

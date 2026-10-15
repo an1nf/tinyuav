@@ -3,6 +3,16 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.26.2] — 2026-10-15
+
+### Corregido
+- `r22 eval` sobrescribía el JSON de resultados cuando se corría otra velocidad con la misma configuración: la
+  corrida a 10 m/s del reactivo borró la de 3, 5 y 7 m/s. Ahora se agregan las velocidades nuevas; el registro
+  de 3–7 m/s está en `docs/research/r24/flightmare/`.
+
+### Resultados
+- R24 en Flightmare a 10 m/s: el reactivo llega en 20/30, con 5 de los 10 fallos en el primer 1.6 s.
+
 ## [0.26.1] — 2026-10-15
 
 Sin cambios en el código: resultados y documentación.

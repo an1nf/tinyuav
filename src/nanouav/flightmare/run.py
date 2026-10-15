@@ -522,7 +522,9 @@ def cmd_eval(a):
         ('_carve' if getattr(a, 'carve', False) else '') + \
         (f"_lat{1000 * a.latency:.0f}" if abs(getattr(a, 'latency', 0.05) - 0.05) > 1e-9 else '')
     fn = os.path.join(out, f"eval_{'arena_' if a.arena else ''}{a.scene}_{tag}.json")
-    json.dump(table, open(fn, 'w'), indent=1)
+    old = json.load(open(fn)) if os.path.exists(fn) else {}       # other speeds of the same setup are kept
+    old.update(table)
+    json.dump(old, open(fn, 'w'), indent=1)
     # crash rate per second and per metre of flight (R22: constant per second across speeds — the slow
     # flights crash more because they last longer)
     print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s} {"%/s":>6s} {"%/m":>6s} {"dec_ms":>7s}')
@@ -983,7 +985,7 @@ def main(argv=None):
         elif name == 'diagnose':
             p.add_argument('--n', type=int, default=10)
         else:
-            p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl'])
+            p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl', 'reactive'])
             p.add_argument('--line', type=int, default=0, help='line (or arena environment) index')
             p.add_argument('--debug-map', action='store_true',
                            help='old panels with the true map (default: only what the drone perceives)')
