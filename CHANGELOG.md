@@ -3,6 +3,15 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.24.1] — 2026-10-15
+
+Sin cambios en los resultados: solo documentación.
+- `docs/fundamentos.md` al día:
+  - la elección con su propio SGM (`sgm`), `--keep` y lo que no funcionó (`--lookahead`);
+  - la comparación emparejada (McNemar), el ruido entre corridas y la tasa de choque por segundo y por metro;
+  - la focal de Unity;
+  - el estado actual de R22.
+
 ## [0.24.0] — 2026-10-15
 
 **Cambia el valor por defecto en R22.** `r22 eval`, `video`, `diagnose` y `dagger` usan `--keep`

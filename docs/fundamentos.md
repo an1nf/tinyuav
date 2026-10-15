@@ -1,6 +1,6 @@
 # Fundamentos de nanouav
 
-*2026-10-10 · nanouav 0.20.3.* Este documento explica, en un solo lugar, **qué** se ha construido, **por
+*2026-10-15 · nanouav 0.24.0.* Este documento explica, en un solo lugar, **qué** se ha construido, **por
 qué** funciona así (las razones matemáticas) y **cómo** está organizado el proyecto. Los informes de cada
 iteración (`docs/research/R*.md`) tienen los detalles y los números de cada experimento; aquí se reúne lo
 que los sostiene.
@@ -59,7 +59,8 @@ eventualmente, llevar lo aprendido al nano-UAV.
 | **R18** | recreación completa de Loquercio 2021: estéreo + SGM, experto M-H privilegiado, estudiante, DAgger | 22–23/40 en el bosque de prueba (experto 40/40) |
 | R19–R20 | seguir una persona / un globo con la política de R18 | misiones sobre el mismo estudiante |
 | R21 | el estudiante en Gazebo (ROS 2) | nodo y exportación a TFLite |
-| **R22** | el estudiante en Flightmare (el simulador del paper) y entrenamiento dentro de él | entorno validado (τ_gbl 30/30); DAgger en curso |
+| **R22** | el estudiante en Flightmare (el simulador del paper) y entrenamiento dentro de él | 69/90 en el almacén: elegir con su propio SGM (`sgm`) y no soltar un plan libre (`--keep`) |
+| R23 | por qué el estudiante se estanca: etiquetas que siguen una ruta que no ve | `--label-ref ctg` (aprende mejor, no vuela mejor: sin confirmar) |
 
 ---
 
@@ -285,12 +286,42 @@ velocidad comandada al inicio es $\beta v$, no $v$. A 3 m/s la red predecía uno
 `scaled` ajusta con $\dot\mu(0) = v/\beta$ y $\ddot\mu(0) = a/\beta^2$, de modo que tras escalar
 $\dot p(t_0) = v$ y $\ddot p(t_0) = a$ exactos.
 
-**Elección de la hipótesis.** Entre las $M$, se consideran las de costo predicho cercano al mínimo
-($c^*/c_k \ge 0.95$) y de ellas se toma la de menor **snap integrado**
+**Elección de la hipótesis (el paper, `--select snap`).** Entre las $M$, se consideran las de costo
+predicho cercano al mínimo ($c^*/c_k \ge 0.95$) y de ellas se toma la de menor **snap integrado**
 $\int_0^1 \|\mu^{(4)}\|^2 dt$, la más suave según Mellinger y Kumar. Para un polinomio de grado 5 tiene
 forma cerrada:
 
 $$\int_0^T \|\mu^{(4)}\|^2 dt = \sum_\text{ejes} \left(A^2 T + A B T^2 + \tfrac{1}{3}B^2T^3\right), \quad A = 24 c_4,\ B = 120 c_5.$$
+
+**Elegir con su propia percepción (`--select sgm`, R22 desde 0.22.0).** La cabeza de costo resultó ser el
+eslabón débil: con las mismas 3 hipótesis, un **oráculo** que elige por la holgura verdadera de cada
+polinomio volado llega mucho más. La regla `sgm` hace lo mismo sin trampa, con lo que el dron mide:
+1. cada cuadro de SGM se retroproyecta a puntos del mundo con la pose estimada del dron (la fórmula de
+   retroproyección de §5.3);
+2. los puntos se agrupan en celdas de 0.15 m; cuenta como obstáculo la celda vista en al menos 2 de los
+   ~15 cuadros del último segundo (el moteado del SGM no se repite de un cuadro a otro);
+3. la holgura de un plan es la distancia mínima de su polinomio (21 muestras en 1 s) a esas celdas;
+4. entre los planes con holgura $\ge r_q + 0.15$ m se toma el de menor snap; si no hay ninguno, el de más
+   holgura.
+
+Es un híbrido: la red **propone** y una regla geométrica **dispone**. No usa nada que el dron no tenga.
+
+**No soltar un plan libre (`--keep`, desde 0.24.0).** En cada cuadro el plan en curso se reemplaza por una
+de las 3 hipótesis nuevas. Si ninguna está libre pero lo que queda del plan en curso (≥ 0.3 s) sí, `--keep`
+sigue volando ese plan; nunca cambia un plan libre por uno que no lo está. Es la regla clásica del
+horizonte deslizante: conservar la última trayectoria factible como respaldo. Cada cuadro le da a la red
+otra oportunidad desde un punto de vista nuevo.
+
+**Lo que no funcionó: `--lookahead`.** Exigir que también la continuación del plan a su velocidad final
+esté libre (0.5–1 s más) no cambió nada (53 y 54/90 frente a 58/90). Los choques no venían de planes que
+terminan apuntando a un tronco.
+
+| selección (almacén, 90 vuelos) | 3 m/s | 5 m/s | 7 m/s | total |
+|---|---|---|---|---|
+| `snap` (el paper) | 8/30 | 13/30 | 17/30 | 38/90 |
+| `oracle` (privilegiado, solo diagnóstico) | 16/30 | 21/30 | 22/30 | 59/90 |
+| `sgm` | 12–17/30 | 21–22/30 | 24/30 | 58–62/90 |
+| **`sgm --keep`** | **21/30** | **24/30** | **24/30** | **69/90** |
 
 ### 4.7 Control y dinámica
 
@@ -336,7 +367,30 @@ $$\frac{\hat p + \frac{z^2}{2n} \pm z\sqrt{\frac{\hat p(1-\hat p)}{n} + \frac{z^
 
 Con 10 vuelos el intervalo es ancho: 5/10 da $[0.24, 0.76]$, y 7/10 da $[0.40, 0.89]$. Diferencias de 1 o
 2 éxitos en 10 no son concluyentes. Por eso las comparaciones importantes se hacen con 40 vuelos (10 por
-velocidad), y aun así 23/40 da $[0.42, 0.71]$.
+velocidad) en R18 y con 90 (30 por velocidad) en R22, y aun así 23/40 da $[0.42, 0.71]$.
+
+**Comparar emparejado (McNemar).** Dos variantes vuelan los mismos entornos. Lo que informa son los
+entornos **discordantes**: $b$ donde solo llega la variante nueva y $c$ donde solo llega la otra. Bajo la
+hipótesis de que no hay diferencia, $b \sim \text{Binomial}(b + c, \tfrac12)$, y el valor $p$ exacto es
+
+$$p = \min\Big(1,\ 2\sum_{i=0}^{\min(b,c)} \binom{b+c}{i}\, 2^{-(b+c)}\Big).$$
+
+Los entornos donde ambas llegan o ambas chocan no dicen nada sobre la diferencia, y quitarlos es lo que
+hace la prueba más sensible que comparar dos proporciones (`agile.stats`, `r22 compare`).
+
+**El ruido entre corridas es grande.** Dos reglas casi iguales discrepan en ~30 de 90 entornos: un mismo
+entorno llega en una corrida y choca en otra. Con ~30 discordantes, McNemar solo ve diferencias de unas
+12 llegadas de 90. Una diferencia menor, por plausible que sea, no está medida.
+
+**Tasa de choque por segundo y por metro.** Con $k$ choques, tiempo total de vuelo $T$ y distancia $D$,
+la tasa es $k/T$ o $k/D$ (el estimador de máxima verosimilitud de un proceso de Poisson). Distinguir las dos
+dice de qué depende el fallo:
+- si va **por metro**, el fallo depende de los obstáculos que se cruzan;
+- si va **por segundo**, depende de las decisiones, que son 15 por segundo a cualquier velocidad.
+
+En R22, sin `--keep`, la tasa por segundo era casi la misma a 3, 5 y 7 m/s con cualquier selección (`sgm`
+5.4, 5.0 y 3.4 %/s). Por eso 3 m/s era lo peor: el vuelo dura 15 s y no 6. Con `--keep` pasa a 2.3, 2.6 y
+3.8 %/s y ya crece con la velocidad, como cabe esperar.
 
 **Resultados de R18 en nuestro simulador** (bosque de prueba, $\delta = 1/25$, semillas 1000–1009):
 
@@ -345,6 +399,8 @@ velocidad), y aun así 23/40 da $[0.42, 0.71]$.
 | experto M-H (privilegiado) | 10 | 10 | 10 | 10 | 40/40 [0.91, 1.00] |
 | estudiante, cabeza promedio (`student_train`) | 3 | 6 | 7 | 6 | 22/40 [0.40, 0.69] |
 | estudiante, cabeza espacial (`student_spatial_in`) | 7 | 9 | 6 | 1 | 23/40 [0.42, 0.71] |
+| estudiante (`student_train`) eligiendo con `--select sgm` | 6 | 8 | 7 | 7 | 28/40 [0.55, 0.82] |
+| ciego (recto a la meta) | | | | | 16/40 [0.26, 0.55] |
 | paper, estudiante (bosque simulado) | 10 | 10 | — | 6 | 100 % hasta 5 m/s, 60 % a 10 m/s |
 
 ---
@@ -385,6 +441,16 @@ queda reflejado. `r22 check` lo verifica con cajas fuera del eje.
 **Profundidad de Unity.** El shader escribe $z/z_\text{far}$ (`Linear01Depth`), así que en metros es
 valor × plano lejano (100 m). El probe lo confirmó contra el SGM: SGM / valor crudo = 96, frente a 100
 esperado.
+
+**La focal tiene que ser la misma (0.21.1).** El reproductor de Unity recibe el campo de visión
+**vertical**. Para la focal del rig ($f = 320$ px a 640 × 480, HFOV 90°) es
+
+$$\text{VFOV} = 2\arctan\frac{H/2}{f} = 2\arctan\frac{240}{320} = 73.74°.$$
+
+Con 90° vertical, la focal de Unity era 0.75 × la nuestra. Las imágenes eran coherentes entre sí y el SGM
+funcionaba, pero cada píxel quedaba en otro ángulo del que suponía la red, el retroproyector y el juez.
+Corregirlo llevó al estudiante de 9 a 20 de 30 vuelos. `r22 check` mide ahora la focal ajustando las caras
+de cajas conocidas en la profundidad de Unity (cociente 0.99).
 
 **Cámara inclinada a alta velocidad.** Para acelerar o vencer el arrastre, el dron se inclina hacia
 adelante un ángulo $\theta \approx \arctan(a_x/g)$. A 7–10 m/s, $\theta$ ronda 20–30°. Con un campo de
@@ -451,7 +517,7 @@ nanouav/
 ├── gazebo/                   mundos, modelos, nodos ROS 2, scripts (gz_docker.sh, run_agile.sh)
 ├── docker/                   imágenes base y de simulación (Harmonic + Jazzy)
 ├── configs/suites/           lotes de experimentos en YAML
-├── tests/                    pytest (unos 160 tests: planificadores, R18, Flightmare con reproductor falso, …)
+├── tests/                    pytest (unos 175 tests: planificadores, R18, Flightmare con reproductor falso, …)
 ├── docs/                     arquitectura, experimentos, Gazebo, GPU, este documento, research/R*.md
 ├── models/ data/ results/    fuera de git: modelos, datasets, resultados
 ├── CHANGELOG.md              cada versión, y si cambia algún resultado
@@ -495,9 +561,10 @@ Los subcomandos de R18 y R22:
 | `arena` | escaneo de la escena vacía, suelo, zona libre y caja de prueba |
 | `check` | geometría con cajas fuera del eje: espejo, inclinación, SGM |
 | `dagger` | DAgger con imágenes de Unity, reanudable |
-| `eval --arena` | evaluación en los bosques de prueba |
-| `diagnose` | clasificación de choques, deriva y calidad del SGM |
-| `video --arena` | video de un vuelo |
+| `eval --arena` | evaluación en los bosques de prueba (`--select`, `--keep`; tasas por segundo y por metro) |
+| `compare A.json B.json` | dos evaluaciones emparejadas por entorno (McNemar) |
+| `diagnose` | clasificación de choques, deriva, calidad del SGM y errores de su propia percepción |
+| `video --arena` | video de un vuelo: cámara con túnel, SGM, mapa local con su propio SGM, costos |
 | `scan`, `survey`, `cloud`, `lines` | mapas de escenas sin arena |
 | `fake` | reproductor falso para probar sin Unity |
 
@@ -510,6 +577,8 @@ Unity (Flightmare) ── par estéreo VGA ──►  SGM (OpenCV) ──► pro
         │                                                                              ▼
  simulador de cuadricóptero ◄── control en cascada (500 Hz) ◄── plan polinómico ◄── estudiante (TF)
    (dinámica del paper)          v_cmd = v_ref + K_p·Δp           Eq. 8 + β + elección   3 hipótesis + costos
+                                                                     ▲
+                       elección: holgura a las celdas de su propio SGM (último segundo) · --keep
 
  solo para entrenar y juzgar:  mapa exacto (arena) ──► experto M-H (etiquetas) · juez de choques
 ```
@@ -547,32 +616,39 @@ Flightmare sin Unity.
 
 ## 7. Estado actual y lo que sigue
 
-**Dónde estamos (R22):**
-- El entorno de entrenamiento en Flightmare funciona: τ_gbl llega en 30/30 vuelos (3, 5 y 7 m/s).
-- Tras 2 rondas de DAgger (60 entornos, 4 668 muestras, el 6 % de lo usado en R18), el estudiante logra
-  2/10, 2/10 y 5/10. A baja velocidad choca siempre a la izquierda de la línea.
+**Dónde estamos (R22, 0.24.0).** El estudiante de 300 entornos llega en **69 de 90 vuelos** en el almacén:
+21/30, 24/30 y 24/30 a 3, 5 y 7 m/s. Elige con su propio SGM (`sgm`) y no suelta un plan libre (`--keep`).
+El experto privilegiado y τ_gbl llegan siempre.
 
-**Hallazgo de R23** ([nota](research/R23_direccion_y_etiquetas.md)): la deriva y el techo del estudiante
-se explican porque sus etiquetas siguen una ruta que no ve ($\tau_\text{gbl}$) mientras su dirección
-$\omega$ apunta a la recta. Con la misma red pequeña, las variantes con etiquetas que no siguen $\omega$
-llegan 0/40 y se alejan 3.7–5.5 m de la recta; las que sí, 19/60 y a 0.2–0.4 m.
+**Lo que se aprendió, en orden:**
+1. **Geometría antes que aprendizaje.** El mal estudiante inicial era sobre todo una focal equivocada en
+   Unity (§5.3): de 9 a 20 de 30 vuelos al corregirla.
+2. **Las etiquetas deben ser función de lo que ve el estudiante** (R23). Si las etiquetas siguen una ruta
+   que no ve ($\tau_\text{gbl}$) mientras su dirección $\omega$ apunta a la recta, se fija un piso a la
+   pérdida. Las etiquetas replaneadas (`ctg`) aprenden mejor, pero en Flightmare todavía no vuelan mejor:
+   sin confirmar.
+3. **La cabeza de costo era el cuello de botella**, no las hipótesis. Una regla geométrica sobre su propio
+   SGM elige tan bien como el oráculo (62 contra 59/90) y mucho mejor que la regla del paper (38/90,
+   McNemar $p = 4 \cdot 10^{-5}$).
+4. **Más DAgger con la misma receta no mejora:** 450 entornos dan lo mismo que 300.
+5. **Los choques iban por segundo, no por metro.** El fallo estaba en las decisiones: soltar un plan libre
+   cuando ninguna hipótesis nueva lo está. `--keep` lo corrige: +9 a 3 m/s, donde hay más decisiones por
+   metro.
 
-**Próximos pasos, en orden:**
-0. DAgger con las etiquetas replaneadas (`--label-ref ctg`), en R18 y en R22: los comandos están en R23.
-1. `r22 check`: descartar un error geométrico (espejo) con cajas fuera del eje.
-2. Evaluar el modelo de partida (`student_spatial_in`) en la misma arena, para saber si las rondas
-   mejoraron o empeoraron.
-3. `r22 diagnose`: clasificar los choques (percepción, cabeza de costo, cambio de plan, seguimiento) y
-   medir la deriva y el SGM de la franja izquierda.
-4. Según eso: corregir, o seguir con DAgger hasta 300–850 entornos, con $\xi$ creciendo hasta 5–6 m.
-5. Más adelante: probar en el bosque sin reentrenar, y destilar el estudiante a una red del tamaño de
-   PULP-Dronet (imagen en grises + ToF 8 × 8, salida de giro y probabilidad de choque) para el nano-UAV.
+**Lo que queda:**
+- **7 m/s.** 5 de sus 6 choques llegan en los primeros 2.5 s: el vuelo arranca ya a la velocidad objetivo,
+  con troncos desde 2.5 m y sin historia de percepción. Hay que medir si es un artefacto del protocolo de
+  salida (`r22 diagnose` con `--keep`).
+- **Confirmar `--keep`** con una segunda corrida o con más entornos: contra la corrida `sgm` del mismo
+  modelo, $p = 0.07$.
+- **10 m/s, el bosque de Unity sin reentrenar, y destilar al nano-UAV:** una red del tamaño de PULP-Dronet
+  (imagen en grises + ToF 8 × 8).
 
 **Diferencias que quedan con el paper**, todas documentadas:
 - seguimiento con controlador de velocidad, no MPC;
 - obstáculos con forma de caja en un almacén, no árboles en un bosque;
-- menos entornos de entrenamiento (de momento);
-- el estudiante no llega al nivel del paper ni siquiera en nuestro simulador.
+- elección por la geometría de su propio SGM y no por la cabeza de costo;
+- 300 entornos de entrenamiento en Flightmare, frente a 850 en nuestro simulador.
 
 ---
 
@@ -593,5 +669,8 @@ llegan 0/40 y se alejan 3.7–5.5 m de la recta; las que sí, 19/60 y a 0.2–0.
   sense and avoid.* IEEE RA-L 4(2), 2019.
 - L. Lamberti et al. *Distilling tiny and ultra-fast deep neural networks for autonomous navigation on
   nano-UAVs* (PULP-Dronet v3). IEEE IoT Journal, 2024.
+- Q. McNemar. *Note on the sampling error of the difference between correlated proportions or percentages.*
+  Psychometrika 12(2), 1947.
 - Informes del proyecto: `docs/research/README.md` (índice), `R18_agile_autonomy.md`,
-  `R21_gazebo_agile.md`, `R22_flightmare.md`; arquitectura del pipeline del nano: `docs/arquitectura.md`.
+  `R21_gazebo_agile.md`, `R22_flightmare.md`, `R23_direccion_y_etiquetas.md`; arquitectura del pipeline
+  del nano: `docs/arquitectura.md`.
