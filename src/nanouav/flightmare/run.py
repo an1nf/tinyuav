@@ -432,12 +432,15 @@ def _episode(a, env, i, pilot, v, client, calib, model, trace=False, rig=None):
             client.set_tilt(rig.tilt_up_deg)
     from nanouav.agile.policy import omega_of
     om = omega_of(model) if pilot == 'student' and model else 'line'
-    cfg = Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, omega_ref=om, **({'rig': rig} if rig is not None else {}))
+    cfg = Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, omega_ref=om, latency=getattr(a, 'latency', 0.05),
+                 **({'rig': rig} if rig is not None else {}))
     R = Rollout(env, cfg, pilot, dagger._policy(model) if pilot == 'student' else None)
     apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select, 'lookahead': a.lookahead,
-                   'keep': getattr(a, 'keep', False)})
+                   'keep': getattr(a, 'keep', False), 'fan': getattr(a, 'fan', False), 'pool': getattr(a, 'pool', 'stride'),
+                   'edge': getattr(a, 'edge', False), 'slow': getattr(a, 'slow', 0.0),
+                   'carve': getattr(a, 'carve', False)})
     obs = None
-    if pilot == 'student' or trace:
+    if pilot in ('student', 'reactive') or trace:
         if client.n_objects:
             client.place(env.world.objects)
         obs = FlightmareObserver(client, cfg.rig, calib)
@@ -499,7 +502,8 @@ def cmd_eval(a):
     pilots = a.pilots.split(',')
     speeds = [float(x) for x in a.v.split(',')]
     rig = rig_of(a)
-    client = make_client(a, calib, n_objects=a.n_objects if a.arena else 0, rig=rig) if 'student' in pilots else None
+    client = make_client(a, calib, n_objects=a.n_objects if a.arena else 0, rig=rig) \
+        if {'student', 'reactive'} & set(pilots) else None
     model = os.path.abspath(a.model) if a.model else None
     table = {}
     t0 = time.time()
@@ -512,19 +516,25 @@ def cmd_eval(a):
                       f"{r['time_s']:.1f} s" + (f"  hit {r['crash']}" if r.get('crash') else ''), flush=True)
     tag = (os.path.splitext(os.path.basename(model))[0] if model else 'pilots') + (f'_{a.tag}' if a.tag else '') + \
         (f'_{a.select}' if getattr(a, 'select', 'snap') != 'snap' else '') + \
-        (f'_la{a.lookahead:g}' if getattr(a, 'lookahead', 0) else '') + ('_keep' if getattr(a, 'keep', False) else '')
+        (f'_la{a.lookahead:g}' if getattr(a, 'lookahead', 0) else '') + ('_keep' if getattr(a, 'keep', False) else '') + \
+        ('_fan' if getattr(a, 'fan', False) else '') + ('_minpool' if getattr(a, 'pool', 'stride') == 'min' else '') + \
+        ('_edge' if getattr(a, 'edge', False) else '') + (f"_slow{a.slow:g}" if getattr(a, 'slow', 0) else '') + \
+        ('_carve' if getattr(a, 'carve', False) else '') + \
+        (f"_lat{1000 * a.latency:.0f}" if abs(getattr(a, 'latency', 0.05) - 0.05) > 1e-9 else '')
     fn = os.path.join(out, f"eval_{'arena_' if a.arena else ''}{a.scene}_{tag}.json")
     json.dump(table, open(fn, 'w'), indent=1)
     # crash rate per second and per metre of flight (R22: constant per second across speeds — the slow
     # flights crash more because they last longer)
-    print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s} {"%/s":>6s} {"%/m":>6s}')
+    print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s} {"%/s":>6s} {"%/m":>6s} {"dec_ms":>7s}')
     for p in pilots:
         for v in speeds:
             R = table[f'{p}_v{v:g}']
             k, T = sum(r['crashed'] for r in R), sum(r['time_s'] for r in R)
             D = sum(r['time_s'] * r['mean_speed'] for r in R)
+            dm = [r['decide_ms'] for r in R if r.get('decide_ms') is not None]
             print(f'{p:10s} {v:5.1f} {sum(r["success"] for r in R):3d}/{len(R):<4d} {k:6d} '
-                  f'{100 * k / max(T, 1e-9):6.1f} {100 * k / max(D, 1e-9):6.2f}')
+                  f'{100 * k / max(T, 1e-9):6.1f} {100 * k / max(D, 1e-9):6.2f} '
+                  f'{np.median(dm) if dm else float("nan"):7.1f}')
     print(f'→ {fn}  ({time.time() - t0:.0f} s)')
     if client:
         client.close()
@@ -800,7 +810,9 @@ def cmd_diagnose(a):
     client = make_client(a, calib, n_objects=a.n_objects, rig=rig)
     model = os.path.abspath(a.model)
     tag = os.path.splitext(os.path.basename(model))[0] + (f'_{a.select}' if a.select != 'snap' else '') + \
-        (f'_la{a.lookahead:g}' if a.lookahead else '') + ('_keep' if a.keep else '')
+        (f'_la{a.lookahead:g}' if a.lookahead else '') + ('_keep' if a.keep else '') + ('_fan' if a.fan else '') + \
+        ('_minpool' if a.pool == 'min' else '') + ('_edge' if a.edge else '') + ('_carve' if a.carve else '') + \
+        (f"_lat{1000 * a.latency:.0f}" if abs(a.latency - 0.05) > 1e-9 else '')
     d_out = os.path.join(out, f'diag_arena_{tag}')
     os.makedirs(d_out, exist_ok=True)
     res = []
@@ -814,10 +826,13 @@ def cmd_diagnose(a):
             client.set_tilt(rv.tilt_up_deg)
             client.place(env.world.objects)
             from nanouav.agile.policy import omega_of
-            R = Rollout(env, Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, rig=rv, omega_ref=omega_of(model)),
+            R = Rollout(env, Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, rig=rv, omega_ref=omega_of(model),
+                                    latency=a.latency),
                         'student', dagger._policy(model))
             apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select, 'lookahead': a.lookahead,
-                   'keep': getattr(a, 'keep', False)})
+                   'keep': getattr(a, 'keep', False), 'fan': getattr(a, 'fan', False), 'pool': getattr(a, 'pool', 'stride'),
+                   'edge': getattr(a, 'edge', False), 'slow': getattr(a, 'slow', 0.0),
+                   'carve': getattr(a, 'carve', False)})
             R.observer = FlightmareObserver(client, rv, calib)
             R.trace = []
             r, _, log = R.run()
@@ -870,10 +885,11 @@ def cmd_diagnose(a):
               f"of its decisions flew a colliding plan it saw as free")
     KS = [x['keep_1s'] for x in res if x.get('keep_1s')]
     if KS:
-        tot = {k: sum(q[k] for q in KS) for k in ('none_free', 'old_free', 'old_truly_free', 'kept', 'n')}
+        tot = {k: sum(q.get(k, 0) for q in KS) for k in ('none_free', 'old_free', 'old_truly_free', 'kept', 'fanned', 'n')}
         print(f"last second before each crash ({len(KS)} crashes, {tot['n']} decisions): none of the new plans free in "
               f"{tot['none_free']}; of those, what was left of the plan being flown still free in {tot['old_free']} "
-              f"(truly free {tot['old_truly_free']}); kept (--keep) {tot['kept']}")
+              f"(truly free {tot['old_truly_free']}); kept (--keep) {tot['kept']}; fan candidate flown (--fan) "
+              f"{tot['fanned']}")
     print(f'→ {d_out}: diag.json and one PNG per crash (deriva: + = izquierda)')
 
 
@@ -945,6 +961,20 @@ def main(argv=None):
                        help='sgm/oracle: when none of the new hypotheses is free, go on flying the current plan if what '
                             'is left of it (≥ 0.3 s) still is (default since 0.24.0: 69/90 in the warehouse against '
                             '58/90 without it; --no-keep: ≤ 0.23)')
+        p.add_argument('--fan', action='store_true',
+                       help='sgm/oracle: when no hypothesis is free and --keep cannot act, fly the free candidate '
+                            'around ω nearest the line (rollout.fan_points)')
+        p.add_argument('--pool', default='stride', choices=['stride', 'min'],
+                       help='SGM → points for the sgm choice: one pixel per 4 × 4 block (≤ 0.24) or the nearest')
+        p.add_argument('--latency', type=float, default=0.05,
+                       help='s from capture to plan applied (0.05 by default; charge the decision time here)')
+        p.add_argument('--edge', action='store_true',
+                       help='drop SGM pixels on depth discontinuities before the sgm choice (rollout.edge_filter)')
+        p.add_argument('--slow', type=float, default=0.0,
+                       help='reactive pilot: when nothing is free at speed, try the candidates at this fraction of v')
+        p.add_argument('--carve', action='store_true',
+                       help='free-space evidence in the perceived obstacles: a cell seen through more often than hit '
+                            'does not count (rollout.PerceivedObstacles)')
         p.add_argument('--arena', action='store_true', help='the arena test forests (r22 arena) instead of the lines')
         if name == 'eval':
             p.add_argument('--pilots', default='gbl,student')

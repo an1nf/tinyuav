@@ -19,6 +19,7 @@ time scaling to v_des and tracking by the cascaded controller with position feed
 MPC [Falanga 2018]; here the controller tracks p_ref, v_ref and a_ref of the polynomial).
 """
 import math
+import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -227,15 +228,97 @@ def keep_previous(clear_new, clear_old, left, margin=0.15, min_left=0.3):
     return bool(left >= min_left and clear_old >= free and float(np.max(clear_new)) < free)
 
 
-def sgm_points(depth, rig, pose, stride=4):
+FAN_ANGLES = (0, 10, -10, 20, -20, 30, -30, 45, -45, 60, -60)    # deg around ω, in the horizontal plane
+FAN_DZ = (0.0, 0.5, -0.5)                                        # m up / down at the end of the 1 s
+
+
+def fan_points(p, v, omega, v_des, z_lim=None, angles=FAN_ANGLES, dz=FAN_DZ):
+    """Candidate plans without a network: 10 points over 1 s along a quadratic Bézier that leaves in the
+    direction of the current velocity and ends v_des · 1 s away, fanned around ω (and up / down).
+    → (K, 10, 3) world points."""
+    p, v = np.asarray(p, float), np.asarray(v, float)
+    f = np.asarray(omega, float)[:2]
+    f = f / max(float(np.linalg.norm(f)), 1e-6)
+    left = np.array([-f[1], f[0]])
+    L = float(v_des) * 1.0
+    sp = float(np.linalg.norm(v))
+    u = v / sp if sp > 0.5 else np.r_[f, 0.0]
+    C = p + 0.5 * L * u
+    t = TR.T_I[:, None]
+    out = []
+    for dzi in dz:
+        for a in angles:
+            r = math.radians(a)
+            E = p + np.r_[L * (math.cos(r) * f + math.sin(r) * left), dzi]
+            if z_lim is not None:
+                E[2] = float(np.clip(E[2], *z_lim))
+            out.append((1 - t) ** 2 * p + 2 * t * (1 - t) * C + t ** 2 * E)
+    return np.array(out)
+
+
+def fan_cost(W, ref, prev=None, w_prev=0.3, clear=None, w_clear=0.0, sigma=0.3):
+    """Cost of each candidate (K, 10, 3): mean squared distance to the straight-line reference of the next
+    second (what the task asks: the line to the goal), plus w_prev × that to the plan being flown (no
+    switching sides every frame), plus w_clear · exp(−(clearance − 0.35) / sigma) (m²): a plan that only
+    just clears what it sees costs like leaving the line, so between equals it takes the wider gap (the
+    soft collision cost of Gil et al. 2026, here on its own SGM)."""
+    W = np.asarray(W, float)
+    J = ((W - np.asarray(ref, float)[None]) ** 2).sum(-1).mean(-1)
+    if prev is not None:
+        J = J + w_prev * ((W - np.asarray(prev, float)[None]) ** 2).sum(-1).mean(-1)
+    if w_clear and clear is not None:
+        c = np.minimum(np.asarray(clear, float), 10.0)
+        J = J + w_clear * np.exp(-(c - (AGILE.radius + 0.15)) / sigma)
+    return J
+
+
+def _min_pool(dep, s):
+    """Nearest valid depth of every s × s block and the pixel it comes from → (depth (h, w), v, u)."""
+    H, W = dep.shape
+    h, w = H // s, W // s
+    B = dep[:h * s, :w * s].reshape(h, s, w, s).transpose(0, 2, 1, 3).reshape(h, w, s * s)
+    B = np.where(B > 0, B, np.inf)
+    k = np.argmin(B, axis=2)
+    d = np.take_along_axis(B, k[..., None], 2)[..., 0]
+    vv = np.arange(h)[:, None] * s + k // s
+    uu = np.arange(w)[None, :] * s + k % s
+    return np.where(np.isfinite(d), d, 0.0), vv, uu
+
+
+def edge_filter(depth, tau0=0.3, gamma=0.03):
+    """Drop the SGM pixels on a depth discontinuity: a jump to a 4-neighbour larger than max(tau0, gamma·z²)
+    (the stereo error grows with z²), or a neighbour without depth. Those are where SGM smears a trunk into
+    the background and leaves points in free space (Choudhury & Tiwari 2026 use the same jump test)."""
+    d = np.asarray(depth, np.float32)
+    valid = d > 0
+    bad = np.zeros_like(valid)
+    tau = np.maximum(tau0, gamma * d * d)
+    for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        n = np.roll(d, (dy, dx), (0, 1))
+        nv = n > 0
+        bad |= valid & ((nv & (np.abs(d - n) > tau)) | ~nv)
+    return np.where(bad, 0.0, d)
+
+
+def sgm_points(depth, rig, pose, stride=4, pool='stride', edge=False):
     """The drone's own SGM depth (m, 0 = none; full resolution of `rig`) → world points, from its pose
-    estimate (p, yaw, pitch, roll)."""
+    estimate (p, yaw, pitch, roll). pool='stride': one pixel of every stride × stride block (≤ 0.24);
+    'min': the nearest valid pixel of each block, so a thin obstacle is not skipped (Freißmuth et al. 2026:
+    min-pooling inflates fine detail instead of losing it)."""
     from nanouav.follow.estimate import camera_pose
+    if edge:
+        depth = edge_filter(depth)
     H, W = depth.shape
-    dep = np.asarray(depth, np.float32)[::stride, ::stride]
-    v, u = np.nonzero(dep > 0)
-    X = dep[v, u]
-    u, v = u * stride * rig.width / W, v * stride * rig.height / H
+    if pool == 'min':
+        dep, vv, uu = _min_pool(np.asarray(depth, np.float32), stride)
+        ok = dep > 0
+        X, v, u = dep[ok], vv[ok].astype(float), uu[ok].astype(float)
+    else:
+        dep = np.asarray(depth, np.float32)[::stride, ::stride]
+        v, u = np.nonzero(dep > 0)
+        X = dep[v, u]
+        u, v = u * stride, v * stride
+    u, v = u * rig.width / W, v * rig.height / H
     O, Rc = camera_pose(rig, pose)
     dirs = np.stack([np.ones_like(X), -(u + 0.5 - rig.width / 2) / rig.focal, -(v + 0.5 - rig.height / 2) / rig.focal], 1)
     return O + (dirs * X[:, None]) @ Rc.T
@@ -243,17 +326,50 @@ def sgm_points(depth, rig, pose, stride=4):
 
 class PerceivedObstacles:
     """Obstacles as the drone itself perceives them: cells of `cell` m hit by its SGM in ≥ `min_hits` of the
-    last `n_frames` frames (stereo speckle does not repeat). Nothing privileged: own depth, own pose."""
+    last `n_frames` frames (stereo speckle does not repeat). Nothing privileged: own depth, own pose.
 
-    def __init__(self, n_frames=15, cell=0.15, min_hits=2):
+    carve=True adds free-space evidence: a frame whose depth at a cell's pixel lies beyond the cell (by more
+    than the stereo error there, max(0.15, 0.02·z²) m) saw through it. A cell counts only if it was hit more
+    often than seen through. Noise that lands in free space in some frames is seen through in the others; a
+    real surface is not (the inverse sensor model of occupancy mapping; the max over views of Freißmuth et al.
+    2026)."""
+
+    def __init__(self, n_frames=15, cell=0.15, min_hits=2, carve=False):
         from collections import deque
         self.hist, self.cell, self.min_hits = deque(maxlen=n_frames), cell, min_hits
-        self._cells = None
+        self.carve, self.seen_through = carve, deque(maxlen=n_frames)
+        self._cells = self._tree = None
 
-    def add(self, P):
+    def _carved(self, depth, rig, pose):
+        """Keys of the cells of the window that this frame saw through."""
+        from nanouav.follow.estimate import project
+        A = [h for h in self.hist if len(h)]
+        if not A:
+            return np.zeros((0, 3), np.int64)
+        K = np.unique(np.vstack(A), axis=0)
+        uv, X = project(rig, pose, (K + 0.5) * self.cell)
+        import cv2
+        d = np.asarray(depth, np.float32)
+        # the nearest depth of the 3 × 3 neighbourhood: a cell on a trunk's silhouette that projects one pixel
+        # off onto the background is not taken as seen through
+        d = cv2.erode(np.where(d > 0, d, 1e6).astype(np.float32), np.ones((3, 3), np.uint8))
+        d[d >= 1e6] = 0.0
+        H, W = d.shape
+        u = np.round((uv[:, 0] + 0.5) * W / rig.width - 0.5).astype(int)
+        v = np.round((uv[:, 1] + 0.5) * H / rig.height - 0.5).astype(int)
+        ok = (X > 0.3) & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+        z = np.zeros(len(K), np.float32)
+        z[ok] = d[v[ok], u[ok]]
+        through = ok & (z > 0) & (z > X + np.maximum(0.15, 0.02 * X * X))
+        return K[through]
+
+    def add(self, P, depth=None, rig=None, pose=None):
+        if self.carve:
+            self.seen_through.append(self._carved(depth, rig, pose) if depth is not None
+                                     else np.zeros((0, 3), np.int64))
         self.hist.append(np.unique(np.floor(np.asarray(P, float) / self.cell).astype(np.int64), axis=0)
                          if len(P) else np.zeros((0, 3), np.int64))
-        self._cells = None
+        self._cells = self._tree = None
 
     def cells(self):
         if self._cells is None:
@@ -262,18 +378,43 @@ class PerceivedObstacles:
                 self._cells = np.zeros((0, 3))
             else:
                 c, n = np.unique(np.vstack(A), axis=0, return_counts=True)
-                self._cells = (c[n >= min(self.min_hits, len(self.hist))] + 0.5) * self.cell
+                keep = n >= min(self.min_hits, len(self.hist))
+                T = [h for h in self.seen_through if len(h)]
+                if self.carve and T:
+                    ct, nt = np.unique(np.vstack(T), axis=0, return_counts=True)
+                    # seen-through counts aligned with c (both sorted unique rows)
+                    idx = {tuple(r): k for r, k in zip(ct.tolist(), nt.tolist())}
+                    through = np.array([idx.get(tuple(r), 0) for r in c.tolist()])
+                    keep &= n > through
+                self._cells = (c[keep] + 0.5) * self.cell
         return self._cells
 
-    def clearance(self, X):
-        """Distance from the points X (M, 3) to the nearest perceived obstacle (∞ if none)."""
-        X = np.asarray(X, float)
+    def nearest(self, X):
+        """For each point of X (M, 3): distance to the nearest perceived cell centre and that centre (k-d tree
+        when scipy is there: ~1 ms per decision instead of ~80 ms by brute force). No cells: ∞ and NaN."""
+        X = np.asarray(X, float).reshape(-1, 3)
         C = self.cells()
-        C = C[((C >= X.min(0) - 1.5) & (C <= X.max(0) + 1.5)).all(1)] if len(C) else C
         if not len(C):
-            return np.inf
+            return np.full(len(X), np.inf), np.full((len(X), 3), np.nan)
+        if self._tree is None:
+            try:
+                from scipy.spatial import cKDTree
+                self._tree = cKDTree(C)
+            except ImportError:
+                self._tree = False
+        if self._tree is not False:
+            d, j = self._tree.query(X)
+            return d, C[j]
         d2 = ((X[:, None, :] - C[None, :, :]) ** 2).sum(-1)
-        return float(np.sqrt(d2.min())) - 0.5 * self.cell
+        j = np.argmin(d2, axis=1)
+        return np.sqrt(d2[np.arange(len(X)), j]), C[j]
+
+    def clearance(self, X):
+        """Distance from the points X (M, 3) to the nearest perceived obstacle (∞ if none). Exact nearest
+        neighbour; up to 0.24 the search stopped 1.5 m around X, which changes no decision (the thresholds are
+        ≤ 0.35 m) but gives finite values beyond 1.5 m in the diagnostics."""
+        d, _ = self.nearest(X)
+        return float(d.min()) - 0.5 * self.cell if np.isfinite(d).any() else np.inf
 
 
 def extension(fit, lookahead, n=8):
@@ -343,6 +484,14 @@ class Rollout:
     # 'sgm' / 'oracle': when none of the M new hypotheses is free, go on flying the current plan if what is
     # left of it (≥ 0.3 s) still is, instead of the new one with the most clearance (`keep_previous`)
     KEEP = False
+    # 'sgm' / 'oracle': when no hypothesis of the network is free and --keep cannot act either, try the
+    # candidates of `fan_points` around ω and fly the one nearest the line among the free ones
+    FAN = False
+    POOL = 'stride'              # how its SGM becomes points for the 'sgm' choice: 'stride' (≤ 0.24) or 'min'
+    EDGE = False                 # drop SGM pixels on depth discontinuities first (`edge_filter`)
+    SLOW = 0.0                   # reactive: when nothing is free at speed, try the fan at SLOW × v_des (0: off)
+    CARVE = False                # free-space evidence in its perceived obstacles (`PerceivedObstacles`)
+    W_CLEAR = 0.0                # fan: weight of the soft clearance term of `fan_cost` (m²; 0: off)
 
     def __init__(self, env, cfg, pilot='gbl', policy=None, label=False, expert_kw=None, gref=None, mission=None):
         self.env, self.cfg, self.pilot, self.policy, self.label = env, cfg, pilot, policy, label
@@ -434,7 +583,7 @@ class Rollout:
             k = choose(fits, costs, W, getattr(self, '_prev_W', None), self.SELECT)
         self._prev_W = W[k]
         self._last_sel = (k, fits)
-        self._kept, self._old = None, None
+        self._kept, self._old, self._fanned = None, None, None
         old = getattr(self, '_flying', None)
         if eff is not None and old is not None and old.source == 'student' and (self.KEEP or self.trace is not None):
             X, left = remainder(old, t + self.cfg.latency)   # from when the new plan would take over
@@ -449,13 +598,66 @@ class Rollout:
             if self.KEEP and would:
                 self._kept = (X, c_old)
                 return old, W, costs
+        if self.FAN and eff is not None and float(np.max(eff)) < AGILE.radius + 0.15:
+            pick = self._fan_choice(p, v, a, omega, t, clear_of)
+            if pick is not None:
+                self._fanned = pick[1]
+                return pick[0], W, costs
         return TR.Plan(fits[k][0], t, fits[k][1], source='student'), W, costs
+
+    def _fan_choice(self, p, v, a, omega, t, clear_of, source='student', v_des=None):
+        """The free candidate of `fan_points` nearest the line (see `fan_cost`) → (Plan, its points), or None.
+        v_des: speed of the candidates (default the mission's)."""
+        z0 = float(self.env.start[2])
+        vd = v_des or self._v_des
+        Wf = fan_points(p, v, omega, vd, (self.z_ground + 0.7, z0 + 1.0))
+        fits = [self._fit(P, p, v, a, vd) for P in Wf]
+        tt = np.linspace(0, 1, 21)
+        eff = np.array([clear_of(TR.poly_eval(c, tt)) for c, _ in fits])
+        eff = with_lookahead(eff, fits, clear_of, self.LOOKAHEAD)
+        ok = np.where(eff >= AGILE.radius + 0.15)[0]
+        if not len(ok):
+            return None
+        old = getattr(self, '_flying', None)
+        prev = np.array([old.ref(t + ti)[0] for ti in TR.T_I]) if old is not None else None
+        ref = self._blind
+        if v_des:                                          # slower candidates: the line at their own speed
+            ref = p + (np.asarray(self._blind) - p) * (vd / max(self._v_des, 1e-6))
+        J = fan_cost(Wf[ok], ref, prev, clear=eff[ok], w_clear=self.W_CLEAR)
+        k = int(ok[np.argmin(J)])
+        return TR.Plan(fits[k][0], t, fits[k][1], source=source), Wf[k]
+
+    def plan_reactive(self, p, v, a, omega, t):
+        """Pilot 'reactive': no network and nothing privileged. The candidates of `fan_points`, judged by the
+        clearance to its own SGM of the last second (as --select sgm); among the free ones the nearest to the
+        line; none free: fly on the current plan if what is left of it still is (--keep), else the
+        candidate with the most clearance."""
+        clear_of = self._perceived.clearance if self._perceived is not None else (lambda X: np.inf)
+        pick = self._fan_choice(p, v, a, omega, t, clear_of, source='reactive')
+        if pick is not None:
+            return pick
+        old = getattr(self, '_flying', None)
+        if self.KEEP and old is not None and old.source == 'reactive':
+            X, left = remainder(old, t + self.cfg.latency)
+            if left >= 0.3 and clear_of(X) >= AGILE.radius + 0.15:
+                return old, X[1:]
+        if self.SLOW:                                      # nothing free at speed: the same fan, slower
+            pick = self._fan_choice(p, v, a, omega, t, clear_of, source='reactive', v_des=self.SLOW * self._v_des)
+            if pick is not None:
+                return pick
+        z0 = float(self.env.start[2])
+        Wf = fan_points(p, v, omega, self._v_des, (self.z_ground + 0.7, z0 + 1.0))
+        fits = [self._fit(P, p, v, a, self._v_des) for P in Wf]
+        tt = np.linspace(0, 1, 21)
+        k = int(np.argmax([clear_of(TR.poly_eval(c, tt)) for c, _ in fits]))
+        return TR.Plan(fits[k][0], t, fits[k][1], source='reactive'), Wf[k]
 
     # ── episode ───────────────────────────────────────────────────────────
     def run(self):
         cfg, M = self.cfg, self.mission
         self._perceived = None                        # SELECT = 'sgm': the episode's own perceived obstacles
-        self._flying = self._kept = self._old = None  # KEEP: the plan being flown, whether it was kept
+        self._flying = self._kept = self._old = self._fanned = None   # KEEP / FAN: the plan being flown, …
+        self._blind, sel_ms = None, []                                   # decision time of the pilot (ms)
         A, yaw0, v0 = M.start()
         sim = QuadSim(AGILE, pos=A, yaw=yaw0, seed=cfg.seed)
         sim.v = np.asarray(v0, float)
@@ -481,7 +683,7 @@ class Rollout:
                 a0 = {'plan': plan.ref(t)[2] if plan is not None else np.zeros(3), 'zero': np.zeros(3),
                       'meas': sim.acc}[self.A0_MODE]
                 depth = cam = None
-                need_depth = self.label or self.pilot in ('student', 'dagger') or \
+                need_depth = self.label or self.pilot in ('student', 'dagger', 'reactive') or \
                     (self.record_cam and self.trace is not None)
                 if need_depth or M.needs_camera:
                     if self.observer is not None:
@@ -493,10 +695,12 @@ class Rollout:
                     depth = downsample_depth(depth_full, cfg.net_size)
                     cam = {'gray': gray, 'depth': depth_full, 'depth_gt': depth_gt, 'pose': (p, yaw, pitch, roll),
                            'rig': cfg.rig, 'rgb': obs[3] if len(obs) > 3 else None}
-                if self.SELECT in ('sgm', 'sgm_cost') and cam is not None:   # its own SGM, every camera frame
-                    if self._perceived is None:
-                        self._perceived = PerceivedObstacles(n_frames=max(1, int(round(cfg.cam_hz))))
-                    self._perceived.add(sgm_points(cam['depth'], cfg.rig, (p, yaw, pitch, roll)))
+                if (self.SELECT in ('sgm', 'sgm_cost') or self.pilot == 'reactive') and cam is not None:
+                    if self._perceived is None:                # its own SGM, every camera frame
+                        self._perceived = PerceivedObstacles(n_frames=max(1, int(round(cfg.cam_hz))),
+                                                             carve=self.CARVE)
+                    self._perceived.add(sgm_points(cam['depth'], cfg.rig, (p, yaw, pitch, roll), pool=self.POOL,
+                                                   edge=self.EDGE), cam['depth'], cfg.rig, (p, yaw, pitch, roll))
                 F = M.frame(t, p, v, yaw, cam)
                 omega, ref, self._v_des, yaw_hold = F['omega'], F['ref'], F['v_des'], F.get('yaw')
                 lref = F.get('label_ref', ref)                  # the expert's labels (R23: may differ from ref)
@@ -528,9 +732,17 @@ class Rollout:
                     new = self.plan_expert(ref, p, v, a0, t)
                 elif self.pilot in ('blind', 'direct'):        # straight toward the goal, no perception
                     new = self._plan_points(F['blind'], p, v, a0, t, self.pilot)
+                elif self.pilot == 'reactive':                 # no network: candidates around ω on its own SGM
+                    self._flying, self._blind = (pending[-1][1] if pending else plan), F['blind']
+                    t_d = time.perf_counter()
+                    new, _ = self.plan_reactive(p, v, a0, omega, t)
+                    sel_ms.append(1000 * (time.perf_counter() - t_d))
                 elif use_student:
                     self._flying = pending[-1][1] if pending else plan   # the plan the new one would replace
+                    self._blind = F['blind']
+                    t_d = time.perf_counter()
                     new, W, costs = self.plan_student(depth, p, v, a0, R, yaw, omega, t)
+                    sel_ms.append(1000 * (time.perf_counter() - t_d))
                     n_student += 1
                     if self.trace is not None:
                         k_sel, fits = self._last_sel
@@ -550,6 +762,12 @@ class Rollout:
                             self.trace[-1].update(none_free=o['none_free'], old_free=o['old_free'],
                                                   old_left=o['old_left'],
                                                   old_clear=round(float(self.field(o['X']).min()), 3))
+                        if self._fanned is not None:          # --fan: a candidate around ω instead
+                            Xf = np.vstack([p, self._fanned])
+                            self.trace[-1].update(fanned=True, W_kept=np.round(self._fanned, 2).tolist(),
+                                                  clear_kept=round(float(self.field(Xf).min()), 3),
+                                                  seen_kept=round(float(min(self._perceived.clearance(Xf)
+                                                                            if self._perceived is not None else 99.0, 99.0)), 3))
                         if self._kept is not None:            # --keep: it flew on the previous plan
                             X, c_old = self._kept
                             self.trace[-1].update(kept=True, W_kept=np.round(X[1:], 2).tolist(),
@@ -607,6 +825,8 @@ class Rollout:
                'time_s': round(t, 2), 'min_clearance_m': round(float(min_clear), 3),
                'mean_speed': round(float(speeds.mean()), 2), 'frames': n_frames,
                'student_frac': round(n_student / max(n_frames, 1), 3), 'env': self.env.name,
+               'decide_ms': round(float(np.median(sel_ms)), 2) if sel_ms else None,
+               'decide_ms_p95': round(float(np.percentile(sel_ms, 95)), 2) if sel_ms else None,
                'v_des': self.cfg.v_des, 'pilot': self.pilot}
         out.update(M.metrics())
         return out, samples, log

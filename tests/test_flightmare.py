@@ -328,3 +328,15 @@ def test_geometry_check_command(tmp_path):
         assert len(ranges) == 2 and all(0 < r['sgm_valid_within_range'] <= 1 for r in ranges)
     finally:
         fake.stop()
+
+
+def test_reactive_pilot_flies_on_flightmare_frames(unity):
+    """r22 eval --pilots reactive: the pilot without a network decides on the SGM of the frames Unity sends."""
+    from nanouav.agile.rollout import Config, Rollout
+    from nanouav.flightmare.run import FlightmareObserver
+    cl, env = unity
+    R = Rollout(env, Config(v_des=3.0, seed=0, t_max=2.0), 'reactive')
+    R.observer = FlightmareObserver(cl, R.cfg.rig)
+    R.KEEP, R.EDGE = True, True
+    r, _, log = R.run()
+    assert not r['crashed'] and r['decide_ms'] is not None and len(R._perceived.cells()) > 0

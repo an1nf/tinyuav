@@ -78,7 +78,7 @@ def _bearing(d, c):
 
 def sel_clear(d):
     """True clearance of the plan flown after decision d (the kept one with --keep)."""
-    return d['clear_kept'] if d.get('kept') else d['clear'][d['k']]
+    return d['clear_kept'] if (d.get('kept') or d.get('fanned')) else d['clear'][d['k']]
 
 
 def keep_stats(trace, t_end=None, window=None):
@@ -90,7 +90,7 @@ def keep_stats(trace, t_end=None, window=None):
         return None
     return {'none_free': sum(d['none_free'] for d in D), 'old_free': sum(d['old_free'] for d in D),
             'old_truly_free': sum(d['old_free'] and d['old_clear'] >= R_DRONE for d in D),
-            'kept': sum(bool(d.get('kept')) for d in D), 'n': len(D)}
+            'kept': sum(bool(d.get('kept')) for d in D), 'fanned': sum(bool(d.get('fanned')) for d in D), 'n': len(D)}
 
 
 def perception_errors(trace, margin=0.15):
@@ -105,7 +105,8 @@ def perception_errors(trace, margin=0.15):
     sn = np.array([c for d in D for c in d['clear_seen']])
     col, free = t < R_DRONE, t >= R_DRONE + margin
     seen_free = sn >= R_DRONE + margin
-    ch = [(sel_clear(d) < R_DRONE) and ((d['seen_kept'] if d.get('kept') else d['clear_seen'][d['k']]) >= R_DRONE + margin)
+    ch = [(sel_clear(d) < R_DRONE) and ((d['seen_kept'] if (d.get('kept') or d.get('fanned')) else d['clear_seen'][d['k']])
+                                        >= R_DRONE + margin)
           for d in D]
     return {'missed': round(float(seen_free[col].mean()), 3) if col.any() else None,
             'false_alarm': round(float((~seen_free[free]).mean()), 3) if free.any() else None,

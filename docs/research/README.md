@@ -25,6 +25,7 @@ Su equivalente actual está en [../migracion.md](../migracion.md); por ejemplo
 | [R21_gazebo_agile.md](R21_gazebo_agile.md) | R21: el estudiante de R18 en Gazebo (mundo de prueba, X3 ágil con estéreo, nodo ROS 2, export a TFLite) | `gazebo/gz_docker.sh agile`, `r18 export`, `r18 video --from-gz` |
 | [R23_direccion_y_etiquetas.md](R23_direccion_y_etiquetas.md) | R23: el techo del estudiante — sus etiquetas siguen una ruta que no ve (τ_gbl) mientras ω apunta a la recta; aprende a no fiarse de ω y deriva. Cuatro condiciones y una referencia replaneada que las cumple | `r18 dagger --label-ref ctg`, `r22 dagger --label-ref ctg` |
 | [R22_flightmare.md](R22_flightmare.md) | R22: el estudiante de R18 en Flightmare (Unity del paper) por un puente ZMQ en Python, con la nube de puntos como mapa privilegiado | `r22 probe/cloud/lines/eval/video/fake` |
+| [R24_reactivo_sin_red.md](R24_reactivo_sin_red.md) | R24: un piloto reactivo sin red ni nada privilegiado (abanico de candidatas juzgadas sobre su propio SGM, `--keep`) supera a nuestro estudiante y llega a lo que el paper reporta para el suyo; filtro de bordes, costo de holgura suave, VGA | `r18 pilots --pilots reactive`, `r22 eval --pilots reactive` |
 
 Plantilla para un informe nuevo (`RNN_tema.md`): pregunta · qué se toma de la fuente · cambios en el
 código (archivo y bandera, apagada por defecto) · montaje y **comando exacto** (`nanouav run …` o

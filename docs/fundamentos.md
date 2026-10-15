@@ -1,6 +1,6 @@
 # Fundamentos de nanouav
 
-*2026-10-15 · nanouav 0.24.0.* Este documento explica, en un solo lugar, **qué** se ha construido, **por
+*2026-10-15 · nanouav 0.25.0.* Este documento explica, en un solo lugar, **qué** se ha construido, **por
 qué** funciona así (las razones matemáticas) y **cómo** está organizado el proyecto. Los informes de cada
 iteración (`docs/research/R*.md`) tienen los detalles y los números de cada experimento; aquí se reúne lo
 que los sostiene.
@@ -61,6 +61,7 @@ eventualmente, llevar lo aprendido al nano-UAV.
 | R21 | el estudiante en Gazebo (ROS 2) | nodo y exportación a TFLite |
 | **R22** | el estudiante en Flightmare (el simulador del paper) y entrenamiento dentro de él | 69/90 en el almacén: elegir con su propio SGM (`sgm`) y no soltar un plan libre (`--keep`) |
 | R23 | por qué el estudiante se estanca: etiquetas que siguen una ruta que no ve | `--label-ref ctg` (aprende mejor, no vuela mejor: sin confirmar) |
+| **R24** | un piloto reactivo sin red ni nada privilegiado, con el mismo sensor | 37/40 en nuestro bosque (39/40 con VGA), frente a 28/40 de nuestro estudiante |
 
 ---
 
@@ -311,6 +312,11 @@ de las 3 hipótesis nuevas. Si ninguna está libre pero lo que queda del plan en
 sigue volando ese plan; nunca cambia un plan libre por uno que no lo está. Es la regla clásica del
 horizonte deslizante: conservar la última trayectoria factible como respaldo. Cada cuadro le da a la red
 otra oportunidad desde un punto de vista nuevo.
+
+**Sin red (`reactive`, R24).** Las 3 propuestas de la red se sustituyen por 33 candidatas geométricas:
+curvas que salen en la dirección de la velocidad y se abren en abanico alrededor de ω. Se juzgan igual, con
+holgura en su propio SGM; entre las libres gana la más cercana a la recta. En nuestro bosque llega en 37 de
+40 vuelos (39 con VGA), más que nuestro estudiante (28) y tanto como lo que el paper reporta para el suyo.
 
 **Lo que no funcionó: `--lookahead`.** Exigir que también la continuación del plan a su velocidad final
 esté libre (0.5–1 s más) no cambió nada (53 y 54/90 frente a 58/90). Los choques no venían de planes que
@@ -634,8 +640,13 @@ El experto privilegiado y τ_gbl llegan siempre.
 5. **Los choques iban por segundo, no por metro.** El fallo estaba en las decisiones: soltar un plan libre
    cuando ninguna hipótesis nueva lo está. `--keep` lo corrige: +9 a 3 m/s, donde hay más decisiones por
    metro.
+6. **La red no hace falta para esquivar** (R24). Un piloto reactivo sin red ni nada privilegiado, con el
+   mismo sensor, llega en 37 de 40 vuelos en nuestro bosque (39 con la cámara VGA del paper). Nuestro
+   estudiante llega en 28, y el paper reporta 100 % hasta 5 m/s y ~60 % a 10 m/s. A 10 m/s, con 30 entornos,
+   se estanca en 24–25 de 30. Es el límite de R4: el alcance de 10 m del estéreo es 1 s de vuelo.
 
 **Lo que queda:**
+- **Medir el reactivo en Flightmare** contra el 69/90 del estudiante, y el híbrido estudiante + `--fan`.
 - **7 m/s.** 5 de sus 6 choques llegan en los primeros 2.5 s: el vuelo arranca ya a la velocidad objetivo,
   con troncos desde 2.5 m y sin historia de percepción. Hay que medir si es un artefacto del protocolo de
   salida (`r22 diagnose` con `--keep`).

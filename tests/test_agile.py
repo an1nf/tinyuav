@@ -424,3 +424,102 @@ def test_compare_pairs_runs_by_environment(tmp_path):
     assert s['b.json']['student_v3'][:2] == (2, 1) and s['b.json']['total'][:2] == (2, 1)
     assert rates(mk([1, 0])['student_v3']) == pytest.approx((0.05, 1 / 60))
     assert len(lines) == 4
+
+
+def test_perceived_clearance_kdtree_matches_brute_force():
+    """The k-d tree gives the exact nearest cell: same clearance as brute force wherever it matters."""
+    from nanouav.agile.rollout import PerceivedObstacles
+    rng = np.random.default_rng(0)
+    obs = PerceivedObstacles(n_frames=3)
+    for _ in range(3):
+        obs.add(rng.uniform([0, -3, 0], [10, 3, 3], (2000, 3)))
+    X = rng.uniform([0, -3, 0], [10, 3, 3], (21, 3))
+    C = obs.cells()
+    brute = float(np.sqrt(((X[:, None] - C[None]) ** 2).sum(-1)).min()) - 0.5 * obs.cell
+    assert obs.clearance(X) == pytest.approx(brute, abs=1e-9)
+    d, q = obs.nearest(X[:1])
+    assert d[0] == pytest.approx(np.linalg.norm(X[0] - q[0]))
+
+
+def test_min_pool_keeps_the_nearest_pixel():
+    """--pool min: a one-pixel-wide near obstacle survives the 4 × 4 reduction; plain striding skips it."""
+    from nanouav.agile.rollout import _min_pool
+    d = np.full((8, 8), 10.0, np.float32)
+    d[1, 2] = 2.0                                   # a thin pole, off the stride grid
+    d[5:, 5:] = 0                                   # a hole
+    m, vv, uu = _min_pool(d, 4)
+    assert m[0, 0] == 2.0 and (vv[0, 0], uu[0, 0]) == (1, 2)
+    assert m[1, 1] == 10.0                          # the hole does not hide the valid pixels of its block
+    assert d[::4, ::4].min() == 10.0
+
+
+def test_fan_candidates_leave_along_the_velocity_and_fan_around_omega():
+    from nanouav.agile.rollout import fan_cost, fan_points
+    p, v, om = np.array([0.0, 0.0, 1.5]), np.array([4.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0])
+    W = fan_points(p, v, om, 5.0, z_lim=(0.7, 2.5))
+    assert W.shape == (33, 10, 3)
+    assert np.allclose(W[0, -1], [5.0, 0.0, 1.5])                 # 0°, no height change: straight ahead
+    assert W[:, -1, 2].min() >= 0.7 and W[:, -1, 2].max() <= 2.5
+    ref = p + np.outer(np.arange(1, 11) / 10, [5.0, 0, 0])
+    assert int(np.argmin(fan_cost(W, ref))) == 0                  # nearest the line: the straight one
+
+
+def test_reactive_pilot_goes_around_a_trunk_on_its_own_sgm():
+    """Pilot 'reactive' (no network, nothing privileged): a trunk on the line is avoided from its own SGM."""
+    from nanouav.agile.envs import Env
+    from nanouav.agile.rollout import Config, Rollout
+    from nanouav.agile.stereo import StereoRig
+    tex = Texture('noise', albedo=0.7, albedo2=0.2, scale=0.05, seed=3)
+    w = World([Cylinder(6.0, 0.0, 0.3, 0.0, 4.0, tex)], Plane(Texture('noise', scale=0.1, seed=1)))
+    e = Env('one_trunk', w, np.array([0.0, 0.0, 1.5]), np.array([12.0, 0.0, 1.5]), {}, True)
+    R = Rollout(e, Config(v_des=3.0, seed=0, rig=StereoRig(width=160, height=120, num_disp=32)), 'reactive')
+    R.KEEP = True
+    r, _, log = R.run()
+    assert r['success'] and not r['crashed'] and r['decide_ms'] is not None
+    assert max(abs(row[2]) for row in log) > 0.3                  # it left the line to pass the trunk
+
+
+def test_edge_filter_drops_the_pixels_smeared_across_a_depth_jump():
+    """--edge: a trunk at 3 m in front of a wall at 8 m; SGM-like smear pixels at 5 m on its border are
+    dropped, the trunk's inside and the wall's inside stay."""
+    from nanouav.agile.rollout import edge_filter
+    d = np.full((12, 12), 8.0, np.float32)
+    d[:, 4:8] = 3.0
+    d[:, 8] = 5.0                                   # the smear between the trunk and the wall
+    d[0, 0] = 0.0                                   # a hole
+    e = edge_filter(d)
+    assert (e[:, 8] == 0).all()                     # smear gone
+    assert (e[2:10, 5:7] == 3.0).all() and (e[2:10, 1:3] == 8.0).all()
+    assert e[0, 1] == 0.0                           # next to a hole: not trusted either
+
+
+def test_carving_removes_noise_that_later_frames_see_through():
+    """--carve: a phantom cell hit in two frames but seen through in three later ones no longer counts; a real
+    surface that every frame hits stays."""
+    from nanouav.agile.rollout import PerceivedObstacles
+    from nanouav.agile.stereo import StereoRig
+    rig = StereoRig(width=160, height=120)
+    pose = (np.array([0.0, 0.0, 1.5]), 0.0, 0.0, 0.0)
+    wall = np.full((120, 160), 6.0, np.float32)            # a wall 6 m ahead (forward distance)
+    obs = PerceivedObstacles(n_frames=6, carve=True)
+    ghost = np.array([[3.0, 0.0, 1.5]])                     # noise floating 3 m ahead, straight on the axis
+    real = np.array([[6.1, 0.0, 1.5]])
+    for k in range(5):
+        obs.add(np.vstack([real] + ([ghost] if k < 2 else [])), wall, rig, pose)
+    C = obs.cells()
+    assert len(C) and np.min(np.linalg.norm(C - real, axis=1)) < 0.2
+    assert np.min(np.linalg.norm(C - ghost, axis=1)) > 0.5
+    plain = PerceivedObstacles(n_frames=6)
+    for k in range(5):
+        plain.add(np.vstack([real] + ([ghost] if k < 2 else [])))
+    assert np.min(np.linalg.norm(plain.cells() - ghost, axis=1)) < 0.2   # without carving the ghost stays
+
+
+def test_soft_clearance_cost_prefers_the_wider_gap():
+    """--w-clear: between two candidates equally near the line, the one that only just clears costs more."""
+    from nanouav.agile.rollout import fan_cost
+    ref = np.outer(np.arange(1, 11) / 10, [5.0, 0, 0])
+    W = np.stack([ref + [0, 0.3, 0], ref + [0, -0.3, 0]])
+    assert fan_cost(W, ref)[0] == pytest.approx(fan_cost(W, ref)[1])
+    J = fan_cost(W, ref, clear=[0.36, 1.2], w_clear=2.0)
+    assert J[0] > J[1] + 1.5

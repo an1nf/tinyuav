@@ -328,7 +328,7 @@ def _hypotheses(d):
     """→ (hypotheses, predicted costs, index of the chosen one: −1 if it flew on the previous plan, --keep)."""
     W = [np.asarray(w, float) for w in d['W']]
     costs = list(d.get('costs') or [])
-    return W, costs, -1 if d.get('kept') else int(d.get('k', 0))
+    return W, costs, -1 if (d.get('kept') or d.get('fanned')) else int(d.get('k', 0))
 
 
 def _camera_hud(d, rig, w=800, h=600):

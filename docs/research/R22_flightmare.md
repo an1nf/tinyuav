@@ -480,6 +480,16 @@ R22, sin nada privilegiado y sin reentrenar.
 (`--no-keep` para ≤ 0.23). R18 no cambia: allí `snap` es el valor por defecto, y `--keep` solo actúa con
 `sgm` u `oracle`.
 
+## Un piloto sin red con el mismo sensor (R24, 2026-10-15)
+
+En nuestro simulador, un piloto reactivo sin red y sin nada privilegiado (`--pilots reactive`) llega en 37
+de 40 vuelos, frente a 28 de nuestro estudiante. Ver [R24](R24_reactivo_sin_red.md). En el almacén:
+
+```bash
+nanouav run r22 eval --arena --scene warehouse --pilots reactive --v 3,5,7 --n 30 --edge --tag n30
+nanouav run r22 eval --arena --scene warehouse --pilots student --model results/r22/student_fm_warehouse_fov.keras --v 3,5,7 --n 30 --fan --tag n30_r15
+```
+
 ## Cómo correrlo
 
 ```bash

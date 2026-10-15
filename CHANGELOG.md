@@ -3,6 +3,46 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.25.0] — 2026-10-15
+
+Sin cambios en los resultados por defecto (todo lo nuevo va tras banderas).
+- **R24, piloto `reactive`:** sin red y sin nada privilegiado. Bosque de prueba de R18, 10 vuelos por
+  velocidad (3, 5, 7 y 10 m/s):
+  - `--keep --tilt --edge`: 37/40;
+  - `--keep --tilt --edge --vga` (la cámara del paper): 39/40;
+  - nuestro estudiante (`sgm`): 28/40;
+  - el paper reporta 100 % hasta 5 m/s y ~60 % a 10 m/s para su estudiante, en su simulador.
+
+  A 10 m/s con 30 entornos: 24/30 (`--edge`), 25/30 con VGA y 25/30 cobrando la latencia de decidir
+  (`--latency 0.08`).
+- **Probado y apagado:**
+  - `--carve`: baja mucho las falsas alarmas por decisión, pero en vuelo da 34/40 y 20/30;
+  - `--w-clear`: 22/30 a 10 m/s;
+  - `--pool min` y `--slow`: sin mejora medible.
+
+### Añadido
+- **Piloto `reactive`** (`Rollout.plan_reactive`).
+  - 33 candidatas en abanico alrededor de ω (`fan_points`), juzgadas sobre su propio SGM del último segundo.
+  - Entre las libres elige la más cercana a la recta (`fan_cost`); con `--keep`, conserva el plan en curso.
+  - En `r18 pilots/eval/video` y `r22 eval/video`.
+- **`--fan`** (estudiante con `sgm` u `oracle`): si ninguna hipótesis está libre y `--keep` no puede actuar,
+  vuela la mejor candidata libre del abanico.
+- **Opciones de percepción:**
+  - `--edge`: descarta los píxeles en saltos de profundidad (`rollout.edge_filter`);
+  - `--pool min`: el píxel más cercano de cada bloque;
+  - `--carve`: evidencia de espacio libre en `PerceivedObstacles`.
+- **Opciones de R18:**
+  - `--tilt`: la cámara a 30° hacia arriba a ≥ 7 m/s, como en R22;
+  - `--vga`: el par estéreo de 640 × 480;
+  - `--latency`: s de la captura al plan;
+  - `--slow`: el abanico a menor velocidad si nada está libre;
+  - `--w-clear`: costo de holgura suave.
+- `decide_ms` / `decide_ms_p95` en cada vuelo y la columna `dec_ms` en `eval`: lo que tarda decidir.
+
+### Cambiado
+- `PerceivedObstacles.clearance` usa un k-d tree (scipy) en vez de fuerza bruta, con `nearest()` para el
+  gradiente. Las decisiones son las mismas: solo cambian valores de diagnóstico por encima de 1.5 m.
+
 ## [0.24.1] — 2026-10-15
 
 Sin cambios en los resultados: solo documentación.

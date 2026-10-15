@@ -29,10 +29,17 @@ def _out(a):
 def opts_of(a):
     """Rollout options from the command line → (dict, file-name suffix of the non-default ones)."""
     o = {'proj': getattr(a, 'proj', 'scaled'), 'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select,
-         'lookahead': getattr(a, 'lookahead', 0.0), 'keep': getattr(a, 'keep', False)}
+         'lookahead': getattr(a, 'lookahead', 0.0), 'keep': getattr(a, 'keep', False),
+         'fan': getattr(a, 'fan', False), 'pool': getattr(a, 'pool', 'stride'), 'latency': getattr(a, 'latency', 0.05),
+         'tilt': getattr(a, 'tilt', False), 'edge': getattr(a, 'edge', False), 'slow': getattr(a, 'slow', 0.0),
+         'carve': getattr(a, 'carve', False), 'vga': getattr(a, 'vga', False), 'w_clear': getattr(a, 'w_clear', 0.0)}
     suf = ''.join([f"_{o['proj']}" if o['proj'] != 'scaled' else '', f"_{o['tscale']}" if o['tscale'] != 'chord' else '',
                    f"_cap{o['vcap']:g}" if o['vcap'] else '', f"_{o['select']}" if o['select'] != 'snap' else '',
-                   f"_la{o['lookahead']:g}" if o['lookahead'] else '', '_keep' if o['keep'] else ''])
+                   f"_la{o['lookahead']:g}" if o['lookahead'] else '', '_keep' if o['keep'] else '',
+                   '_fan' if o['fan'] else '', '_minpool' if o['pool'] == 'min' else '',
+                   f"_lat{1000 * o['latency']:.0f}" if abs(o['latency'] - 0.05) > 1e-9 else '',
+                   '_tilt' if o['tilt'] else '', '_edge' if o['edge'] else '', f"_slow{o['slow']:g}" if o['slow'] else '',
+                   '_carve' if o['carve'] else '', '_vga' if o['vga'] else '', f"_wc{o['w_clear']:g}" if o['w_clear'] else ''])
     return o, suf
 
 
@@ -43,6 +50,12 @@ def apply_opts(R, o):
     R.SELECT = o.get('select', 'snap')
     R.LOOKAHEAD = float(o.get('lookahead') or 0.0)
     R.KEEP = bool(o.get('keep', False))
+    R.FAN = bool(o.get('fan', False))
+    R.POOL = o.get('pool', 'stride') or 'stride'
+    R.EDGE = bool(o.get('edge', False))
+    R.SLOW = float(o.get('slow') or 0.0)
+    R.CARVE = bool(o.get('carve', False))
+    R.W_CLEAR = float(o.get('w_clear') or 0.0)
     return R
 
 
@@ -53,7 +66,14 @@ def _eval_job(job):
     env = EV.TEST[job['world']](job['seed'])
     from nanouav.agile.policy import omega_of
     om = omega_of(job['model']) if job['pilot'] == 'student' and job.get('model') else 'line'
-    cfg = Config(v_des=job['v'], cam_hz=job['cam_hz'], seed=job['seed'], omega_ref=om)
+    kw = {}
+    if job.get('tilt') or job.get('vga'):         # the paper's sensor: VGA, 30° up at ≥ 7 m/s (as in R22)
+        import dataclasses
+        from nanouav.agile.stereo import StereoRig
+        rig = StereoRig(width=640, height=480, num_disp=96, texture_win=11) if job.get('vga') else StereoRig()
+        kw['rig'] = dataclasses.replace(rig, tilt_up_deg=30.0 if (job.get('tilt') and job['v'] >= 7.0 - 1e-6) else 0.0)
+    cfg = Config(v_des=job['v'], cam_hz=job['cam_hz'], seed=job['seed'], omega_ref=om, latency=job.get('latency') or 0.05,
+                 **kw)
     pol = dagger._policy(job.get('model')) if job['pilot'] == 'student' else None
     try:
         R = Rollout(env, cfg, job['pilot'], pol)
@@ -97,7 +117,7 @@ def _sweep(a, pilots, model=None):
     old = json.load(open(fn)) if os.path.exists(fn) else {}
     old.update(table)
     json.dump(old, open(fn, 'w'), indent=1)
-    print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s} {"t_med":>6s} {"v_mean":>6s} {"lat_m":>6s}')
+    print(f'{"pilot":10s} {"v":>5s} {"success":>8s} {"crash":>6s} {"t_med":>6s} {"v_mean":>6s} {"lat_m":>6s} {"dec_ms":>7s}')
     for p in pilots:
         for v in speeds:
             L = table[f'{p}_v{v:g}']
@@ -105,7 +125,9 @@ def _sweep(a, pilots, model=None):
             tm = np.median([r['time_s'] for r in ok]) if ok else float('nan')
             vm = np.median([r['mean_speed'] for r in ok]) if ok else float('nan')
             lat = np.mean([r['lateral_m'] for r in L if 'lateral_m' in r]) if any('lateral_m' in r for r in L) else float('nan')
-            print(f'{p:10s} {v:5.1f} {len(ok):3d}/{len(L):<4d} {sum(r.get("crashed", 0) for r in L):6d} {tm:6.1f} {vm:6.1f} {lat:6.2f}')
+            dm = [r['decide_ms'] for r in L if r.get('decide_ms') is not None]
+            print(f'{p:10s} {v:5.1f} {len(ok):3d}/{len(L):<4d} {sum(r.get("crashed", 0) for r in L):6d} {tm:6.1f} {vm:6.1f} '
+                  f'{lat:6.2f} {np.median(dm) if dm else float("nan"):7.1f}')
     print(f'→ {fn}  ({time.time() - t0:.0f} s)')
 
 
@@ -157,7 +179,7 @@ def main():
             p.add_argument('--world', default='forest', choices=['forest', 'gap'])
             p.add_argument('--v', type=float, default=3.0)
             p.add_argument('--seed', type=int, default=1000)
-            p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl', 'blind'])
+            p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl', 'blind', 'reactive'])
             p.add_argument('--no-chase', dest='chase', action='store_false', help='skip the chase camera (faster)')
             p.add_argument('--debug-map', action='store_true',
                            help='old panels with the true map (default: only what the drone perceives)')
@@ -175,8 +197,30 @@ def main():
                            help='sgm/oracle: also the continuation of each plan at its final velocity for this many '
                                 'seconds must be free')
             p.add_argument('--keep', action='store_true',
-                           help='sgm/oracle: when none of the new hypotheses is free, go on flying the current plan '
-                                'if what is left of it (≥ 0.3 s) still is')
+                           help='sgm/oracle (and the reactive pilot): when none of the new hypotheses is free, go on '
+                                'flying the current plan if what is left of it (≥ 0.3 s) still is')
+            p.add_argument('--fan', action='store_true',
+                           help='sgm/oracle: when no hypothesis is free and --keep cannot act, fly the free candidate '
+                                'around ω nearest the line (rollout.fan_points)')
+            p.add_argument('--pool', default='stride', choices=['stride', 'min'],
+                           help='SGM → points for the sgm choice: one pixel per 4 × 4 block (≤ 0.24) or the nearest')
+            p.add_argument('--latency', type=float, default=0.05,
+                           help='s from capture to plan applied (0.05 by default; charge the decision time here)')
+            p.add_argument('--edge', action='store_true',
+                           help='drop SGM pixels on depth discontinuities before the sgm choice (rollout.edge_filter)')
+            p.add_argument('--slow', type=float, default=0.0,
+                           help='reactive pilot: when nothing is free at speed, try the candidates at this fraction of '
+                                'v (e.g. 0.6; the mean speed is reported)')
+            p.add_argument('--w-clear', type=float, default=0.0,
+                           help='fan candidates: weight (m²) of the soft clearance cost, to prefer wider gaps')
+            p.add_argument('--carve', action='store_true',
+                           help='free-space evidence in the perceived obstacles: a cell seen through more often than '
+                                'hit does not count (rollout.PerceivedObstacles)')
+            p.add_argument('--vga', action='store_true',
+                           help="the paper's 640 × 480 stereo pair instead of 320 × 240 (4× the rendering time)")
+            p.add_argument('--tilt', action='store_true',
+                           help="the paper's sensor: camera 30° up at ≥ 7 m/s (R22 always; R18 students were trained "
+                                'without it)')
             p.add_argument('--select', default='snap', choices=['snap', 'consistent', 'oracle', 'sgm', 'oracle_cost', 'sgm_cost'],
                            help='choice among the hypotheses (consistent: keep the side unless the cost says so)')
         if name in ('dagger', 'train'):
