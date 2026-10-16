@@ -6,6 +6,7 @@
   nanouav run r18 dagger --kind gap --envs 100 --init results/r18/student_train.keras   # narrow-gap fine-tuning
   nanouav run r18 eval --model results/r18/student_train.keras --world forest --v 3,5,7,10
   nanouav run r18 eval --model … --world gap --v 3,5,7
+  nanouav run r18 compare A.json B.json+B2.json         # paired by seed against A (exact McNemar)
 
 Results go to $NANOUAV_RESULTS/r18 (default results/r18). See docs/research/R18_agile_autonomy.md.
 """
@@ -252,7 +253,14 @@ def main():
         if name == 'train':
             p.add_argument('--data', default='', help='comma-separated shard directories (default data_<kind>)')
             p.add_argument('--name', default='', help='output model name (default student_<kind>.keras)')
+    p = sub.add_parser('compare', help='eval JSONs over the same seeds, each paired against the first (McNemar)')
+    p.add_argument('files', nargs='+', help="eval_*.json (the first is the reference); a.json+b.json joins runs over "
+                                            "different seeds; one pilot against another is paired by speed")
     a = ap.parse_args()
+    if a.cmd == 'compare':
+        from nanouav.agile.stats import compare
+        compare(a.files)
+        return
     if a.cmd == 'sgm':
         return cmd_sgm(a)
     if a.cmd == 'pilots':

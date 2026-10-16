@@ -19,9 +19,18 @@ def mcnemar(b, c):
 
 
 def load(fn):
-    """eval JSON ({'student_v3': [result, …], …}) → {(key, environment index): result}."""
-    T = json.load(open(fn))
-    return {(key, int(r.get('line', i))): r for key, R in T.items() for i, r in enumerate(R)}
+    """eval JSON ({'student_v3': [result, …], …}) → {(key, environment): result}. The environment is the line or
+    arena index (r22) or the seed (r18); 'a.json+b.json' joins runs over different environments (e.g. seeds
+    1000–1009 and 1010–1029)."""
+    out = {}
+    for f in fn.split('+'):
+        T = json.load(open(f))
+        out.update({(key, int(r.get('line', r.get('seed', i)))): r for key, R in T.items() for i, r in enumerate(R)})
+    return out
+
+
+def _pilot(key):
+    return key.rsplit('v', 1)[0].rstrip('_')
 
 
 def rates(results):
@@ -34,7 +43,7 @@ def rates(results):
 
 def _speed(key):
     try:
-        return float(key.rsplit('_v', 1)[1])
+        return float(key.rsplit('v', 1)[1])
     except (IndexError, ValueError):
         return 0.0
 
@@ -43,8 +52,11 @@ def compare(fns, out=print):
     """Each run's arrivals and crash rates per key (pilot and speed), then every run against the first, paired
     by environment over the environments both have. → {name: {key or 'total': (only this, only first, p)}}."""
     runs = [load(f) for f in fns]
-    names = [os.path.basename(f) for f in fns]
-    keys = sorted({k for k, _ in runs[0]}, key=lambda k: (k.rsplit('_v', 1)[0], _speed(k)))
+    P = [{_pilot(k) for k, _ in R} for R in runs]
+    if all(len(p) == 1 for p in P) and len(set.union(*P)) > 1:     # one pilot against another: pair by speed
+        runs = [{(f'v{_speed(k):g}', e): r for (k, e), r in R.items()} for R in runs]
+    names = [os.path.basename(f.split('+')[0]) + (f" +{f.count('+')}" if '+' in f else '') for f in fns]
+    keys = sorted({k for k, _ in runs[0]}, key=lambda k: (_pilot(k), _speed(k)))
     w = max(len(n) for n in names)
     out(f'{"":{w + 3}s}' + ''.join(f'{k:>14s}' for k in keys) + f'{"total":>10s}   crash %/s · %/m')
     for j, (n, R) in enumerate(zip(names, runs)):

@@ -61,15 +61,44 @@ Bosque de prueba de R18, 10 vuelos por velocidad:
 
 No se puede afirmar que supere a nada hasta entrenarla como el paper.
 
-## Siguiente: entrenar en la GPU
+## Entrenamiento en la GPU (20 000 iteraciones a lote 64, TITAN X Pascal)
+
+Es el 40 % de lo que usa el paper (50 000 iteraciones a lote 64). Promedios de cada tramo de 1000 iteraciones
+(registro en `r25/train_gpu20k.log`):
+
+| iteraciones | pérdida | seguimiento de velocidad | choque (pérdida) | episodios con choque |
+|---|---|---|---|---|
+| 0–1 000 | 1.74 | 1.60 | 0.020 | 2.7 % |
+| 1 000–2 000 | 1.19 | 1.05 | 0.017 | 0.8 % |
+| 4 000–5 000 | 1.01 | 0.88 | 0.017 | 0.7 % |
+| 9 000–10 000 | 0.94 | 0.80 | 0.017 | 0.4 % |
+| 14 000–15 000 | 0.87 | 0.73 | 0.016 | 0.4 % |
+| 19 000–20 000 | 0.86 | 0.73 | 0.016 | 0.4 % |
+
+**Lo que dice la curva:**
+- **Converge hacia las 15 000 iteraciones.** Después la pérdida ya no baja.
+- **Lo que mejora es la velocidad.** La pérdida de seguimiento pasa de 1.60 a 0.73, la de choque apenas se
+  mueve y los episodios con choque bajan de 2.7 % a 0.4 %. Es justo lo que le faltaba a la prueba de
+  concepto, que esquivaba pero no corría.
+- **El 0.4 % es en sus propios bosques**, con profundidad ideal más ruido. La prueba de verdad es su propio SGM
+  en el lazo de R18 y las imágenes de Unity.
+
+## Evaluación
 
 ```bash
-nanouav run r25 train --out results/r25 --iters 20000 --batch 64
-nanouav run r18 eval --pilots diffphys --model results/r25/diffphys.keras --v 3,5,7,10 --n 10
+nanouav run r18 eval --pilots diffphys --model results/r25/diffphys.keras --v 3,5,7,10 --n 30 --workers 8
+nanouav run r18 compare docs/research/r24/eval_forest_pilots_keep_tilt_edge.json+docs/research/r24/eval_forest_pilots_keep_tilt_edge_s1010.json \
+    results/r18/eval_forest_diffphys.json
+nanouav run r22 eval --arena --scene warehouse --pilots diffphys --model results/r25/diffphys.keras --v 3,5,7,10 --n 30
 ```
 
-Hay que batir:
-- el reactivo de R24 (37/40, 24/30 a 10 m/s);
-- nuestro estudiante de Loquercio (28/40).
+- **Sin `--tilt`:** la política se entrenó con la cámara a nivel. En Flightmare, `r22` la deja a nivel para este
+  piloto.
+- **`compare` empareja un piloto contra otro por velocidad** cuando cada archivo tiene un solo piloto. Con
+  `a.json+b.json` une corridas sobre semillas distintas (0.26.3).
+- **Referencias:**
+  - en R18, el reactivo de R24: 37/40 y 24/30 a 10 m/s;
+  - en el almacén, el reactivo: 84/90 de 3 a 7 m/s (`r24/flightmare/eval_arena_warehouse_reactive_edge_v3-7.json`,
+    reconstruido del registro) y 20/30 a 10 m/s.
 
-Después vienen la variante de entrada 8 × 8 (ToF) y Flightmare.
+Después vienen la variante de entrada 8 × 8 (ToF) y la reparación por QP.

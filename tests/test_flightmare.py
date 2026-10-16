@@ -340,3 +340,18 @@ def test_reactive_pilot_flies_on_flightmare_frames(unity):
     R.KEEP, R.EDGE = True, True
     r, _, log = R.run()
     assert not r['crashed'] and r['decide_ms'] is not None and len(R._perceived.cells()) > 0
+
+
+def test_diffphys_pilot_flies_on_flightmare_frames(unity, tmp_path):
+    """r22 eval --pilots diffphys: the R25 policy decides on the SGM of the frames Unity sends."""
+    pytest.importorskip('tensorflow')
+    from nanouav.agile import diffphys as DP
+    from nanouav.agile.rollout import Config, Rollout
+    from nanouav.flightmare.run import FlightmareObserver
+    cl, env = unity
+    path = str(tmp_path / 'dp.keras')
+    DP.build_policy(hidden=16).save(path)
+    R = Rollout(env, Config(v_des=3.0, seed=0, t_max=1.0), 'diffphys', path)
+    R.observer = FlightmareObserver(cl, R.cfg.rig)
+    r, _, log = R.run()
+    assert 'error' not in r and r['decide_ms'] is not None and len(log) > 5

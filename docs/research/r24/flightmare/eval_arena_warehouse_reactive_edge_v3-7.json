@@ -1,0 +1,818 @@
+{
+ "reactive_v3": [
+  {
+   "line": 0,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "line": 1,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.8,
+   "from_log": true
+  },
+  {
+   "line": 2,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "line": 3,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.1,
+   "from_log": true
+  },
+  {
+   "line": 4,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "line": 5,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.6,
+   "from_log": true
+  },
+  {
+   "line": 6,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.6,
+   "from_log": true
+  },
+  {
+   "line": 7,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.5,
+   "from_log": true
+  },
+  {
+   "line": 8,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.7,
+   "from_log": true
+  },
+  {
+   "line": 9,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.8,
+   "from_log": true
+  },
+  {
+   "line": 10,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "line": 11,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "line": 12,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.7,
+   "from_log": true
+  },
+  {
+   "line": 13,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.1,
+   "from_log": true
+  },
+  {
+   "line": 14,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.0,
+   "from_log": true
+  },
+  {
+   "line": 15,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.6,
+   "from_log": true
+  },
+  {
+   "line": 16,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "line": 17,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.8,
+   "from_log": true
+  },
+  {
+   "line": 18,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.7,
+   "from_log": true
+  },
+  {
+   "line": 19,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.9,
+   "from_log": true
+  },
+  {
+   "line": 20,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "line": 21,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.6,
+   "from_log": true
+  },
+  {
+   "line": 22,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 6.1,
+   "from_log": true
+  },
+  {
+   "line": 23,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "line": 24,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "line": 25,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.7,
+   "from_log": true
+  },
+  {
+   "line": 26,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.8,
+   "from_log": true
+  },
+  {
+   "line": 27,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.7,
+   "from_log": true
+  },
+  {
+   "line": 28,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.6,
+   "from_log": true
+  },
+  {
+   "line": 29,
+   "pilot": "reactive",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.6,
+   "from_log": true
+  }
+ ],
+ "reactive_v5": [
+  {
+   "line": 0,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 1,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "line": 2,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "line": 3,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "line": 4,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "line": 5,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 6,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 7,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "line": 8,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.6,
+   "from_log": true
+  },
+  {
+   "line": 9,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 10,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 11,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 12,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 13,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "line": 14,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 5.1,
+   "from_log": true
+  },
+  {
+   "line": 15,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 16,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 17,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "line": 18,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.5,
+   "from_log": true
+  },
+  {
+   "line": 19,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 20,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 21,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "line": 22,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.3,
+   "from_log": true
+  },
+  {
+   "line": 23,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "line": 24,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 25,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 26,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 27,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "line": 28,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "line": 29,
+   "pilot": "reactive",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  }
+ ],
+ "reactive_v7": [
+  {
+   "line": 0,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 1,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "line": 2,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.1,
+   "from_log": true
+  },
+  {
+   "line": 3,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "line": 4,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.9,
+   "from_log": true
+  },
+  {
+   "line": 5,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 6,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 7,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.9,
+   "from_log": true
+  },
+  {
+   "line": 8,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "line": 9,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 10,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.9,
+   "from_log": true
+  },
+  {
+   "line": 11,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 12,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 0.9,
+   "from_log": true
+  },
+  {
+   "line": 13,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "line": 14,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 3.5,
+   "from_log": true
+  },
+  {
+   "line": 15,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 16,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 17,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.9,
+   "from_log": true
+  },
+  {
+   "line": 18,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 0.9,
+   "from_log": true
+  },
+  {
+   "line": 19,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.0,
+   "from_log": true
+  },
+  {
+   "line": 20,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 21,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 1.9,
+   "from_log": true
+  },
+  {
+   "line": 22,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "line": 23,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 24,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 25,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 26,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "line": 27,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.4,
+   "from_log": true
+  },
+  {
+   "line": 28,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 29,
+   "pilot": "reactive",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  }
+ ]
+}

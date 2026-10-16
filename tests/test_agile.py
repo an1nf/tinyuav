@@ -422,6 +422,15 @@ def test_compare_pairs_runs_by_environment(tmp_path):
     lines = []
     s = compare([str(a), str(b)], out=lines.append)
     assert s['b.json']['student_v3'][:2] == (2, 1) and s['b.json']['total'][:2] == (2, 1)
+    # one pilot against another (paired by speed), the second joined from two runs over different seeds (r18)
+    mk2 = lambda p, seeds, ok: {f'{p}_v10': [{'seed': e, 'success': s, 'crashed': not s, 'time_s': 4.0,
+                                              'mean_speed': 10.0} for e, s in zip(seeds, ok)]}
+    c, d1, d2 = tmp_path / 'c.json', tmp_path / 'd1.json', tmp_path / 'd2.json'
+    json.dump(mk2('reactive', [1000, 1001, 1002, 1003], [1, 1, 0, 1]), open(c, 'w'))
+    json.dump(mk2('diffphys', [1000, 1001], [0, 1]), open(d1, 'w'))
+    json.dump(mk2('diffphys', [1002, 1003], [1, 1]), open(d2, 'w'))
+    s = compare([str(c), f'{d1}+{d2}'], out=[].append)
+    assert s['d1.json +1']['v10'][:2] == (1, 1)
     assert rates(mk([1, 0])['student_v3']) == pytest.approx((0.05, 1 / 60))
     assert len(lines) == 4
 
@@ -546,3 +555,21 @@ def test_diffphys_simulator_gives_gradients_and_images():
     x = DP.DiffPhysPilot.depth_input(dep)
     assert x.shape == (12, 16) and x[0, 0] == pytest.approx(0.5) and x[6, 6] == pytest.approx(1 / 8)
     assert x[5, 5] == pytest.approx(1 / DP.D_MAX)            # a block with no depth reads as far
+
+
+def test_diffphys_pilot_flies_in_the_closed_loop(tmp_path):
+    """Pilot 'diffphys': the saved recurrent policy decides on its own SGM every frame (an untrained one here,
+    so only the plumbing is checked: plans from it, its decision time, no error)."""
+    pytest.importorskip('tensorflow')
+    from nanouav.agile import diffphys as DP
+    from nanouav.agile.envs import Env
+    from nanouav.agile.rollout import Config, Rollout
+    from nanouav.agile.stereo import StereoRig
+    path = str(tmp_path / 'dp.keras')
+    DP.build_policy(hidden=16).save(path)
+    w = World([Cylinder(30.0, 5.0, 0.3, 0.0, 4.0, Texture('noise', seed=3))], Plane(Texture('noise', scale=0.1, seed=1)))
+    e = Env('far_trunk', w, np.array([0.0, 0.0, 1.5]), np.array([12.0, 0.0, 1.5]), {}, True)
+    R = Rollout(e, Config(v_des=3.0, seed=0, t_max=1.0, rig=StereoRig(width=160, height=120, num_disp=32)),
+                'diffphys', path)
+    r, _, log = R.run()
+    assert 'error' not in r and r['decide_ms'] is not None and len(log) > 5

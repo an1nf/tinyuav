@@ -3,6 +3,24 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.26.3] — 2026-10-15
+
+Sin cambios en los resultados existentes.
+
+### Añadido
+- `r22 eval|video --pilots diffphys --model …/diffphys.keras`: la política de R25 en Flightmare, con la cámara
+  a nivel, como se entrenó.
+- `r18 compare` (como `r22 compare`). En los dos, un piloto contra otro se empareja por velocidad, y
+  `a.json+b.json` une corridas sobre semillas o entornos distintos. En R18 el entorno es la semilla.
+- `docs/research/r24/flightmare/eval_arena_warehouse_reactive_edge_v3-7.json`: el reactivo en el almacén a
+  3–7 m/s (84/90), reconstruido del registro porque la corrida a 10 m/s sobrescribió el JSON (0.26.2). Solo
+  trae llegada, choque y tiempo.
+
+### Resultados
+- R25 entrenado en la GPU (20 000 iteraciones, lote 64): la pérdida baja de 1.74 a 0.86 y deja de bajar hacia
+  las 15 000. Lo que mejora es el seguimiento de la velocidad (1.60 → 0.73). Los episodios de entrenamiento con
+  choque bajan de 2.7 % a 0.4 %. La evaluación en R18 y Flightmare queda pendiente.
+
 ## [0.26.2] — 2026-10-15
 
 ### Corregido

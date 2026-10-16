@@ -14,6 +14,7 @@ Start the Unity standalone first (it connects to us), then:
   nanouav run r22 lines --n 10               # start → goal lines (40 m) with a collision-free global path → lines.json
   nanouav run r22 eval --model results/r18/student_train.keras --pilots gbl,student --v 3,5,7
   nanouav run r22 video --model results/r18/student_train.keras --v 3 --line 0
+  nanouav run r22 eval --arena --scene warehouse --pilots diffphys --model results/r25/diffphys.keras --v 3,5,7,10
   nanouav run r22 fake                       # without Unity: our renderer behind the same protocol (tests, dry runs)
 
 Scenes: the 2022 binary of agile_flight (download.ifi.uzh.ch/rpg/Flightmare/RPG_Flightmare.zip) has
@@ -421,26 +422,32 @@ def cmd_lines(a):
     print(f'{len(L)} lines → {out}/lines_{a.scene}.json, lines_{a.scene}.png')
 
 
+SEEING = ('student', 'reactive', 'diffphys')       # the pilots that fly on Unity's frames
+
+
 def _episode(a, env, i, pilot, v, client, calib, model, trace=False, rig=None):
     from nanouav.agile import dagger
     from nanouav.agile.rollout import Config, Rollout
     from nanouav.agile.run import apply_opts
     if rig is not None and getattr(a, 'arena', False):         # trained with the paper's tilt at ≥ 7 m/s
         from nanouav.flightmare.dagger import tilted
-        rig = tilted(rig, v)
+        rig = tilted(rig, 0.0 if pilot == 'diffphys' else v)   # R25 was trained with a level camera
         if client is not None:
             client.set_tilt(rig.tilt_up_deg)
     from nanouav.agile.policy import omega_of
     om = omega_of(model) if pilot == 'student' and model else 'line'
     cfg = Config(v_des=v, cam_hz=a.cam_hz, seed=1000 + i, omega_ref=om, latency=getattr(a, 'latency', 0.05),
                  **({'rig': rig} if rig is not None else {}))
-    R = Rollout(env, cfg, pilot, dagger._policy(model) if pilot == 'student' else None)
+    if pilot == 'diffphys' and not model:
+        raise SystemExit('the diffphys pilot needs --model <r25 out>/diffphys.keras')
+    R = Rollout(env, cfg, pilot, dagger._policy(model) if pilot == 'student' else
+                model if pilot == 'diffphys' else None)
     apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select, 'lookahead': a.lookahead,
                    'keep': getattr(a, 'keep', False), 'fan': getattr(a, 'fan', False), 'pool': getattr(a, 'pool', 'stride'),
                    'edge': getattr(a, 'edge', False), 'slow': getattr(a, 'slow', 0.0),
                    'carve': getattr(a, 'carve', False)})
     obs = None
-    if pilot in ('student', 'reactive') or trace:
+    if pilot in SEEING or trace:
         if client.n_objects:
             client.place(env.world.objects)
         obs = FlightmareObserver(client, cfg.rig, calib)
@@ -503,7 +510,7 @@ def cmd_eval(a):
     speeds = [float(x) for x in a.v.split(',')]
     rig = rig_of(a)
     client = make_client(a, calib, n_objects=a.n_objects if a.arena else 0, rig=rig) \
-        if {'student', 'reactive'} & set(pilots) else None
+        if set(SEEING) & set(pilots) else None
     model = os.path.abspath(a.model) if a.model else None
     table = {}
     t0 = time.time()
@@ -560,7 +567,7 @@ def cmd_video(a):
     r, R, log, env = _episode(a, env, i, a.pilot, a.v, client, calib,
                               os.path.abspath(a.model) if a.model else None, trace=True, rig=rig)
     os.makedirs(os.path.join(out, 'video'), exist_ok=True)
-    tag = os.path.splitext(os.path.basename(a.model))[0] if a.pilot == 'student' else a.pilot
+    tag = os.path.splitext(os.path.basename(a.model))[0] if a.pilot in ('student', 'diffphys') else a.pilot
     fn = os.path.join(out, 'video', f"{tag}_{'arena_' if a.arena else ''}{a.scene}_{'env' if a.arena else 'line'}{a.line}_v{a.v:g}.mp4")
     res = 'EXITO' if r['success'] else ('CHOQUE' if r['crashed'] else 'SIN LLEGAR')
     render_episode(env, log, R.trace, R.cfg.rig, R.cfg.net_size, fn, fps=a.cam_hz, chase=False,
@@ -985,12 +992,13 @@ def main(argv=None):
         elif name == 'diagnose':
             p.add_argument('--n', type=int, default=10)
         else:
-            p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl', 'reactive'])
+            p.add_argument('--pilot', default='student', choices=['student', 'expert', 'gbl', 'reactive', 'diffphys'])
             p.add_argument('--line', type=int, default=0, help='line (or arena environment) index')
             p.add_argument('--debug-map', action='store_true',
                            help='old panels with the true map (default: only what the drone perceives)')
     p = sub.add_parser('compare', help='eval JSONs over the same environments, paired against the first')
-    p.add_argument('files', nargs='+', help='eval_*.json (the first is the reference)')
+    p.add_argument('files', nargs='+', help='eval_*.json (the first is the reference); a.json+b.json joins runs; '
+                                            'one pilot against another is paired by speed')
     p = sub.add_parser('fake')
     p.add_argument('--world', default='forest', choices=['forest', 'gap', 'arena'])
     p.add_argument('--seed', type=int, default=1000)

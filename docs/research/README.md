@@ -26,7 +26,7 @@ Su equivalente actual está en [../migracion.md](../migracion.md); por ejemplo
 | [R23_direccion_y_etiquetas.md](R23_direccion_y_etiquetas.md) | R23: el techo del estudiante — sus etiquetas siguen una ruta que no ve (τ_gbl) mientras ω apunta a la recta; aprende a no fiarse de ω y deriva. Cuatro condiciones y una referencia replaneada que las cumple | `r18 dagger --label-ref ctg`, `r22 dagger --label-ref ctg` |
 | [R22_flightmare.md](R22_flightmare.md) | R22: el estudiante de R18 en Flightmare (Unity del paper) por un puente ZMQ en Python, con la nube de puntos como mapa privilegiado | `r22 probe/cloud/lines/eval/video/fake` |
 | [R24_reactivo_sin_red.md](R24_reactivo_sin_red.md) | R24: un piloto reactivo sin red ni nada privilegiado (abanico de candidatas juzgadas sobre su propio SGM, `--keep`) supera a nuestro estudiante y llega a lo que el paper reporta para el suyo; filtro de bordes, costo de holgura suave, VGA | `r18 pilots --pilots reactive`, `r22 eval --pilots reactive` |
-| [R25_diffphys.md](R25_diffphys.md) | R25: política recurrente de 16 × 12 entrenada por física diferenciable (Zhang et al. 2025), sin experto ni etiquetas; prueba de concepto en CPU | `r25 train`, `r18 eval --pilots diffphys` |
+| [R25_diffphys.md](R25_diffphys.md) | R25: política recurrente de 16 × 12 entrenada por física diferenciable (Zhang et al. 2025), sin experto ni etiquetas; entrenada en GPU (20 000 iteraciones), evaluación pendiente | `r25 train`, `r18 eval --pilots diffphys`, `r22 eval --pilots diffphys` |
 
 Plantilla para un informe nuevo (`RNN_tema.md`): pregunta · qué se toma de la fuente · cambios en el
 código (archivo y bandera, apagada por defecto) · montaje y **comando exacto** (`nanouav run …` o
