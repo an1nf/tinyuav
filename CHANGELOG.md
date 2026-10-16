@@ -3,6 +3,35 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.26.6] — 2026-10-16
+
+Cambia el entrenamiento de R25. Los modelos ya entrenados vuelan igual.
+
+### Corregido
+- **R25 aprendía a contar metros.** La meta estaba siempre a 40 m y la velocidad objetivo caía a cero al
+  llegar, así que la GRU frenaba hacia los 30 m pidiera lo que se pidiera: a 10 m/s, 4.9 m/s de media en R18.
+  Ahora:
+  - la meta está a 20–100 m al azar, en bosques de 115 m;
+  - la velocidad objetivo no cae al llegar;
+  - el episodio termina al cruzar el plano de la meta, como en R18 y R22.
+
+### Añadido
+- `nanouav run r25 profile --model …`: la velocidad hacia adelante en cada segundo, en su propio simulador
+  y con la meta a 1 km. Sirve para ver si mantiene v_des.
+- El registro de entrenamiento muestra `v/v_des`.
+- `r18 eval --pilots diffphys`, para el diagnóstico:
+  - `--dp-gt` da la profundidad exacta en lugar del SGM;
+  - `--dp-q` toma un cuantil de cada bloque de 16 × 12 en lugar del mínimo;
+  - `--edge` ahora también filtra la entrada de DiffPhys.
+
+### Resultados
+- Con la profundidad exacta, DiffPhys llega 10/10 a 10 m/s, a 8.2 m/s de media. Con el SGM frena por los
+  píxeles sueltos de los bordes; `--edge` los quita.
+- 400 iteraciones de ajuste en CPU, evaluado con `--edge` en las semillas 1000–1009:
+  - llega 39/40 (9, 10, 10 y 10), frente a 37/40 del reactivo;
+  - no choca a 7 ni a 10 m/s;
+  - a 10 m/s va a 7.3 m/s de media, frente a 4.9 antes y 9.7 del reactivo.
+
 ## [0.26.5] — 2026-10-16
 
 Sin cambios en el código: resultados.

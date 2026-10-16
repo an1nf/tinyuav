@@ -114,11 +114,76 @@ a 8 ($p = 0.38$).
   reactivo. Parte de la ventaja a 10 m/s es ir más despacio. Todavía no se puede decir que bata a nada a
   10 m/s *reales*.
 
-**Siguiente: por qué va lenta.** Hay tres sospechas, y cada una se separa de las otras con un experimento:
-1. **Ya es lenta en su propio simulador.** Es un problema de entrenamiento: el peso del choque frente al
-   seguimiento, o la velocidad promediada en 2 s.
-2. **Es lenta solo con el SGM.** Los bordes y el ruido de la profundidad le parecen obstáculos cercanos.
-3. **Es lenta en R18 aun con la profundidad exacta.** Es la diferencia entre la masa puntual y el cuadrotor
-   con su controlador.
+## Por qué iba lenta (0.26.6)
+
+Hay dos causas, una de entrenamiento y otra de percepción. La dinámica no es el problema.
+
+**1. Aprendió a contar metros.** En su propio simulador, con profundidad ideal y la meta a 1 km
+(`nanouav run r25 profile`), la política entrenada en la GPU frena después de ~30 m pida lo que se le pida:
+
+| v_des, empezando a esa velocidad | s 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|
+| 5 m/s | 4.9 | 4.8 | 4.8 | 4.8 | 4.9 | 5.0 | 4.7 |
+| 7 m/s | 6.8 | 6.7 | 6.8 | 6.8 | 5.7 | 3.1 | 1.2 |
+| 10 m/s | 9.4 | 9.2 | 8.6 | 5.6 | 2.2 | 1.4 | 1.1 |
+
+En el entrenamiento la meta estaba siempre a 40 m y la velocidad objetivo caía a cero al llegar
+(min(v_des, distancia)). Pero la red solo recibe la dirección de la meta, no la distancia. La GRU aprendió
+entonces a integrar su velocidad y a frenar hacia los 30 m.
+
+**Arreglo:**
+- **Meta a 20–100 m al azar**, en bosques de 115 m.
+- **La velocidad objetivo no cae al llegar.** El episodio termina al cruzar el plano de la meta, que es
+  como se decide el éxito en R18 y R22.
+- **Una métrica nueva en el registro:** `v/v_des`, la velocidad hacia la meta sobre la pedida.
+
+Con 400 iteraciones de ajuste en CPU (lote 16, desde el modelo de la GPU), mantiene 5 y 7 m/s los 10 s y
+10 m/s unos 6 s, hasta ~60 m.
+
+**2. Un píxel cercano del SGM frena a la red.** En R18, a 10 m/s, sobre las semillas 1000–1009:
+
+| política | entrada | llegadas | choques | tiempo mediano | velocidad media |
+|---|---|---|---|---|---|
+| GPU (original) | SGM | 7/10 | 0 | 8.3 s | 4.9 m/s |
+| GPU (original) | SGM `--edge` | 9/10 | 0 | 7.8 s | 5.2 m/s |
+| ajustada | SGM | 8/10 | 0 | 6.8 s | 5.9 m/s |
+| ajustada | SGM, cuantil 0.1 por bloque | 9/10 | 1 | 6.2 s | 6.5 m/s |
+| ajustada | SGM, cuantil 0.25 | 9/10 | 0 | 5.7 s | 7.0 m/s |
+| ajustada | SGM, cuantil 0.1 y `--edge` | 8/10 | 2 | 5.3 s | 7.5 m/s |
+| **ajustada** | **SGM `--edge`** | **10/10** | **0** | **5.5 s** | **7.3 m/s** |
+| ajustada | profundidad exacta (`--dp-gt`) | 10/10 | 0 | 4.9 s | 8.2 m/s |
+
+- **Con la profundidad exacta vuela a 8.2 m/s de media** (contando el arranque). La masa puntual
+  representa bien al cuadrotor con su controlador.
+- **Con el SGM frena.** La entrada toma el más cercano de cada bloque de 20 × 20 píxeles. Los píxeles que
+  el SGM deja sueltos en los bordes de los troncos parecen obstáculos a pocos metros. En el entrenamiento
+  los huecos se leían como lejos y nunca hubo puntos cercanos falsos.
+- **El filtro de bordes (`--edge`, el de R24) los quita** sin perder troncos: 10/10 y 7.3 m/s.
+- **Tomar un cuantil del bloque también los quita, pero pierde troncos finos** y aparecen choques.
+
+**Las cuatro velocidades**, política ajustada con `--edge`, semillas 1000–1009, emparejada con el reactivo
+de R24:
+
+| piloto | 3 | 5 | 7 | 10 m/s | total | velocidad media de los que llegan |
+|---|---|---|---|---|---|---|
+| DiffPhys ajustada, `--edge` | 9/10 | 10/10 | 10/10 | 10/10 | 39/40 | 2.9 · 4.4 · 5.7 · 7.3 m/s |
+| reactivo (R24) | 9/10 | 10/10 | 9/10 | 9/10 | 37/40 | 2.9 · 4.9 · 6.8 · 9.7 m/s |
+
+- **No choca nunca a 7 y 10 m/s.** Hay 3 entornos que solo pasa DiffPhys y 1 que solo pasa el reactivo
+  ($p = 0.62$, son 10 por velocidad).
+- **Sigue siendo ~25 % más lenta que el reactivo a 10 m/s.** El ajuste en la GPU debe cerrar parte; la otra
+  parte es el SGM: con la profundidad exacta va a 8.2 m/s.
+
+Los JSON están en `r25/eval_forest_diffphys_cpuft400*.json`; el registro del ajuste, en
+`r25/train_cpuft400.log`.
+
+**Siguiente:** ajustar en la GPU con estos cambios y evaluar con `--edge`:
+
+```bash
+nanouav run r25 train --out results/r25b --init results/r25/diffphys.keras --iters 5000 --lr 3e-4
+nanouav run r25 profile --model results/r25b/diffphys.keras
+nanouav run r18 eval --pilots diffphys --model results/r25b/diffphys.keras --v 3,5,7,10 --n 30 --workers 8 --edge
+nanouav run r22 eval --arena --scene warehouse --pilots diffphys --model results/r25b/diffphys.keras --v 3,5,7,10 --n 30 --edge
+```
 
 Después vienen la variante de entrada 8 × 8 (ToF) y la reparación por QP.

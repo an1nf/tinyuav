@@ -573,3 +573,31 @@ def test_diffphys_pilot_flies_in_the_closed_loop(tmp_path):
                 'diffphys', path)
     r, _, log = R.run()
     assert 'error' not in r and r['decide_ms'] is not None and len(log) > 5
+
+
+def test_diffphys_goal_plane_and_speed_profile(tmp_path):
+    """0.26.6: an episode ends on crossing the goal plane (one goal distance per episode), the loss reports the
+    speed toward the goal over v_des, and `r25 profile` flies a saved policy without gradients."""
+    tf = pytest.importorskip('tensorflow')
+    from nanouav.agile import diffphys as DP
+    rng = np.random.default_rng(1)
+    cx, cy, rr = DP.forest_batch(rng, 2, length=DP.FOREST_LENGTH)
+    pol = DP.build_policy(hidden=16)
+    loss, m = DP.rollout_loss(pol, tf.constant(cx), tf.constant(cy), tf.constant(rr), [4.0, 6.0], T=5,
+                              goal_x=[0.2, 60.0])       # the first starts past its goal plane: no loss from it
+    assert np.isfinite(m['loss']) and 0.0 <= m['v_ratio'] < 2.0
+    path = str(tmp_path / 'dp.keras')
+    pol.save(path)
+    out = DP.speed_profile(path, speeds=(5.0,), B=2, T=15, log=lambda s: None)
+    assert set(out) == {(5.0, 'rest'), (5.0, 'v_des')} and len(out[(5.0, 'v_des')]) == 1
+
+
+def test_diffphys_depth_input_ignores_a_stray_near_pixel():
+    """0.26.6: with q > 0 a single stray near SGM pixel no longer makes its whole block near."""
+    from nanouav.agile import diffphys as DP
+    dep = np.full((240, 320), 8.0, np.float32)
+    dep[5, 5] = 0.5                                             # one outlier in block (0, 0)
+    dep[100:120, 100:120] = 2.0                                 # a real obstacle filling block (5, 5)
+    x0, xq = DP.DiffPhysPilot.depth_input(dep), DP.DiffPhysPilot.depth_input(dep, q=0.1)
+    assert x0[0, 0] == pytest.approx(2.0) and xq[0, 0] == pytest.approx(1 / 8)
+    assert xq[5, 5] == pytest.approx(0.5) and xq[6, 6] == pytest.approx(1 / 8)

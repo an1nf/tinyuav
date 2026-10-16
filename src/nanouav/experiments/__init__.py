@@ -74,7 +74,7 @@ _E = [
                needs=('cpu', 'tensorflow'), tags=('planning', 'training', 'agile')),
     Experiment('r19', 'nanouav.follow.run', 'Follow a person: YOLO person detector (VisDrone), tracker + target lock, follow mission on R18 (prep-visdrone|train-det|eval-det|video|sim|dagger)',
                needs=('cpu', 'tensorflow'), tags=('perception', 'missions', 'agile')),
-    Experiment('r25', 'nanouav.agile.diffphys', 'Recurrent depth policy trained through a differentiable point-mass simulator (Zhang et al. 2025) on the R18 forests (train; eval with r18 eval --pilots diffphys)',
+    Experiment('r25', 'nanouav.agile.diffphys', 'Recurrent depth policy trained through a differentiable point-mass simulator (Zhang et al. 2025) on the R18 forests (train, profile; eval with r18 eval --pilots diffphys --edge)',
                needs=('cpu', 'tensorflow'), tags=('training', 'agile')),
     Experiment('r22', 'nanouav.flightmare.run', 'The R18 student in Flightmare (Unity scenes of the paper) through a Python ZMQ bridge (probe|cloud|lines|eval|video|fake)',
                needs=('cpu', 'tensorflow'), tags=('agile', 'simulation')),

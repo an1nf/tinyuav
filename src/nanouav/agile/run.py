@@ -33,14 +33,16 @@ def opts_of(a):
          'lookahead': getattr(a, 'lookahead', 0.0), 'keep': getattr(a, 'keep', False),
          'fan': getattr(a, 'fan', False), 'pool': getattr(a, 'pool', 'stride'), 'latency': getattr(a, 'latency', 0.05),
          'tilt': getattr(a, 'tilt', False), 'edge': getattr(a, 'edge', False), 'slow': getattr(a, 'slow', 0.0),
-         'carve': getattr(a, 'carve', False), 'vga': getattr(a, 'vga', False), 'w_clear': getattr(a, 'w_clear', 0.0)}
+         'carve': getattr(a, 'carve', False), 'vga': getattr(a, 'vga', False), 'w_clear': getattr(a, 'w_clear', 0.0),
+         'dp_gt': getattr(a, 'dp_gt', False), 'dp_q': getattr(a, 'dp_q', 0.0)}
     suf = ''.join([f"_{o['proj']}" if o['proj'] != 'scaled' else '', f"_{o['tscale']}" if o['tscale'] != 'chord' else '',
                    f"_cap{o['vcap']:g}" if o['vcap'] else '', f"_{o['select']}" if o['select'] != 'snap' else '',
                    f"_la{o['lookahead']:g}" if o['lookahead'] else '', '_keep' if o['keep'] else '',
                    '_fan' if o['fan'] else '', '_minpool' if o['pool'] == 'min' else '',
                    f"_lat{1000 * o['latency']:.0f}" if abs(o['latency'] - 0.05) > 1e-9 else '',
                    '_tilt' if o['tilt'] else '', '_edge' if o['edge'] else '', f"_slow{o['slow']:g}" if o['slow'] else '',
-                   '_carve' if o['carve'] else '', '_vga' if o['vga'] else '', f"_wc{o['w_clear']:g}" if o['w_clear'] else ''])
+                   '_carve' if o['carve'] else '', '_vga' if o['vga'] else '', f"_wc{o['w_clear']:g}" if o['w_clear'] else '',
+                   '_dpgt' if o['dp_gt'] else '', f"_q{o['dp_q']:g}" if o['dp_q'] else ''])
     return o, suf
 
 
@@ -57,6 +59,8 @@ def apply_opts(R, o):
     R.SLOW = float(o.get('slow') or 0.0)
     R.CARVE = bool(o.get('carve', False))
     R.W_CLEAR = float(o.get('w_clear') or 0.0)
+    R.DP_GT = bool(o.get('dp_gt', False))
+    R.DP_Q = float(o.get('dp_q') or 0.0)
     return R
 
 
@@ -220,6 +224,10 @@ def main():
                                 'v (e.g. 0.6; the mean speed is reported)')
             p.add_argument('--w-clear', type=float, default=0.0,
                            help='fan candidates: weight (m²) of the soft clearance cost, to prefer wider gaps')
+            p.add_argument('--dp-gt', action='store_true',
+                           help='diffphys pilot: the true depth instead of its SGM (to separate perception from dynamics)')
+            p.add_argument('--dp-q', type=float, default=0.0,
+                           help='diffphys pilot: quantile of the valid SGM depths of each 16 × 12 block (0: nearest)')
             p.add_argument('--carve', action='store_true',
                            help='free-space evidence in the perceived obstacles: a cell seen through more often than '
                                 'hit does not count (rollout.PerceivedObstacles)')

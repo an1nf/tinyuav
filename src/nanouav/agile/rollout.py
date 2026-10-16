@@ -492,6 +492,8 @@ class Rollout:
     SLOW = 0.0                   # reactive: when nothing is free at speed, try the fan at SLOW × v_des (0: off)
     CARVE = False                # free-space evidence in its perceived obstacles (`PerceivedObstacles`)
     W_CLEAR = 0.0                # fan: weight of the soft clearance term of `fan_cost` (m²; 0: off)
+    DP_GT = False                # diffphys: feed the true depth instead of its SGM (diagnosis: perception vs dynamics)
+    DP_Q = 0.0                   # diffphys: quantile of each 16 × 12 block of its SGM (0: the nearest pixel)
 
     def __init__(self, env, cfg, pilot='gbl', policy=None, label=False, expert_kw=None, gref=None, mission=None):
         self.env, self.cfg, self.pilot, self.policy, self.label = env, cfg, pilot, policy, label
@@ -737,9 +739,10 @@ class Rollout:
                     if getattr(self, '_dp', None) is None:
                         from nanouav.agile.diffphys import DiffPhysPilot
                         self._dp = DiffPhysPilot(self.policy)
+                        self._dp.q, self._dp.edge = self.DP_Q, self.EDGE
                     gd = np.asarray(self.env.goal, float) - p
                     t_d = time.perf_counter()
-                    acc = self._dp(cam['depth'], p, v, R, gd / max(float(np.linalg.norm(gd)), 1e-6), yaw, self._v_des)
+                    acc = self._dp(cam['depth_gt'] if self.DP_GT else cam['depth'], p, v, R, gd / max(float(np.linalg.norm(gd)), 1e-6), yaw, self._v_des)
                     sel_ms.append(1000 * (time.perf_counter() - t_d))
                     coef = np.zeros((3, 6))
                     coef[:, 0], coef[:, 1], coef[:, 2] = p, v, 0.5 * acc
