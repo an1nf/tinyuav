@@ -3,6 +3,17 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.26.7] — 2026-10-16
+
+Sin cambios en el código: resultados.
+- **R25 ajustado en la GPU** (`r25b`, 5000 iteraciones): mantiene v_des en su simulador.
+- **En el bosque de R18 con `--edge`:** 114/120 (28, 29, 29 y 28 de 30). Antes eran 103/120.
+- **Emparejado con el reactivo:** 6 entornos que solo pasa DiffPhys y ninguno que solo pase el reactivo
+  ($p = 0.03$). A 10 m/s, 28/30 frente a 24/30.
+- **A 10 m/s sigue más lenta:** 6.7 m/s de media frente a 9.7 del reactivo.
+- **Registros:** `docs/research/r25/` (`train_gpu_r25b_5k.log`, `profile_r25b.txt`,
+  `eval_forest_diffphys_r25b_edge.json`).
+
 ## [0.26.6] — 2026-10-16
 
 Cambia el entrenamiento de R25. Los modelos ya entrenados vuelan igual.

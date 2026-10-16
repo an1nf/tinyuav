@@ -177,13 +177,39 @@ de R24:
 Los JSON están en `r25/eval_forest_diffphys_cpuft400*.json`; el registro del ajuste, en
 `r25/train_cpuft400.log`.
 
-**Siguiente:** ajustar en la GPU con estos cambios y evaluar con `--edge`:
+## Ajuste en la GPU (`results/r25b`, 5000 iteraciones a lote 64 desde el modelo de la GPU, lr 3·10⁻⁴)
 
-```bash
-nanouav run r25 train --out results/r25b --init results/r25/diffphys.keras --iters 5000 --lr 3e-4
-nanouav run r25 profile --model results/r25b/diffphys.keras
-nanouav run r18 eval --pilots diffphys --model results/r25b/diffphys.keras --v 3,5,7,10 --n 30 --workers 8 --edge
-nanouav run r22 eval --arena --scene warehouse --pilots diffphys --model results/r25b/diffphys.keras --v 3,5,7,10 --n 30 --edge
-```
+**Entrenamiento** (`r25/train_gpu_r25b_5k.log`):
+- `v/v_des` se mantiene en 0.93–0.94 en todo el ajuste;
+- los episodios con choque bajan de 2.5 % a 2.0 %. Antes eran 0.4 %, pero a menos de la mitad de la velocidad.
+
+**Perfil en su propio simulador** (`r25 profile`, `r25/profile_r25b.txt`):
+- mantiene 5, 7 y ~9.3 m/s durante los 10 s, unos 90 m a 10 m/s;
+- a 12 m/s va a ~10.5 m/s.
+
+**Bosque de R18, 30 semillas por velocidad, `--edge`**, emparejado con el reactivo de R24 y con la versión
+anterior (`r25/eval_forest_diffphys_r25b_edge.json`, reconstruido del registro):
+
+| piloto | 3 | 5 | 7 | 10 m/s | total | velocidad media a 3 · 5 · 7 · 10 m/s |
+|---|---|---|---|---|---|---|
+| **DiffPhys r25b, `--edge`** | **28/30** | **29/30** | **29/30** | **28/30** | **114/120** | 2.8 · 4.4 · 5.7 · 6.7 m/s |
+| DiffPhys de la GPU, sin `--edge` | 27/30 | 27/30 | 26/30 | 23/30 | 103/120 | 2.6 · 3.6 · 4.2 · 4.9 m/s |
+| reactivo (R24) | 9/10 | 10/10 | 9/10 | 24/30 | | 2.9 · 4.9 · 6.8 · 9.7 m/s |
+
+**Emparejados:**
+- frente al reactivo: 6 entornos que solo pasa DiffPhys y **ninguno** que solo pase el reactivo ($p = 0.03$);
+  a 10 m/s, 4 frente a 0;
+- frente a la versión anterior: 13 frente a 2 ($p = 0.01$).
+
+**Fallos:** 3 choques y 3 vuelos sin tiempo en 120. La semilla 1015 falla a todas las velocidades.
+
+**Lo que falta:** a 10 m/s sigue más lenta que el reactivo (6.0 s frente a 4.1 s de mediana en los 40 m).
+En su simulador mantiene ~9.3 m/s; con el SGM, aun filtrado, frena. Con la profundidad exacta, la versión
+de CPU iba a 8.2 m/s.
+
+**Siguiente:**
+- el almacén de Flightmare con `--edge`;
+- cerrar la brecha del SGM: entrenar con los artefactos del SGM (píxeles cercanos falsos que parpadean
+  entre cuadros; un tronco de verdad persiste) o darle la profundidad filtrada en el tiempo.
 
 Después vienen la variante de entrada 8 × 8 (ToF) y la reparación por QP.
