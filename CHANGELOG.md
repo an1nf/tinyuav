@@ -3,6 +3,17 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.26.5] — 2026-10-16
+
+Sin cambios en el código: resultados.
+- **R25 evaluado, 30 entornos por velocidad:**
+  - en el bosque de R18, 103/120; empata con el reactivo emparejado (3 frente a 4).
+  - en el almacén de Flightmare, 109/120, sin reentrenar; a 10 m/s, 27/30 frente a 20/30 del reactivo
+    (8 frente a 1, $p = 0.04$).
+  - Solo 2 y 5 choques en 120 vuelos.
+- No vuela a la velocidad pedida: a 10 m/s, 4.9 m/s de media en R18 y ~6.2 m/s en el almacén. Registro en
+  `docs/research/r25/eval_r18_y_flightmare.log`.
+
 ## [0.26.4] — 2026-10-16
 
 Sin cambios en los resultados.

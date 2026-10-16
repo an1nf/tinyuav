@@ -83,22 +83,42 @@ Es el 40 % de lo que usa el paper (50 000 iteraciones a lote 64). Promedios de c
 - **El 0.4 % es en sus propios bosques**, con profundidad ideal más ruido. La prueba de verdad es su propio SGM
   en el lazo de R18 y las imágenes de Unity.
 
-## Evaluación
+## Evaluación (30 entornos por velocidad, registro en `r25/eval_r18_y_flightmare.log`)
 
-```bash
-nanouav run r18 eval --pilots diffphys --model results/r25/diffphys.keras --v 3,5,7,10 --n 30 --workers 8
-nanouav run r18 compare docs/research/r24/eval_forest_pilots_keep_tilt_edge.json+docs/research/r24/eval_forest_pilots_keep_tilt_edge_s1010.json \
-    results/r18/eval_forest_diffphys.json
-nanouav run r22 eval --arena --scene warehouse --pilots diffphys --model results/r25/diffphys.keras --v 3,5,7,10 --n 30
-```
+**Bosque de R18**, emparejado con el reactivo de R24 (`--keep --tilt --edge`) sobre las mismas semillas:
 
-- **Sin `--tilt`:** la política se entrenó con la cámara a nivel. En Flightmare, `r22` la deja a nivel para este
-  piloto.
-- **`compare` empareja un piloto contra otro por velocidad** cuando cada archivo tiene un solo piloto. Con
-  `a.json+b.json` une corridas sobre semillas distintas (0.26.3).
-- **Referencias:**
-  - en R18, el reactivo de R24: 37/40 y 24/30 a 10 m/s;
-  - en el almacén, el reactivo: 84/90 de 3 a 7 m/s (`r24/flightmare/eval_arena_warehouse_reactive_edge_v3-7.json`,
-    reconstruido del registro) y 20/30 a 10 m/s.
+| piloto | 3 m/s | 5 m/s | 7 m/s | 10 m/s | choques | velocidad media real (3 · 5 · 7 · 10) |
+|---|---|---|---|---|---|---|
+| DiffPhys | 27/30 | 27/30 | 26/30 | 23/30 | 2 de 120 | 2.6 · 3.6 · 4.2 · 4.9 m/s |
+| reactivo (R24) | 9/10 | 10/10 | 9/10 | 24/30 | | |
+
+Emparejado: 3 entornos solo los pasa DiffPhys y 4 solo el reactivo ($p = 1$). Empatan en llegadas.
+
+**Almacén de Flightmare**, sin reentrenar: la red nunca vio paredes, estanterías ni troncos cuadrados.
+
+| piloto | 3 m/s | 5 m/s | 7 m/s | 10 m/s | total | choques por segundo a 10 m/s |
+|---|---|---|---|---|---|---|
+| DiffPhys | 26/30 | 28/30 | 28/30 | **27/30** | 109/120 | 1.0 % |
+| reactivo (R24) | 29/30 | 29/30 | 26/30 | 20/30 | 104/120 | 9.3 % |
+
+Emparejado a 10 m/s: 8 entornos solo los pasa DiffPhys y 1 solo el reactivo ($p = 0.04$). En total, 13 frente
+a 8 ($p = 0.38$).
+
+**Lo que dicen estos números:**
+- **Casi no choca.** 2 choques en 120 vuelos en R18 y 5 en 120 en el almacén. Sus fallos son casi todos
+  vuelos que se quedan sin tiempo.
+- **Generaliza.** Entrenada solo con cilindros y suelo ideales, vuela con su propio SGM y con las imágenes de
+  Unity mejor que el reactivo a 10 m/s, que es justo donde fallaba todo lo anterior.
+- **Pero no vuela a la velocidad pedida.** Esto limita todo lo anterior: en R18, a 10 m/s, va a 4.9 m/s de
+  media. En el almacén tarda 6.4 s en los 40 m (~6.2 m/s), y a 7 m/s tarda 7.3 s, frente a 5.8 s del
+  reactivo. Parte de la ventaja a 10 m/s es ir más despacio. Todavía no se puede decir que bata a nada a
+  10 m/s *reales*.
+
+**Siguiente: por qué va lenta.** Hay tres sospechas, y cada una se separa de las otras con un experimento:
+1. **Ya es lenta en su propio simulador.** Es un problema de entrenamiento: el peso del choque frente al
+   seguimiento, o la velocidad promediada en 2 s.
+2. **Es lenta solo con el SGM.** Los bordes y el ruido de la profundidad le parecen obstáculos cercanos.
+3. **Es lenta en R18 aun con la profundidad exacta.** Es la diferencia entre la masa puntual y el cuadrotor
+   con su controlador.
 
 Después vienen la variante de entrada 8 × 8 (ToF) y la reparación por QP.
