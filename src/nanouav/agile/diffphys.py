@@ -318,10 +318,22 @@ class DiffPhysPilot:
     → far), velocity, thrust direction from the attitude and the goal direction; keeps the GRU state between
     frames. → desired world acceleration."""
 
+    _MODELS = {}                                      # loaded once per process (eval workers fly many episodes)
+
     def __init__(self, path):
         tf = _tf()
         self.tf = tf
-        self.model = tf.keras.models.load_model(path, compile=False)
+        if path not in self._MODELS:
+            n = int(os.environ.get('OMP_NUM_THREADS') or 0)
+            if n:                                     # one core per eval worker: no thread oversubscription
+                try:
+                    tf.config.threading.set_intra_op_parallelism_threads(n)
+                    tf.config.threading.set_inter_op_parallelism_threads(n)
+                except RuntimeError:                  # TensorFlow already running in this process
+                    pass
+            self._MODELS.clear()
+            self._MODELS[path] = tf.keras.models.load_model(path, compile=False)
+        self.model = self._MODELS[path]
         self.h = np.zeros((1, self.model.inputs[2].shape[-1]), np.float32)
 
     def reset(self):

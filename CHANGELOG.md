@@ -3,6 +3,17 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.26.4] — 2026-10-16
+
+Sin cambios en los resultados.
+
+### Corregido
+- `r18 eval` no mostraba nada hasta terminar todos los vuelos. Ahora imprime una línea por vuelo, con el avance
+  y el tiempo transcurrido.
+- `--pilots diffphys` en `r18 eval`: cada proceso cargaba el modelo en cada vuelo, y TensorFlow abría un
+  hilo por núcleo en cada uno de los 8 procesos. Ahora el modelo se carga una vez por proceso y TensorFlow
+  usa los hilos de `OMP_NUM_THREADS` (1 por proceso).
+
 ## [0.26.3] — 2026-10-15
 
 Sin cambios en los resultados existentes.

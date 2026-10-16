@@ -111,7 +111,12 @@ def _sweep(a, pilots, model=None):
         os.environ.setdefault(k, '1')
     ctx = mp.get_context('spawn')
     with ctx.Pool(a.workers) as pool:
-        res = pool.map(_eval_job, jobs, chunksize=1)
+        res = []
+        for j, r in zip(jobs, pool.imap(_eval_job, jobs, chunksize=1)):   # one line per flight, in order
+            res.append(r)
+            st = 'ok' if r.get('success') else 'CRASH' if r.get('crashed') else 'error' if r.get('error') else 'fail'
+            print(f"[{len(res)}/{len(jobs)} {time.time() - t0:.0f} s] {j['pilot']} v={j['v']:g} seed {j['seed']}: {st} "
+                  f"{r.get('time_s', float('nan')):.1f} s" + (f"  {r['error']}" if r.get('error') else ''), flush=True)
     table = {}
     for j, r in zip(jobs, res):
         table.setdefault(f"{j['pilot']}_v{j['v']:g}", []).append(r)
