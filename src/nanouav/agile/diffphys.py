@@ -200,6 +200,8 @@ def _decay(x, g):
     return g * x + (1 - g) * tf.stop_gradient(x)
 
 
+YAW_FWD = False                       # True: the yaw follows the velocity only toward the goal (fly with
+                                      # --yaw-fwd). A 400-iteration CPU fine-tune with it did not help (R25, 0.26.9)
 GOAL_X = (20.0, 100.0)                # m, goal distance of the training episodes (0.26.6; before: always 40)
 FOREST_LENGTH = 115.0
 
@@ -267,7 +269,10 @@ def _rollout_body(policy, cx, cy, rr, vd, goal, p, v, T):
         v = _decay(v + (a + drag) * DT, gdec)
         p = _decay(p + v * DT, gdec)
         sp_xy = tf.norm(v[:, :2], axis=1)
-        yaw = tf.where(sp_xy > 0.5, tf.atan2(v[:, 1], v[:, 0]), yaw)
+        turn = sp_xy > 0.5
+        if YAW_FWD:                                    # backing away from the goal the camera keeps its yaw
+            turn = turn & (tf.reduce_sum(tf.stop_gradient(v[:, :2]) * gdir[:, :2], 1) > 0)
+        yaw = tf.where(turn, tf.atan2(v[:, 1], v[:, 0]), yaw)
         # losses (the target velocity does not fall at the goal: the episode ends on crossing its plane)
         v_set = tf.stop_gradient(gdir * vd)
         v_avg = v_avg + (v - v_avg) * (DT / 2.0)
@@ -327,7 +332,7 @@ def train(out, iters=2000, batch=64, T=150, lr=1e-3, v_range=(3.0, 12.0), seed=0
 
 
 # ── speed profile in its own simulator (`r25 profile`) ────────────────────
-def speed_profile(path, speeds=(5.0, 7.0, 10.0, 12.0), B=64, T=150, seed=0, log=print):
+def speed_profile(path, speeds=(5.0, 7.0, 10.0, 12.0), B=64, T=150, seed=0, log=print, yaw_fwd=False):
     """Fly the policy (no gradient, ideal depth) through long forests toward a goal 1 km away, from rest and from
     v_des, and print the median forward speed of each second. A policy that slows down after a fixed distance
     learned the goal distance of its training (R25, 0.26.6). → {(v_des, start): [speed per second]}."""
@@ -357,7 +362,10 @@ def speed_profile(path, speeds=(5.0, 7.0, 10.0, 12.0), B=64, T=150, seed=0, log=
             sp = tf.norm(v, axis=1, keepdims=True)
             v = v + (a - DRAG[0] * sp * v - DRAG[1] * v) * DT
             p = p + v * DT
-            yaw = tf.where(tf.norm(v[:, :2], axis=1) > 0.5, tf.atan2(v[:, 1], v[:, 0]), yaw)
+            turn = tf.norm(v[:, :2], axis=1) > 0.5
+            if yaw_fwd:
+                turn = turn & (tf.reduce_sum(v[:, :2] * gdir[:, :2], 1) > 0)
+            yaw = tf.where(turn, tf.atan2(v[:, 1], v[:, 0]), yaw)
             d, _ = clearance(p, cx, cy, rr)
             alive = alive * tf.cast(d - R_Q > 0, tf.float32)
             out_v = out_v.write(k, tf.where(alive > 0, v[:, 0], np.nan))
@@ -443,6 +451,7 @@ class DiffPhysPilot:
             self._prev = x
             if prev is not None:
                 x = np.minimum(x, prev)               # inverse depth: the farther of the two frames
+        self._last_x = x
         img = x[None, ..., None]
         thrust = np.asarray(R, float).reshape(3, 3)[:, 2]          # body z in the world
         st = state_input(tf.constant(np.asarray(v, np.float32)[None]), tf.constant(thrust[None].astype(np.float32)),
@@ -467,14 +476,18 @@ def main(argv=None):
     p.add_argument('--v', default='3,12', help='range of desired speeds (m/s)')
     p.add_argument('--init', default='', help='continue from this model')
     p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--yaw-fwd', action='store_true', help='train with the yaw rule of --yaw-fwd (see YAW_FWD)')
     q = sub.add_parser('profile', help='forward speed per second in its own simulator, 1 km goal (does it hold v_des?)')
     q.add_argument('--model', default='results/r25/diffphys.keras')
     q.add_argument('--v', default='5,7,10,12')
+    q.add_argument('--yaw-fwd', action='store_true', help='the yaw rule of models trained from 0.26.9')
     a = ap.parse_args(argv)
     if a.cmd == 'profile':
-        speed_profile(a.model, [float(x) for x in a.v.split(',')])
+        speed_profile(a.model, [float(x) for x in a.v.split(',')], yaw_fwd=a.yaw_fwd)
         return
     if a.cmd == 'train':
+        global YAW_FWD
+        YAW_FWD = a.yaw_fwd
         lo, hi = (float(x) for x in a.v.split(','))
         print('→', train(a.out, iters=a.iters, batch=a.batch, T=a.steps, lr=a.lr, v_range=(lo, hi), seed=a.seed,
                          init=a.init or None, log=lambda s: print(s, flush=True)))

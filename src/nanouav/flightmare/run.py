@@ -445,7 +445,8 @@ def _episode(a, env, i, pilot, v, client, calib, model, trace=False, rig=None):
     apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select, 'lookahead': a.lookahead,
                    'keep': getattr(a, 'keep', False), 'fan': getattr(a, 'fan', False), 'pool': getattr(a, 'pool', 'stride'),
                    'edge': getattr(a, 'edge', False), 'slow': getattr(a, 'slow', 0.0),
-                   'carve': getattr(a, 'carve', False), 'dp_persist': getattr(a, 'dp_persist', False)})
+                   'carve': getattr(a, 'carve', False), 'dp_persist': getattr(a, 'dp_persist', False),
+                   'yaw_fwd': getattr(a, 'yaw_fwd', False)})
     obs = None
     if pilot in SEEING or trace:
         if client.n_objects:
@@ -454,6 +455,8 @@ def _episode(a, env, i, pilot, v, client, calib, model, trace=False, rig=None):
         R.observer = obs
     if trace:
         R.trace, R.trace_depth, R.record_cam = [], True, True
+        if pilot == 'diffphys':
+            R.dp_trace = []
     r, _, log = R.run()
     r.update(line=i, pilot=pilot, v=v, render_ms=round(1000 * float(np.mean(obs.t_render)), 1) if obs and obs.t_render else None)
     if r['crashed'] and log:
@@ -528,6 +531,7 @@ def cmd_eval(a):
         ('_edge' if getattr(a, 'edge', False) else '') + (f"_slow{a.slow:g}" if getattr(a, 'slow', 0) else '') + \
         ('_carve' if getattr(a, 'carve', False) else '') + \
         ('_persist' if getattr(a, 'dp_persist', False) else '') + \
+        ('_yawfwd' if getattr(a, 'yaw_fwd', False) else '') + \
         (f"_lat{1000 * a.latency:.0f}" if abs(getattr(a, 'latency', 0.05) - 0.05) > 1e-9 else '')
     fn = os.path.join(out, f"eval_{'arena_' if a.arena else ''}{a.scene}_{tag}.json")
     old = json.load(open(fn)) if os.path.exists(fn) else {}       # other speeds of the same setup are kept
@@ -575,6 +579,10 @@ def cmd_video(a):
                    result=f"{res} ({r['time_s']:.1f} s)", title=f'Flightmare {a.scene} | {tag} | {a.v:g} m/s | linea {a.line}',
                    mark=r['crash']['obstacle'] if r.get('crash') else None, view='debug' if a.debug_map else 'perception')
     print(f'{res} · {r["time_s"]} s · → {fn}')
+    if R.dp_trace is not None:                         # diffphys: its decisions frame by frame, next to the video
+        with open(fn[:-4] + '.json', 'w') as fh:
+            json.dump({'result': r, 'decisions': R.dp_trace}, fh, default=float)
+        print(f'decisions → {fn[:-4]}.json')
     if r.get('crash'):
         c = r['crash']
         print(f"hit {c.get('what', 'the map point')} {c['obstacle']} ({c['dist']} m from the drone, {c['above_ground']} m "
@@ -985,6 +993,9 @@ def main(argv=None):
         p.add_argument('--carve', action='store_true',
                        help='free-space evidence in the perceived obstacles: a cell seen through more often than hit '
                             'does not count (rollout.PerceivedObstacles)')
+        p.add_argument('--yaw-fwd', action='store_true',
+                       help='the camera follows the velocity only toward the goal; backing away it holds its yaw '
+                            '(diffphys models trained from 0.26.9)')
         p.add_argument('--dp-persist', action='store_true',
                        help='diffphys pilot: a 16 × 12 block is near only if near in two consecutive frames (SGM flicker)')
         p.add_argument('--arena', action='store_true', help='the arena test forests (r22 arena) instead of the lines')

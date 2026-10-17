@@ -3,6 +3,26 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.26.9] — 2026-10-17
+
+Sin cambios en los resultados por defecto.
+
+### Añadido
+- `r18 video` y `r22 video` con `--pilot diffphys` guardan junto al vídeo un JSON con cada decisión: posición,
+  velocidad, actitud, aceleración ordenada y el bloque más cercano de la entrada. `r18 video --pilot diffphys`
+  no cargaba el modelo y ahora funciona.
+- Diagnóstico (todo desactivado por defecto):
+  - `--yaw-fwd` en `r18` y `r22`: el rumbo sigue a la velocidad solo hacia la meta;
+  - `r25 train --yaw-fwd` entrena con esa regla;
+  - `--dp-amax` limita la aceleración horizontal de DiffPhys.
+
+### Resultados
+- **`--dp-persist` con r25b empeora a 10 m/s:** 24/30 frente a 28/30, tanto en R18 como en el almacén, con más
+  choques. No se usa.
+- **A 3 m/s se detiene así:** frena delante de un tronco, retrocede, y el rumbo, que sigue a la velocidad,
+  gira 136° en 1.2 s; se inclina y choca. Ni `--yaw-fwd`, ni un ajuste con esa regla, ni limitar la
+  aceleración lo arreglan. Detalle en `docs/research/R25_diffphys.md`.
+
 ## [0.26.8] — 2026-10-16
 
 Sin cambios en los resultados por defecto.

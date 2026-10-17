@@ -495,6 +495,8 @@ class Rollout:
     DP_GT = False                # diffphys: feed the true depth instead of its SGM (diagnosis: perception vs dynamics)
     DP_Q = 0.0                   # diffphys: quantile of each 16 × 12 block of its SGM (0: the nearest pixel)
     DP_PERSIST = False           # diffphys: a block is near only if near in two consecutive frames
+    YAW_FWD = False              # the camera follows the velocity only toward the goal; backing away it holds its yaw
+    DP_AMAX = 0.0                # diffphys: clip the commanded horizontal acceleration to this (m/s²; 0: off)
 
     def __init__(self, env, cfg, pilot='gbl', policy=None, label=False, expert_kw=None, gref=None, mission=None):
         self.env, self.cfg, self.pilot, self.policy, self.label = env, cfg, pilot, policy, label
@@ -512,6 +514,7 @@ class Rollout:
         self._v_des = self._v_ref = cfg.v_des
         self.trace = None            # a list → per student decision: hypotheses, costs, choice, true clearance
         self.trace_depth = False     # also keep the network's depth input in the trace (videos)
+        self.dp_trace = None         # a list → per diffphys decision: t, p, v, attitude, command, nearest input block
         # an external renderer instead of ours: f(p, yaw, pitch, roll) → (gray, SGM depth, true depth[, rgb]),
         # e.g. Flightmare (nanouav.flightmare.run.FlightmareObserver)
         self.observer = None
@@ -670,6 +673,7 @@ class Rollout:
         t_max = cfg.t_max or M.t_max()
         t, t_cam = 0.0, 0.0
         plan, pending, yaw_hold = None, [], None
+        psi_last = None
         samples, log = [], []
         n_student = n_frames = 0
         min_clear, crashed, success, failed = np.inf, False, False, False
@@ -745,6 +749,17 @@ class Rollout:
                     t_d = time.perf_counter()
                     acc = self._dp(cam['depth_gt'] if self.DP_GT else cam['depth'], p, v, R, gd / max(float(np.linalg.norm(gd)), 1e-6), yaw, self._v_des)
                     sel_ms.append(1000 * (time.perf_counter() - t_d))
+                    if self.DP_AMAX > 0:
+                        ah = float(np.hypot(acc[0], acc[1]))
+                        if ah > self.DP_AMAX:
+                            acc = np.array([acc[0] * self.DP_AMAX / ah, acc[1] * self.DP_AMAX / ah, acc[2]])
+                    if self.dp_trace is not None:
+                        x = getattr(self._dp, '_last_x', None)
+                        self.dp_trace.append({'t': round(float(t), 3), 'p': np.round(p, 3).tolist(), 'v': np.round(v, 3).tolist(),
+                                              'att_deg': [round(math.degrees(float(a_)), 1) for a_ in (yaw, pitch, roll)],
+                                              'acc': np.round(acc, 3).tolist(),
+                                              'near_m': round(1.0 / float(x.max()), 2) if x is not None else None,
+                                              'near_rc': [int(i) for i in np.unravel_index(int(x.argmax()), x.shape)] if x is not None else None})
                     coef = np.zeros((3, 6))
                     coef[:, 0], coef[:, 1], coef[:, 2] = p, v, 0.5 * acc
                     new = TR.Plan(coef, t, 1.0, source='diffphys')
@@ -815,8 +830,11 @@ class Rollout:
             v_cmd = v_ref + KP_POS * (p_ref - p)
             if yaw_hold is not None:
                 psi = yaw_hold
+            elif self.YAW_FWD and np.dot(v_ref[:2], np.asarray(self.env.goal, float)[:2] - sim.p[:2]) <= 0:
+                psi = psi_last if psi_last is not None else yaw   # backing away: keep facing what it backs from
             else:
                 psi = math.atan2(v_ref[1], v_ref[0]) if np.hypot(v_ref[0], v_ref[1]) > 0.5 else yaw
+            psi_last = psi
             w_cmd, _ = ctrl.update(st, v_cmd, a_ref, psi, 0.0, DT_CTRL)
             sim.step(w_cmd, DT_CTRL)
             t += DT_CTRL

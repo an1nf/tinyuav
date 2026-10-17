@@ -203,19 +203,27 @@ def run(model, out, world='forest', v=3.0, seed=1000, pilot='student', cam_hz=15
     from nanouav.agile.policy import omega_of
     env = EV.TEST[world](seed)
     cfg = Config(v_des=v, cam_hz=cam_hz, seed=seed, omega_ref=omega_of(model) if pilot == 'student' and model else 'line')
-    R = Rollout(env, cfg, pilot, dagger._policy(os.path.abspath(model)) if pilot == 'student' else None)
+    R = Rollout(env, cfg, pilot, dagger._policy(os.path.abspath(model)) if pilot == 'student' else
+                os.path.abspath(model) if pilot == 'diffphys' else None)
     from nanouav.agile.run import apply_opts
     apply_opts(R, opts or {})
     R.trace, R.trace_depth, R.record_cam = [], True, True
+    if pilot == 'diffphys':
+        R.dp_trace = []
     r, _, log = R.run()
     res = 'EXITO' if r['success'] else ('CHOQUE' if r['crashed'] else 'SIN LLEGAR')
     d = os.path.join(out, 'video')
     os.makedirs(d, exist_ok=True)
-    tag = os.path.splitext(os.path.basename(model))[0] if pilot == 'student' else pilot
+    tag = os.path.splitext(os.path.basename(model))[0] if pilot in ('student', 'diffphys') and model else pilot
     fn = os.path.join(d, f'{tag}{suffix}_{world}_v{v:g}_s{seed}.mp4')
     render_episode(env, log, R.trace, cfg.rig, cfg.net_size, fn, fps=cam_hz, chase=chase,
                    result=f'{res} ({r["time_s"]:.1f} s)', title=f'{tag} | {world} | {v:g} m/s | semilla {seed}', view=view)
     print(f'{res} · {r["time_s"]} s · → {fn}')
+    if R.dp_trace is not None:                         # diffphys: its decisions frame by frame, next to the video
+        import json
+        with open(fn[:-4] + '.json', 'w') as fh:
+            json.dump({'result': r, 'decisions': R.dp_trace}, fh, default=float)
+        print(f'decisions → {fn[:-4]}.json')
     return fn
 
 

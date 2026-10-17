@@ -1,0 +1,850 @@
+{
+ "diffphys_v3": [
+  {
+   "line": 0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.1,
+   "from_log": true
+  },
+  {
+   "line": 1,
+   "success": true,
+   "crashed": false,
+   "time_s": 15.0,
+   "from_log": true
+  },
+  {
+   "line": 2,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.6,
+   "from_log": true
+  },
+  {
+   "line": 3,
+   "success": false,
+   "crashed": false,
+   "time_s": 19.3,
+   "from_log": true
+  },
+  {
+   "line": 4,
+   "success": true,
+   "crashed": false,
+   "time_s": 16.6,
+   "from_log": true
+  },
+  {
+   "line": 5,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.3,
+   "from_log": true
+  },
+  {
+   "line": 6,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.9,
+   "from_log": true
+  },
+  {
+   "line": 7,
+   "success": false,
+   "crashed": true,
+   "time_s": 12.9,
+   "from_log": true
+  },
+  {
+   "line": 8,
+   "success": false,
+   "crashed": false,
+   "time_s": 19.3,
+   "from_log": true
+  },
+  {
+   "line": 9,
+   "success": true,
+   "crashed": false,
+   "time_s": 15.1,
+   "from_log": true
+  },
+  {
+   "line": 10,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.6,
+   "from_log": true
+  },
+  {
+   "line": 11,
+   "success": true,
+   "crashed": false,
+   "time_s": 15.3,
+   "from_log": true
+  },
+  {
+   "line": 12,
+   "success": true,
+   "crashed": false,
+   "time_s": 15.7,
+   "from_log": true
+  },
+  {
+   "line": 13,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.8,
+   "from_log": true
+  },
+  {
+   "line": 14,
+   "success": true,
+   "crashed": false,
+   "time_s": 16.8,
+   "from_log": true
+  },
+  {
+   "line": 15,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.8,
+   "from_log": true
+  },
+  {
+   "line": 16,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.2,
+   "from_log": true
+  },
+  {
+   "line": 17,
+   "success": true,
+   "crashed": false,
+   "time_s": 16.0,
+   "from_log": true
+  },
+  {
+   "line": 18,
+   "success": false,
+   "crashed": false,
+   "time_s": 19.3,
+   "from_log": true
+  },
+  {
+   "line": 19,
+   "success": true,
+   "crashed": false,
+   "time_s": 16.1,
+   "from_log": true
+  },
+  {
+   "line": 20,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.9,
+   "from_log": true
+  },
+  {
+   "line": 21,
+   "success": true,
+   "crashed": false,
+   "time_s": 15.1,
+   "from_log": true
+  },
+  {
+   "line": 22,
+   "success": true,
+   "crashed": false,
+   "time_s": 18.6,
+   "from_log": true
+  },
+  {
+   "line": 23,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.7,
+   "from_log": true
+  },
+  {
+   "line": 24,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.2,
+   "from_log": true
+  },
+  {
+   "line": 25,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.9,
+   "from_log": true
+  },
+  {
+   "line": 26,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.2,
+   "from_log": true
+  },
+  {
+   "line": 27,
+   "success": true,
+   "crashed": false,
+   "time_s": 15.0,
+   "from_log": true
+  },
+  {
+   "line": 28,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.3,
+   "from_log": true
+  },
+  {
+   "line": 29,
+   "success": true,
+   "crashed": false,
+   "time_s": 15.1,
+   "from_log": true
+  }
+ ],
+ "diffphys_v5": [
+  {
+   "line": 0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.5,
+   "from_log": true
+  },
+  {
+   "line": 1,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "line": 2,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.0,
+   "from_log": true
+  },
+  {
+   "line": 3,
+   "success": false,
+   "crashed": true,
+   "time_s": 7.0,
+   "from_log": true
+  },
+  {
+   "line": 4,
+   "success": true,
+   "crashed": false,
+   "time_s": 10.6,
+   "from_log": true
+  },
+  {
+   "line": 5,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "line": 6,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "line": 7,
+   "success": false,
+   "crashed": true,
+   "time_s": 5.7,
+   "from_log": true
+  },
+  {
+   "line": 8,
+   "success": true,
+   "crashed": false,
+   "time_s": 10.4,
+   "from_log": true
+  },
+  {
+   "line": 9,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.9,
+   "from_log": true
+  },
+  {
+   "line": 10,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "line": 11,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.2,
+   "from_log": true
+  },
+  {
+   "line": 12,
+   "success": true,
+   "crashed": false,
+   "time_s": 10.3,
+   "from_log": true
+  },
+  {
+   "line": 13,
+   "success": true,
+   "crashed": false,
+   "time_s": 11.5,
+   "from_log": true
+  },
+  {
+   "line": 14,
+   "success": false,
+   "crashed": false,
+   "time_s": 14.0,
+   "from_log": true
+  },
+  {
+   "line": 15,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.7,
+   "from_log": true
+  },
+  {
+   "line": 16,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "line": 17,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.1,
+   "from_log": true
+  },
+  {
+   "line": 18,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.9,
+   "from_log": true
+  },
+  {
+   "line": 19,
+   "success": true,
+   "crashed": false,
+   "time_s": 11.5,
+   "from_log": true
+  },
+  {
+   "line": 20,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "line": 21,
+   "success": true,
+   "crashed": false,
+   "time_s": 11.7,
+   "from_log": true
+  },
+  {
+   "line": 22,
+   "success": true,
+   "crashed": false,
+   "time_s": 11.7,
+   "from_log": true
+  },
+  {
+   "line": 23,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.7,
+   "from_log": true
+  },
+  {
+   "line": 24,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "line": 25,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 26,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.5,
+   "from_log": true
+  },
+  {
+   "line": 27,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.8,
+   "from_log": true
+  },
+  {
+   "line": 28,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.5,
+   "from_log": true
+  },
+  {
+   "line": 29,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  }
+ ],
+ "diffphys_v7": [
+  {
+   "line": 0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.1,
+   "from_log": true
+  },
+  {
+   "line": 1,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.4,
+   "from_log": true
+  },
+  {
+   "line": 2,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.1,
+   "from_log": true
+  },
+  {
+   "line": 3,
+   "success": false,
+   "crashed": true,
+   "time_s": 5.6,
+   "from_log": true
+  },
+  {
+   "line": 4,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.5,
+   "from_log": true
+  },
+  {
+   "line": 5,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.1,
+   "from_log": true
+  },
+  {
+   "line": 6,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.3,
+   "from_log": true
+  },
+  {
+   "line": 7,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.2,
+   "from_log": true
+  },
+  {
+   "line": 8,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.0,
+   "from_log": true
+  },
+  {
+   "line": 9,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.4,
+   "from_log": true
+  },
+  {
+   "line": 10,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.4,
+   "from_log": true
+  },
+  {
+   "line": 11,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.5,
+   "from_log": true
+  },
+  {
+   "line": 12,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.1,
+   "from_log": true
+  },
+  {
+   "line": 13,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.4,
+   "from_log": true
+  },
+  {
+   "line": 14,
+   "success": false,
+   "crashed": true,
+   "time_s": 4.4,
+   "from_log": true
+  },
+  {
+   "line": 15,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "line": 16,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.0,
+   "from_log": true
+  },
+  {
+   "line": 17,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.9,
+   "from_log": true
+  },
+  {
+   "line": 18,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.8,
+   "from_log": true
+  },
+  {
+   "line": 19,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.6,
+   "from_log": true
+  },
+  {
+   "line": 20,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "line": 21,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.1,
+   "from_log": true
+  },
+  {
+   "line": 22,
+   "success": true,
+   "crashed": false,
+   "time_s": 10.1,
+   "from_log": true
+  },
+  {
+   "line": 23,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.3,
+   "from_log": true
+  },
+  {
+   "line": 24,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.1,
+   "from_log": true
+  },
+  {
+   "line": 25,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.0,
+   "from_log": true
+  },
+  {
+   "line": 26,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.3,
+   "from_log": true
+  },
+  {
+   "line": 27,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.3,
+   "from_log": true
+  },
+  {
+   "line": 28,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "line": 29,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.3,
+   "from_log": true
+  }
+ ],
+ "diffphys_v10": [
+  {
+   "line": 0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.5,
+   "from_log": true
+  },
+  {
+   "line": 1,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.6,
+   "from_log": true
+  },
+  {
+   "line": 2,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "line": 3,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.5,
+   "from_log": true
+  },
+  {
+   "line": 4,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.2,
+   "from_log": true
+  },
+  {
+   "line": 5,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.5,
+   "from_log": true
+  },
+  {
+   "line": 6,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.5,
+   "from_log": true
+  },
+  {
+   "line": 7,
+   "success": false,
+   "crashed": true,
+   "time_s": 4.2,
+   "from_log": true
+  },
+  {
+   "line": 8,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.8,
+   "from_log": true
+  },
+  {
+   "line": 9,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.6,
+   "from_log": true
+  },
+  {
+   "line": 10,
+   "success": false,
+   "crashed": true,
+   "time_s": 2.6,
+   "from_log": true
+  },
+  {
+   "line": 11,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.7,
+   "from_log": true
+  },
+  {
+   "line": 12,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 13,
+   "success": false,
+   "crashed": true,
+   "time_s": 4.1,
+   "from_log": true
+  },
+  {
+   "line": 14,
+   "success": false,
+   "crashed": true,
+   "time_s": 6.0,
+   "from_log": true
+  },
+  {
+   "line": 15,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.5,
+   "from_log": true
+  },
+  {
+   "line": 16,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.3,
+   "from_log": true
+  },
+  {
+   "line": 17,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.3,
+   "from_log": true
+  },
+  {
+   "line": 18,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.3,
+   "from_log": true
+  },
+  {
+   "line": 19,
+   "success": false,
+   "crashed": true,
+   "time_s": 9.6,
+   "from_log": true
+  },
+  {
+   "line": 20,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.6,
+   "from_log": true
+  },
+  {
+   "line": 21,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.4,
+   "from_log": true
+  },
+  {
+   "line": 22,
+   "success": false,
+   "crashed": true,
+   "time_s": 5.0,
+   "from_log": true
+  },
+  {
+   "line": 23,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.6,
+   "from_log": true
+  },
+  {
+   "line": 24,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.3,
+   "from_log": true
+  },
+  {
+   "line": 25,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.3,
+   "from_log": true
+  },
+  {
+   "line": 26,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.0,
+   "from_log": true
+  },
+  {
+   "line": 27,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.9,
+   "from_log": true
+  },
+  {
+   "line": 28,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.5,
+   "from_log": true
+  },
+  {
+   "line": 29,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.6,
+   "from_log": true
+  }
+ ]
+}

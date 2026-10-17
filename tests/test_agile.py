@@ -571,8 +571,10 @@ def test_diffphys_pilot_flies_in_the_closed_loop(tmp_path):
     e = Env('far_trunk', w, np.array([0.0, 0.0, 1.5]), np.array([12.0, 0.0, 1.5]), {}, True)
     R = Rollout(e, Config(v_des=3.0, seed=0, t_max=1.0, rig=StereoRig(width=160, height=120, num_disp=32)),
                 'diffphys', path)
+    R.dp_trace, R.YAW_FWD = [], True
     r, _, log = R.run()
     assert 'error' not in r and r['decide_ms'] is not None and len(log) > 5
+    assert len(R.dp_trace) > 5 and {'t', 'v', 'att_deg', 'acc', 'near_m'} <= set(R.dp_trace[0])
 
 
 def test_diffphys_goal_plane_and_speed_profile(tmp_path):
@@ -588,7 +590,7 @@ def test_diffphys_goal_plane_and_speed_profile(tmp_path):
     assert np.isfinite(m['loss']) and 0.0 <= m['v_ratio'] < 2.0
     path = str(tmp_path / 'dp.keras')
     pol.save(path)
-    out = DP.speed_profile(path, speeds=(5.0,), B=2, T=15, log=lambda s: None)
+    out = DP.speed_profile(path, speeds=(5.0,), B=2, T=15, log=lambda s: None, yaw_fwd=True)
     assert set(out) == {(5.0, 'rest'), (5.0, 'v_des')} and len(out[(5.0, 'v_des')]) == 1
 
 

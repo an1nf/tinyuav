@@ -240,6 +240,55 @@ Política ajustada en CPU, semillas 1000–1009, `--edge` (`r25/eval_forest_diff
 Las llegadas son las mismas y la velocidad sube: cierra dos tercios de lo que separaba al SGM de la
 profundidad exacta, sin reentrenar.
 
-**Siguiente:** r25b con `--edge --dp-persist` en R18 y en el almacén.
+**Con el modelo de la GPU (r25b), 30 entornos por velocidad, empeora a 10 m/s**
+(`r25/eval_*_r25b_edge_persist.json`):
+
+| r25b | 3 | 5 | 7 | 10 m/s | choques a 10 m/s | tiempo mediano a 10 m/s |
+|---|---|---|---|---|---|---|
+| R18, `--edge` | 28 | 29 | 29 | **28** | 0 | 6.0 s |
+| R18, `--edge --dp-persist` | 28 | 29 | 29 | 24 | 5 | 5.0 s |
+| almacén, `--edge` | 25 | 28 | 27 | **28** | 2 | 4.8 s |
+| almacén, `--edge --dp-persist` | 26 | 27 | 28 | 24 | 6 | 4.65 s |
+
+- **Va más rápido pero choca más.** r25b vuela más rápido que la política de CPU, y el cuadro de retraso con
+  que la persistencia entrega un tronco real ya pesa a 10 m/s. Emparejado contra `--edge`: 1 frente a 5 en
+  R18 y 0 frente a 4 en el almacén.
+- **En el almacén aparecen choques contra el suelo** (5 de los 11) que sin la persistencia no había.
+- **Conclusión:** `--dp-persist` queda como opción y no se usa. La prueba de CPU (10 semillas) no lo
+  mostraba.
+
+## Por qué se detiene a 3 m/s (0.26.9)
+
+**El vídeo del almacén** (arena 3, 3 m/s): pasa bien los troncos durante 6 s. Hacia los 7–9 s llega a
+menos de 1 m de un tronco, que le llena la imagen. Después se inclina mucho (~40° de alabeo, la cámara mira
+al techo) y choca.
+
+**La traza en R18** (semilla 1015, 3 m/s, `r25/decisions_r25b_edge_forest_v3_s1015.json`; `r18 video` y
+`r22 video` la guardan ahora junto al vídeo, para el piloto diffphys):
+
+| t | lo que pasa |
+|---|---|
+| 4.0–4.6 s | frena delante de un tronco a 0.35–0.6 m, hasta pararse |
+| 4.8–5.2 s | retrocede: v_x = −0.7 → −1.7 m/s |
+| 4.8–6.0 s | el rumbo sigue a la velocidad (la regla de R18 y del entrenamiento): gira de −17° a −153° en 1.2 s, con alabeo de hasta 53°, órdenes de 10 m/s² y caída de 1.6 a 0.6 m |
+| 6.2 s | choque |
+
+En su propio simulador, con profundidad ideal, también se queda quieta frente a grupos de troncos: 6 % de
+los vuelos a 3 m/s y 11 % a 2 m/s. Ahí no retrocede ni hace maniobras bruscas. La velocidad objetivo apunta
+a la meta, que está detrás del tronco, así que rodearlo cuesta más que quedarse parada.
+
+**Lo que probé (semilla 1015 y semillas 1000–1009):**
+
+| cambio | resultado |
+|---|---|
+| `--yaw-fwd` solo al volar: al retroceder la cámara mantiene el rumbo | semilla 1015: ya no choca a 3 y 5 m/s, pero se queda sin tiempo |
+| ajuste en CPU con esa regla y velocidades desde 2 m/s, 400 iteraciones (`r25 train --yaw-fwd --v 2,12`) | 3 m/s: 8/10 (2 sin tiempo, en semillas que r25b pasa); 10 m/s: 9/10 |
+| `--dp-amax 6`: limitar la aceleración horizontal ordenada | la semilla 1015 choca a 3, 5 y 7 m/s |
+
+Ninguno lo arregla. Las opciones quedan para diagnóstico; los valores por defecto del entrenamiento no cambian.
+
+**Siguiente:** que rodear un obstáculo no cueste más que quedarse quieta. Por ejemplo, medir el seguimiento
+de velocidad solo sobre el avance hacia la meta en una ventana más larga, o premiar el avance a lo largo de
+la línea.
 
 Después vienen la variante de entrada 8 × 8 (ToF) y la reparación por QP.
