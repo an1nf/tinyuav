@@ -207,9 +207,39 @@ anterior (`r25/eval_forest_diffphys_r25b_edge.json`, reconstruido del registro):
 En su simulador mantiene ~9.3 m/s; con el SGM, aun filtrado, frena. Con la profundidad exacta, la versión
 de CPU iba a 8.2 m/s.
 
-**Siguiente:**
-- el almacén de Flightmare con `--edge`;
-- cerrar la brecha del SGM: entrenar con los artefactos del SGM (píxeles cercanos falsos que parpadean
-  entre cuadros; un tronco de verdad persiste) o darle la profundidad filtrada en el tiempo.
+**Almacén de Flightmare, 30 arenas por velocidad, `--edge`** (`r25/eval_arena_warehouse_diffphys_r25b_edge.json`,
+reconstruido del registro):
+
+| piloto | 3 | 5 | 7 | 10 m/s | total | tiempo mediano a 3 · 5 · 7 · 10 m/s |
+|---|---|---|---|---|---|---|
+| DiffPhys r25b, `--edge` | 25/30 | 28/30 | 27/30 | **28/30** | 108/120 | 15.0 · 9.0 · 6.6 · **4.8 s** |
+| DiffPhys de la GPU, sin `--edge` | 26/30 | 28/30 | 28/30 | 27/30 | 109/120 | 14.1 · 9.1 · 7.3 · 6.4 s |
+| reactivo (R24) | 29/30 | 29/30 | 26/30 | 20/30 | 104/120 | 13.6 · 8.2 · 5.8 · – s |
+
+- **A 10 m/s:** 28/30 frente a 20/30 del reactivo; emparejado, 9 entornos frente a 1 ($p = 0.02$). Tarda
+  4.8 s en los 40 m, frente a 6.4 s de la versión anterior, con las mismas llegadas (6 frente a 7, $p = 1$).
+- **A 3 m/s es la peor:** 5 vuelos se quedan sin tiempo, sin chocar. Se detiene frente a los troncos.
+  3 m/s es el borde inferior de las velocidades de entrenamiento (3–12 m/s).
+
+## Persistencia de dos cuadros (`--dp-persist`, 0.26.8)
+
+Los píxeles falsos que sobreviven al filtro de bordes parpadean: aparecen en un cuadro y no en el siguiente.
+Un tronco de verdad persiste. Con `--dp-persist`, un bloque de 16 × 12 solo cuenta como cercano si también lo
+era en el cuadro anterior: se toma el más lejano de los dos. Un tronco real llega a la red con un cuadro de
+retraso, 67 ms.
+
+Política ajustada en CPU, semillas 1000–1009, `--edge` (`r25/eval_forest_diffphys_cpuft400_edge*.json`):
+
+| entrada | 3 | 5 | 7 | 10 m/s | velocidad media a 3 · 5 · 7 · 10 m/s | tiempo mediano a 10 m/s |
+|---|---|---|---|---|---|---|
+| `--edge` | 9/10 | 10/10 | 10/10 | 10/10 | 2.9 · 4.4 · 5.7 · 7.3 m/s | 5.5 s |
+| `--edge --dp-persist` | 9/10 | 10/10 | 10/10 | 10/10 | 3.0 · 4.5 · 6.1 · **7.9 m/s** | **5.1 s** |
+| profundidad exacta | | | | 10/10 | 8.2 m/s | 4.9 s |
+| reactivo (R24) | 9/10 | 10/10 | 9/10 | 9/10 | 2.9 · 4.9 · 6.8 · 9.7 m/s | 4.1 s |
+
+Las llegadas son las mismas y la velocidad sube: cierra dos tercios de lo que separaba al SGM de la
+profundidad exacta, sin reentrenar.
+
+**Siguiente:** r25b con `--edge --dp-persist` en R18 y en el almacén.
 
 Después vienen la variante de entrada 8 × 8 (ToF) y la reparación por QP.

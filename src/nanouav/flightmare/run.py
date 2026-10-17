@@ -445,7 +445,7 @@ def _episode(a, env, i, pilot, v, client, calib, model, trace=False, rig=None):
     apply_opts(R, {'tscale': a.tscale, 'vcap': a.vcap, 'select': a.select, 'lookahead': a.lookahead,
                    'keep': getattr(a, 'keep', False), 'fan': getattr(a, 'fan', False), 'pool': getattr(a, 'pool', 'stride'),
                    'edge': getattr(a, 'edge', False), 'slow': getattr(a, 'slow', 0.0),
-                   'carve': getattr(a, 'carve', False)})
+                   'carve': getattr(a, 'carve', False), 'dp_persist': getattr(a, 'dp_persist', False)})
     obs = None
     if pilot in SEEING or trace:
         if client.n_objects:
@@ -527,6 +527,7 @@ def cmd_eval(a):
         ('_fan' if getattr(a, 'fan', False) else '') + ('_minpool' if getattr(a, 'pool', 'stride') == 'min' else '') + \
         ('_edge' if getattr(a, 'edge', False) else '') + (f"_slow{a.slow:g}" if getattr(a, 'slow', 0) else '') + \
         ('_carve' if getattr(a, 'carve', False) else '') + \
+        ('_persist' if getattr(a, 'dp_persist', False) else '') + \
         (f"_lat{1000 * a.latency:.0f}" if abs(getattr(a, 'latency', 0.05) - 0.05) > 1e-9 else '')
     fn = os.path.join(out, f"eval_{'arena_' if a.arena else ''}{a.scene}_{tag}.json")
     old = json.load(open(fn)) if os.path.exists(fn) else {}       # other speeds of the same setup are kept
@@ -984,6 +985,8 @@ def main(argv=None):
         p.add_argument('--carve', action='store_true',
                        help='free-space evidence in the perceived obstacles: a cell seen through more often than hit '
                             'does not count (rollout.PerceivedObstacles)')
+        p.add_argument('--dp-persist', action='store_true',
+                       help='diffphys pilot: a 16 × 12 block is near only if near in two consecutive frames (SGM flicker)')
         p.add_argument('--arena', action='store_true', help='the arena test forests (r22 arena) instead of the lines')
         if name == 'eval':
             p.add_argument('--pilots', default='gbl,student')

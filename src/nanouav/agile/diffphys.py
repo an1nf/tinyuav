@@ -406,9 +406,11 @@ class DiffPhysPilot:
 
     def reset(self):
         self.h[:] = 0
+        self._prev = None
 
     q = 0.0          # quantile of each block's valid depths (0: the nearest, as in training)
     edge = False     # drop SGM pixels on depth discontinuities first (rollout.edge_filter)
+    persist = False  # a block counts as near only if it was near in the previous frame too (SGM flicker)
 
     @staticmethod
     def depth_input(depth, q=0.0, edge=False):
@@ -435,7 +437,13 @@ class DiffPhysPilot:
 
     def __call__(self, depth, p, v, R, goal_dir, yaw, v_des):
         tf = self.tf
-        img = self.depth_input(depth, self.q, self.edge)[None, ..., None]
+        x = self.depth_input(depth, self.q, self.edge)
+        if self.persist:
+            prev = getattr(self, '_prev', None)
+            self._prev = x
+            if prev is not None:
+                x = np.minimum(x, prev)               # inverse depth: the farther of the two frames
+        img = x[None, ..., None]
         thrust = np.asarray(R, float).reshape(3, 3)[:, 2]          # body z in the world
         st = state_input(tf.constant(np.asarray(v, np.float32)[None]), tf.constant(thrust[None].astype(np.float32)),
                          tf.constant((np.asarray(goal_dir) * v_des).astype(np.float32)[None]), tf.constant([float(yaw)]))

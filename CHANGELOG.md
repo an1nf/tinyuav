@@ -3,6 +3,24 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.26.8] — 2026-10-16
+
+Sin cambios en los resultados por defecto.
+
+### Añadido
+- `--dp-persist` (en `r18 eval` y `r22 eval`): DiffPhys solo ve un bloque como cercano si también lo era en
+  el cuadro anterior. Quita los píxeles falsos del SGM que parpadean; un tronco real llega con 67 ms de
+  retraso.
+
+### Resultados
+- **DiffPhys ajustado (CPU) con `--edge --dp-persist`, semillas 1000–1009:** las mismas llegadas que con
+  `--edge` (39/40) y más rápido. A 10 m/s va a 7.9 m/s de media (5.1 s), frente a 7.3 m/s (5.5 s) sin la
+  persistencia y 8.2 m/s (4.9 s) con la profundidad exacta.
+- **r25b en el almacén con `--edge`:** 108/120.
+  - A 10 m/s, 28/30 frente a 20/30 del reactivo (9 frente a 1, $p = 0.02$), en 4.8 s frente a 6.4 s de la
+    versión anterior.
+  - A 3 m/s, 5 vuelos se quedan sin tiempo.
+
 ## [0.26.7] — 2026-10-16
 
 Sin cambios en el código: resultados.

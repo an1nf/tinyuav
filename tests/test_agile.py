@@ -601,3 +601,24 @@ def test_diffphys_depth_input_ignores_a_stray_near_pixel():
     x0, xq = DP.DiffPhysPilot.depth_input(dep), DP.DiffPhysPilot.depth_input(dep, q=0.1)
     assert x0[0, 0] == pytest.approx(2.0) and xq[0, 0] == pytest.approx(1 / 8)
     assert xq[5, 5] == pytest.approx(0.5) and xq[6, 6] == pytest.approx(1 / 8)
+
+
+def test_diffphys_persist_drops_a_one_frame_blob(tmp_path):
+    """0.26.8 (--dp-persist): a near block seen in one frame only does not reach the network; one seen in two
+    consecutive frames does."""
+    pytest.importorskip('tensorflow')
+    from nanouav.agile import diffphys as DP
+    path = str(tmp_path / 'dp.keras')
+    DP.build_policy(hidden=8).save(path)
+    pilot = DP.DiffPhysPilot(path)
+    pilot.persist = True
+    pilot.reset()
+    seen = []
+    pilot.model = (lambda f: (lambda xs: (seen.append(np.asarray(xs[0])[0, ..., 0].copy()) or f(xs))))(pilot.model)
+    far = np.full((240, 320), 8.0, np.float32)
+    blob = far.copy()
+    blob[:20, :20] = 1.0
+    args = (np.zeros(3), np.zeros(3), np.eye(3), np.array([1.0, 0, 0]), 0.0, 5.0)
+    for d in (far, blob, far, blob, blob):
+        pilot(d, *args)
+    assert [round(float(x[0, 0]), 3) for x in seen] == [0.125, 0.125, 0.125, 0.125, 1.0]

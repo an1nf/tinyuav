@@ -494,6 +494,7 @@ class Rollout:
     W_CLEAR = 0.0                # fan: weight of the soft clearance term of `fan_cost` (m²; 0: off)
     DP_GT = False                # diffphys: feed the true depth instead of its SGM (diagnosis: perception vs dynamics)
     DP_Q = 0.0                   # diffphys: quantile of each 16 × 12 block of its SGM (0: the nearest pixel)
+    DP_PERSIST = False           # diffphys: a block is near only if near in two consecutive frames
 
     def __init__(self, env, cfg, pilot='gbl', policy=None, label=False, expert_kw=None, gref=None, mission=None):
         self.env, self.cfg, self.pilot, self.policy, self.label = env, cfg, pilot, policy, label
@@ -739,7 +740,7 @@ class Rollout:
                     if getattr(self, '_dp', None) is None:
                         from nanouav.agile.diffphys import DiffPhysPilot
                         self._dp = DiffPhysPilot(self.policy)
-                        self._dp.q, self._dp.edge = self.DP_Q, self.EDGE
+                        self._dp.q, self._dp.edge, self._dp.persist = self.DP_Q, self.EDGE, self.DP_PERSIST
                     gd = np.asarray(self.env.goal, float) - p
                     t_d = time.perf_counter()
                     acc = self._dp(cam['depth_gt'] if self.DP_GT else cam['depth'], p, v, R, gd / max(float(np.linalg.norm(gd)), 1e-6), yaw, self._v_des)
