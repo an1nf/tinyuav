@@ -2,6 +2,7 @@
 
   nanouav run r20 frames --n 6                                                   # sample frames + detections
   nanouav run r20 sim --pilots gbl,direct,student --model results/r18/student_train.keras --n 20
+  nanouav run r20 sim --pilots diffphys --model results/r26/diffphys_follow.keras --n 20 --edge   # R26
   nanouav run r20 dagger --envs 100 --init results/r18/student_train.keras --workers 7
   nanouav run r20 pick-color --source frame.jpg --box 300,200,360,260            # thresholds for real light
   nanouav run r20 video --source 0 --color red --diameter 0.3 --out tracked.mp4  # real camera / video
@@ -40,9 +41,11 @@ def _sim_job(job):
     try:
         env = _env(job)
         M = BalloonMission(env, standoff=job['standoff'], seed=job['seed'])
-        pol = dagger._policy(job['model']) if job['pilot'] == 'student' else None
-        r, _, _ = Rollout(env, Config(v_des=2.0, cam_hz=job['cam_hz'], seed=job['seed']), job['pilot'], pol,
-                          mission=M).run()
+        pol = dagger._policy(job['model']) if job['pilot'] == 'student' else \
+            (job['model'] if job['pilot'] == 'diffphys' else None)     # R26: the model path
+        R = Rollout(env, Config(v_des=2.0, cam_hz=job['cam_hz'], seed=job['seed']), job['pilot'], pol, mission=M)
+        R.EDGE = bool(job.get('edge'))                              # R26: the diffphys input as in R25 (--edge)
+        r, _, _ = R.run()
     except RuntimeError as e:
         r = {'success': False, 'crashed': False, 'failed': False, 'error': str(e)}
     r.update(seed=job['seed'])
@@ -54,7 +57,7 @@ def cmd_sim(a):
     pilots = a.pilots.split(',')
     jobs = [dict(pilot=p, seed=s, cam_hz=a.cam_hz, standoff=a.standoff, model=os.path.abspath(a.model) if a.model else None,
                  density=a.density, distractors=a.distractors, speed=a.speed, color=a.color, p_same=a.p_same,
-                 z_lo=a.z[0], z_hi=a.z[1])
+                 z_lo=a.z[0], z_hi=a.z[1], edge=getattr(a, 'edge', False))
             for p in pilots for s in range(a.seed0, a.seed0 + a.n)]
     for k in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
         os.environ.setdefault(k, '1')
@@ -217,6 +220,7 @@ def main():
     p.add_argument('--distractors', type=int, default=None)
     p.add_argument('--speed', type=float, default=None)
     p.add_argument('--p-same', type=float, default=0.25, help='probability that a distractor has the target color')
+    p.add_argument('--edge', action='store_true', help='diffphys pilot: drop SGM pixels on depth edges (as in R25)')
     p.add_argument('--z', type=lambda x: tuple(float(v) for v in x.split(',')), default=(1.2, 2.6),
                    help='height range of the balloon, e.g. 1.5,1.5 for a constant height (the R18 student '
                         'has never been asked to change height)')

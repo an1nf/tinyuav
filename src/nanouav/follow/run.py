@@ -41,7 +41,8 @@ def _sim_job(job):
     env = people_env(job['seed'], density=job.get('density'), n_distractors=job.get('distractors'),
                      speed=job.get('speed'))
     M = FollowMission(env, standoff=job['standoff'], detector=_detector(job.get('calib'), job['seed']), seed=job['seed'])
-    pol = dagger._policy(job['model']) if job['pilot'] == 'student' else None
+    pol = dagger._policy(job['model']) if job['pilot'] == 'student' else \
+        (job['model'] if job['pilot'] == 'diffphys' else None)         # R26: the model path
     try:
         r, _, _ = Rollout(env, Config(v_des=2.0, cam_hz=job['cam_hz'], seed=job['seed']), job['pilot'], pol,
                           mission=M).run()

@@ -3,6 +3,44 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.0] — 2026-10-25
+
+Sin cambios en los resultados por defecto.
+
+### Corregido (causa encontrada)
+- **R25 frenaba tras ~10 s de vuelo, a cualquier velocidad.** Sus episodios de entrenamiento duran 10 s y
+  arrancan con la GRU en cero. Era la causa de fondo de la parada a 3 m/s (los 40 m duran 14–15 s) y habría
+  impedido seguir a alguien.
+  - `r25 train --burn 0,30`: antes de cada episodio, de 0 a 30 s de vuelo sin gradiente. El episodio arranca
+    del estado en que queda.
+  - Ajuste corto en CPU desde r25b, en su simulador:
+    - a 2 m/s llega el 99.6 % de los vuelos (antes 75 %);
+    - los vuelos parados bajan del 21 % al 0.4 %;
+    - mantiene 2, 5 y 8 m/s durante 20 s.
+  - En R18 con `--edge`: 29/30 a 3 m/s y **30/30 a 10 m/s**, sin choques (r25b: 28/30).
+
+### Añadido
+- `nanouav run r25 stalls`: llegadas, choques y vuelos parados en su simulador, con el límite de tiempo de
+  R18.
+- `r25 train`, todo desactivado por defecto:
+  - `--z` (alturas de salida y meta);
+  - `--loss-v along`, `--w-lat`, `--tau-v` (variantes del término de velocidad).
+- **R26** (`nanouav run r26 train|eval`, `nanouav.agile.diffphys_follow`): la política de R25 ajustada para
+  seguir un objetivo que se mueve.
+  - Usa la ley de seguimiento de R19/R20, con la cámara hacia el objetivo y vuelo previo.
+  - La pérdida tiene una barrera sobre la holgura de la línea de visión dron → objetivo contra los troncos.
+    Es la idea de predecir oclusiones de la demostración del IDEAS Lab de Purdue, pero como pérdida
+    diferenciable.
+- `r20 sim --pilots diffphys --model … [--edge]`: en una misión de seguimiento, DiffPhys vuela la dirección y
+  la velocidad de la ley de seguimiento. `r19 sim` también acepta el piloto, pero no está probado.
+- `forest_batch(..., n_obs=)`: bosques más largos sin perder densidad.
+
+### Resultados
+- Sin ningún ajuste de seguimiento, la política con vuelo previo sigue al globo de R20 en 5 de 6 vuelos: 1
+  choque, bloqueo el 99 % del tiempo, 0.78 m de error de distancia.
+- En su simulador, en 60 s: 15.6 % de choques, el objetivo a la vista el 97.6 % del tiempo, 0.80 m de error.
+- Detalle en `docs/research/R25_diffphys.md` y `R26_diffphys_seguimiento.md`.
+
 ## [0.26.9] — 2026-10-17
 
 Sin cambios en los resultados por defecto.

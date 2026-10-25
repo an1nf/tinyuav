@@ -27,6 +27,7 @@ from nanouav.follow.tracker import TargetLock, Tracker
 
 class FollowMission:
     needs_camera = True
+    follows = True                                # the diffphys pilot flies omega × v_des instead of the goal
     cmc = False                                   # camera-motion compensation in the tracker (on for balloons)
     innov_gate = None                             # n σ: skip outlier measurements (≤ 5 in a row) in the filter
 

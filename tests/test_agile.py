@@ -624,3 +624,53 @@ def test_diffphys_persist_drops_a_one_frame_blob(tmp_path):
     for d in (far, blob, far, blob, blob):
         pilot(d, *args)
     assert [round(float(x[0, 0]), 3) for x in seen] == [0.125, 0.125, 0.125, 0.125, 1.0]
+
+
+def test_diffphys_follow_sight_line_and_loss():
+    """R26: the line-of-sight clearance is the distance from a trunk axis to the segment drone → target minus
+    its radius; the follow loss has gradients and the target's corridor is free of trunks."""
+    tf = pytest.importorskip('tensorflow')
+    from nanouav.agile import diffphys as DP, diffphys_follow as F
+    sc = F.sight_clearance(tf.constant([[0., 0, 1.5], [0., 0, 1.5]]), tf.constant([[4., 0, 1.5], [4., 3, 1.5]]),
+                           tf.constant([[2., 1e4]] * 2), tf.constant([[0., 1e4]] * 2), tf.constant([[0.3, 0.]] * 2))
+    assert sc.numpy() == pytest.approx([-0.3, 0.9], abs=1e-4)
+    rng = np.random.default_rng(0)
+    cx, cy, rr, Q, V, p0 = F.follow_batch(rng, 3, 12)
+    for b in range(3):
+        live = rr[b] > 0
+        d = np.hypot(cx[b, live][:, None] - Q[:, b, 0][None], cy[b, live][:, None] - Q[:, b, 1][None]).min(1)
+        assert (d > rr[b, live] + F.CORRIDOR - 0.1).all()
+    pol = DP.build_policy(hidden=8)
+    with tf.GradientTape() as tape:
+        loss, m = F.follow_loss(pol, cx, cy, rr, Q, V, p0, 12)
+    g = tape.gradient(loss, pol.trainable_variables)
+    assert np.isfinite(m['loss']) and float(tf.linalg.global_norm(g)) > 0 and 0 <= m['visible'] <= 1
+
+
+def test_diffphys_stall_eval_runs(tmp_path):
+    """r25 stalls: arrivals, crashes and stalls of a saved policy in its own simulator."""
+    pytest.importorskip('tensorflow')
+    from nanouav.agile import diffphys as DP
+    path = str(tmp_path / 'dp.keras')
+    DP.build_policy(hidden=8).save(path)
+    m = DP.stall_eval(path, speeds=(5.0,), B=2, goal_x=4.0, log=lambda s: None)
+    assert set(m[5.0]) == {'arrived', 'crashed', 'stalled', 't_arrive', 'dz_goal'}
+
+
+def test_diffphys_burn_in_hands_its_state_to_the_episode():
+    """0.27.0 (--burn): a flight without gradient before each training episode; the episode starts from its
+    velocity, actuators, GRU state and yaw, and still gives gradients."""
+    tf = pytest.importorskip('tensorflow')
+    from nanouav.agile import diffphys as DP
+    rng = np.random.default_rng(2)
+    pol = DP.build_policy(hidden=8)
+    vd = np.array([4.0, 6.0])
+    st = DP.burn_in(pol, vd, 1.5, 5, rng)
+    assert st['h'].shape == (2, 8) and st['v'].shape == (2, 3)
+    assert not np.allclose(st['h'].numpy(), 0.0)                    # the GRU has run
+    st['alive'] = tf.ones((2,))                                      # (an untrained policy may have crashed)
+    cx, cy, rr = DP.forest_batch(rng, 2, length=DP.FOREST_LENGTH)
+    with tf.GradientTape() as tape:
+        loss, m = DP.rollout_loss(pol, tf.constant(cx), tf.constant(cy), tf.constant(rr), vd, T=4, init=st, goal_x=50.0)
+    assert float(tf.linalg.global_norm(tape.gradient(loss, pol.trainable_variables))) > 0
+    assert DP.burn_in(pol, vd, 1.5, 0, rng)['h'].numpy().sum() == 0   # 0 steps: at rest, as before

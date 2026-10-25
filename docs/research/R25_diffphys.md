@@ -287,8 +287,56 @@ a la meta, que está detrás del tronco, así que rodearlo cuesta más que queda
 
 Ninguno lo arregla. Las opciones quedan para diagnóstico; los valores por defecto del entrenamiento no cambian.
 
-**Siguiente:** que rodear un obstáculo no cueste más que quedarse quieta. Por ejemplo, medir el seguimiento
-de velocidad solo sobre el avance hacia la meta en una ventana más larga, o premiar el avance a lo largo de
-la línea.
+## La red se cansa a los 10 s (0.27.0)
+
+**La causa de fondo de la parada a baja velocidad no era la pérdida.** `r25 stalls` mide en su propio
+simulador las llegadas y los vuelos parados (≥ 1.5 s por debajo de 0.3·v_des) con el límite de tiempo de
+R18 (40 m / v_des + 6 s), 256 bosques por velocidad. r25b:
+
+| v_des | llega | parados | choca |
+|---|---|---|---|
+| 2 m/s | 75.4 % | 20.7 % | 0 |
+| 3 m/s | 98.8 % | 2.3 % | 0 |
+| 5 m/s | 99.6 % | 0.4 % | 0 |
+
+Las trazas muestran que frena hacia los 10 s de vuelo, no ante un tronco. El perfil de 20 s lo confirma
+(`r25 profile` con T = 300; velocidad mediana de cada segundo, desde v_des):
+
+| v_des | s 2 | s 8 | s 10 | s 12 | s 14 | s 16 | s 20 |
+|---|---|---|---|---|---|---|---|
+| 2 m/s | 2.4 | 2.2 | 2.0 | 1.9 | 1.7 | 1.6 | 1.2 |
+| 5 m/s | 4.8 | 4.9 | 4.6 | 4.6 | 3.8 | 2.0 | 0.8 |
+| 8 m/s | 7.5 | 7.9 | 6.8 | 4.8 | 2.2 | 1.5 | 0.8 |
+
+Los episodios de entrenamiento duran 150 pasos (10 s) y empiezan con la GRU en cero. Pasado ese tiempo su
+estado entra en una región que nunca vio, y la red frena a cualquier velocidad. A 3 m/s los 40 m duran
+14–15 s, y por eso los vuelos sin tiempo del almacén. Seguir a alguien durante minutos sería imposible.
+
+**Arreglo (`r25 train --burn 0,30`):** antes de cada episodio, la red vuela entre 0 y 30 s (al azar por
+lote) sin gradiente por otro bosque. Cuando pasa x = 40 m se la retrasa 35 m. El episodio con gradiente
+arranca con su velocidad, sus actuadores, su GRU y su rumbo, en un bosque nuevo. Cuesta ~50 % más por
+iteración, porque el vuelo previo solo va hacia adelante.
+
+**Ajuste en CPU desde r25b** (600 iteraciones, lote 16, `r25/train_cpuburn600.log`):
+
+| | 2 m/s llega · parados | 3 m/s llega · parados | 5 m/s llega · parados |
+|---|---|---|---|
+| r25b | 75.4 % · 20.7 % | 98.8 % · 2.3 % | 99.6 % · 0.4 % |
+| **r25b + `--burn 0,30`** | **99.6 % · 0.4 %** | **100 % · 0.8 %** | **100 % · 0.4 %** |
+
+Mantiene 2.2–2.4, 4.8–4.9 y 7.4–7.8 m/s durante los 20 s del perfil.
+
+**En el bosque de R18, con `--edge`, 30 semillas** (`r25/eval_forest_diffphys_cpuburn600_edge_v3_v10.json`):
+
+| | 3 m/s | 10 m/s | choques | tiempo mediano a 10 m/s |
+|---|---|---|---|---|
+| r25b | 28/30 (corrida del PC) · 29/30 (aquí) | 28/30 | 3 en 120 | 6.0 s |
+| **r25b + `--burn`** | **29/30** (solo la 1015, sin tiempo) | **30/30** | **0** | **5.7 s** |
+
+Ni siquiera la semilla 1015, que fallaba a todas las velocidades, falla a 10 m/s.
+
+**Lo que no sirvió:** entrenar también a 1–12 m/s sin el vuelo previo empeora: a 2 m/s, 0 % de llegadas,
+porque a esa velocidad los 40 m duran 20 s. La pérdida «a lo largo de la meta» (`--loss-v along`) no
+llegó a probarse a fondo: la causa era otra.
 
 Después vienen la variante de entrada 8 × 8 (ToF) y la reparación por QP.

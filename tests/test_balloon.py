@@ -105,3 +105,29 @@ def test_balloon_mission_short_closed_loop():
     assert math.hypot(*(p[:2] - tgt[:2])) == pytest.approx(4.0, abs=1.5)
     # height: the privileged pilot flies the balloon's own trail (its height where it was ~4 m ago)
     assert 1.0 <= p[2] <= 3.0 and abs(p[2] - M.trail.pos(M.trail.closest(p)[0])[2]) < 0.4
+
+
+def test_diffphys_pilot_follows_the_balloon_law(tmp_path):
+    """R26: in a follow mission the diffphys pilot gets the follow law's direction and speed (omega × v_des),
+    not the env goal, and faces the balloon (the mission's yaw)."""
+    pytest.importorskip('tensorflow')
+    from nanouav.agile import diffphys as DP
+    from nanouav.agile.rollout import Config, Rollout
+    from nanouav.follow.balloon_mission import BalloonMission
+    path = str(tmp_path / 'dp.keras')
+    DP.build_policy(hidden=8).save(path)
+    e = balloon_env(2, density=0.0, n_distractors=0, speed=2.0)
+    M = BalloonMission(e, seed=0)
+    R = Rollout(e, Config(v_des=2.0, cam_hz=5.0, seed=0, t_max=3.0, rig=RIG), 'diffphys', path, mission=M)
+    R.dp_trace = []
+    seen = []
+    orig = DP.DiffPhysPilot.__call__
+    DP.DiffPhysPilot.__call__ = lambda self, d, p, v, Rm, g, yaw, vd: seen.append((np.asarray(g), vd)) or \
+        orig(self, d, p, v, Rm, g, yaw, vd)
+    try:
+        r, _, log = R.run()
+    finally:
+        DP.DiffPhysPilot.__call__ = orig
+    assert 'error' not in r and seen
+    g, vd = seen[-1]
+    assert np.linalg.norm(g) == pytest.approx(1.0, abs=1e-3) and 0.3 <= vd <= M.v_max

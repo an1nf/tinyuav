@@ -76,6 +76,8 @@ _E = [
                needs=('cpu', 'tensorflow'), tags=('perception', 'missions', 'agile')),
     Experiment('r25', 'nanouav.agile.diffphys', 'Recurrent depth policy trained through a differentiable point-mass simulator (Zhang et al. 2025) on the R18 forests (train, profile; eval with r18 eval --pilots diffphys --edge)',
                needs=('cpu', 'tensorflow'), tags=('training', 'agile')),
+    Experiment('r26', 'nanouav.agile.diffphys_follow', 'The R25 policy fine-tuned to follow a moving target through the differentiable simulator, with a line-of-sight barrier (train|eval; fly with r20 sim --pilots diffphys)',
+               needs=('cpu', 'tensorflow'), tags=('training', 'agile', 'missions')),
     Experiment('r22', 'nanouav.flightmare.run', 'The R18 student in Flightmare (Unity scenes of the paper) through a Python ZMQ bridge (probe|cloud|lines|eval|video|fake)',
                needs=('cpu', 'tensorflow'), tags=('agile', 'simulation')),
     Experiment('r20', 'nanouav.follow.run_balloon', 'Follow a colored balloon through a forest: color-blob detector, 3D target, follow mission on R18 (frames|sim|dagger|pick-color|video)',

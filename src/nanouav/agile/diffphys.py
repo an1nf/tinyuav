@@ -41,19 +41,20 @@ AUG, AUG_HOLES = True, 0.1             # training images: 10 % of the 16 × 12 c
 
 
 # ── worlds ────────────────────────────────────────────────────────────────
-def forest_batch(rng, B, density=(1 / 49, 1 / 16), r=(0.15, 0.4), length=60.0, width=30.0, clear=2.5):
+def forest_batch(rng, B, density=(1 / 49, 1 / 16), r=(0.15, 0.4), length=60.0, width=30.0, clear=2.5, n_obs=None):
     """B Poisson forests like the training forests of R18 (spacing 4–7 m), start at the origin (1.5 m up),
     goal 40 m along +x. → cx, cy, rr (B, N_OBS) float32 (padding: far away, radius 0)."""
-    cx = np.full((B, N_OBS), 1e4, np.float32)
-    cy = np.full((B, N_OBS), 1e4, np.float32)
-    rr = np.zeros((B, N_OBS), np.float32)
+    N = n_obs or N_OBS
+    cx = np.full((B, N), 1e4, np.float32)
+    cy = np.full((B, N), 1e4, np.float32)
+    rr = np.zeros((B, N), np.float32)
     for b in range(B):
         dens = rng.uniform(*density)
         n = rng.poisson(dens * length * width)
         xy = np.stack([rng.uniform(-5, length - 5, n), rng.uniform(-width / 2, width / 2, n)], 1)
         xy = xy[np.hypot(xy[:, 0], xy[:, 1]) > clear]
-        if len(xy) > N_OBS:                              # keep the ones nearest the line
-            xy = xy[np.argsort(np.abs(xy[:, 1]))[:N_OBS]]
+        if len(xy) > N:                                  # keep the ones nearest the line
+            xy = xy[np.argsort(np.abs(xy[:, 1]))[:N]]
         k = len(xy)
         cx[b, :k], cy[b, :k] = xy[:, 0], xy[:, 1]
         rr[b, :k] = rng.uniform(*r, k)
@@ -202,50 +203,58 @@ def _decay(x, g):
 
 YAW_FWD = False                       # True: the yaw follows the velocity only toward the goal (fly with
                                       # --yaw-fwd). A 400-iteration CPU fine-tune with it did not help (R25, 0.26.9)
+LOSS_V = 'vec'                        # velocity tracking: 'vec' = |v_set − v_avg| (the paper); 'along' = the gap in
+W_LAT = 0.2                           # speed toward the goal plus W_LAT × the sideways speed, so that going round a
+TAU_V = 2.0                           # trunk costs no more than stopping in front of it (R25, 0.27.0). TAU_V: s of v_avg
+BURN = (0.0, 0.0)                     # s: before the 150 steps with gradient, fly this long (drawn per batch) without
+                                      # gradient, so that the GRU learns to fly after 10 s too (0.27.0: r25b slowed down
+                                      # after ~10 s at any speed — its training episodes lasted 10 s)
+Z_RANGE = None                        # (lo, hi): start and goal heights drawn independently (0.27.0); None: 1.5 m
 GOAL_X = (20.0, 100.0)                # m, goal distance of the training episodes (0.26.6; before: always 40)
 FOREST_LENGTH = 115.0
 
 
-def rollout_loss(policy, cx, cy, rr, v_des, T=150, z0=1.5, seed=0, goal_x=40.0):
-    """One batch of episodes through the differentiable simulator → (loss, metrics). goal_x: m along +x (one
-    value or one per episode)."""
+def rollout_loss(policy, cx, cy, rr, v_des, T=150, z0=1.5, seed=0, goal_x=40.0, z_goal=None, init=None):
+    """One batch of episodes through the differentiable simulator → (loss, metrics). goal_x: m along +x; z0,
+    z_goal: start and goal heights (one value or one per episode; z_goal defaults to z0)."""
     tf = _tf()
     B = cx.shape[0]
     rng = np.random.default_rng(seed)
     gx = np.broadcast_to(np.asarray(goal_x, np.float32), (B,))
-    goal = tf.constant(np.c_[gx, np.zeros(B), np.full(B, z0)].astype(np.float32))
+    zs = np.broadcast_to(np.asarray(z0, np.float32), (B,))
+    zg = zs if z_goal is None else np.broadcast_to(np.asarray(z_goal, np.float32), (B,))
+    goal = tf.constant(np.c_[gx, np.zeros(B), zg].astype(np.float32))
     vd = tf.constant(np.asarray(v_des, np.float32).reshape(B, 1))
-    p = tf.constant(np.c_[np.zeros((B, 2)), np.full(B, z0)].astype(np.float32))
+    p = tf.constant(np.c_[np.zeros((B, 2)), zs].astype(np.float32))
     v = tf.constant(np.c_[np.asarray(v_des).reshape(B, 1) * rng.uniform(0.0, 1.0, (B, 1)),
                           np.zeros((B, 2))].astype(np.float32))
-    loss, mt = _rollout(policy, cx, cy, rr, vd, goal, p, v, T)
+    if init is None:                                   # at rest in the GRU and the actuators
+        hid = policy.inputs[2].shape[-1]
+        init = {'v': v, 'a': tf.zeros((B, 3)), 'acd': tf.zeros((B, 3)), 'h': tf.zeros((B, hid)),
+                'yaw': tf.zeros((B,)), 'v_avg': v, 'alive': tf.ones((B,))}
+    loss, mt = _rollout(policy, cx, cy, rr, vd, goal, p, init['v'], T, init)
     return loss, {k: float(x) for k, x in mt.items()}
 
 
 _COMPILED = {}
 
 
-def _rollout(policy, cx, cy, rr, vd, goal, p, v, T):
+def _rollout(policy, cx, cy, rr, vd, goal, p, v, T, init):
     tf = _tf()
     key = (id(policy), T)
     if key not in _COMPILED:
         _COMPILED[key] = tf.function(lambda *a: _rollout_body(policy, *a, T=T))
-    return _COMPILED[key](cx, cy, rr, vd, goal, p, v)
+    return _COMPILED[key](cx, cy, rr, vd, goal, p, v, init['a'], init['acd'], init['h'], init['yaw'], init['v_avg'],
+                          init['alive'])
 
 
-def _rollout_body(policy, cx, cy, rr, vd, goal, p, v, T):
+def _rollout_body(policy, cx, cy, rr, vd, goal, p, v, a, a_cmd_delayed, h, yaw, v_avg, alive, T):
     tf = _tf()
     B = tf.shape(cx)[0]
-    a = tf.zeros((B, 3))
-    a_prev = tf.zeros((B, 3))
-    h = tf.zeros((B, policy.inputs[2].shape[-1]))
-    v_avg = v
-    yaw = tf.zeros((B,))
+    a_prev = a
     gdec = math.exp(-GRAD_DECAY * DT)
     k_a = 1 - math.exp(-LAMBDA_A * DT)
-    a_cmd_delayed = tf.zeros((B, 3))
     Lv = Lc = La = Lj = tf.zeros((B,))
-    alive = tf.ones((B,))
     fwd = n_alive = tf.zeros((B,))
     min_clear = tf.fill([B], 99.0)
     for k in range(T):
@@ -275,8 +284,14 @@ def _rollout_body(policy, cx, cy, rr, vd, goal, p, v, T):
         yaw = tf.where(turn, tf.atan2(v[:, 1], v[:, 0]), yaw)
         # losses (the target velocity does not fall at the goal: the episode ends on crossing its plane)
         v_set = tf.stop_gradient(gdir * vd)
-        v_avg = v_avg + (v - v_avg) * (DT / 2.0)
-        e = tf.norm(v_set - v_avg, axis=1)
+        v_avg = v_avg + (v - v_avg) * (DT / TAU_V)
+        if LOSS_V == 'along':
+            g_ = tf.stop_gradient(gdir)
+            v_al = tf.reduce_sum(v_avg * g_, 1)
+            lat = tf.norm(v_avg - v_al[:, None] * g_, axis=1)
+            e = tf.sqrt((vd[:, 0] - v_al) ** 2 + (W_LAT * lat) ** 2 + 1e-6)
+        else:
+            e = tf.norm(v_set - v_avg, axis=1)
         lv = tf.where(e < 1.0, 0.5 * e * e, e - 0.5)
         d, n = clearance(p, cx, cy, rr)
         cl = d - R_Q
@@ -304,6 +319,61 @@ def _rollout_body(policy, cx, cy, rr, vd, goal, p, v, T):
     return loss, metrics
 
 
+_BURN = {}
+
+
+def burn_in(policy, vd, z0, steps, rng):
+    """Fly the policy `steps` steps without gradient through a training forest toward a goal 10 km away, moving
+    the drone 35 m back whenever it passes x = 40 m (the forest spans −5…55 m), with the training image noise.
+    → the state it ends in (velocity, acceleration, delayed command, GRU state, yaw, averaged velocity, alive),
+    to start a training episode from. 0 steps: at v_des·U(0, 1) along x with everything else at rest."""
+    tf = _tf()
+    B = len(vd)
+    hid = policy.inputs[2].shape[-1]
+    v0 = np.c_[vd * rng.uniform(0.0, 1.0, B), np.zeros((B, 2))].astype(np.float32)
+    st = {'v': tf.constant(v0), 'a': tf.zeros((B, 3)), 'acd': tf.zeros((B, 3)), 'h': tf.zeros((B, hid)),
+          'yaw': tf.zeros((B,)), 'v_avg': tf.constant(v0), 'alive': tf.ones((B,))}
+    if steps <= 0:
+        return st
+    key = id(policy)
+    if key not in _BURN:
+        k_a = 1 - math.exp(-LAMBDA_A * DT)
+
+        @tf.function
+        def run(cx, cy, rr, vdt, p, v, a, acd, h, yaw, v_avg, alive, n):
+            goal = tf.concat([tf.fill([tf.shape(p)[0], 1], 1e4), tf.zeros_like(p[:, :1]), p[:, 2:3]], 1)
+            for _ in tf.range(n):
+                thrust = a + tf.constant([[0.0, 0.0, G]])
+                img = render_depth(p, camera_rot(yaw, thrust), cx, cy, rr)
+                if AUG:
+                    hole = tf.random.uniform(tf.shape(img)) < AUG_HOLES
+                    img = tf.where(hole, 1.0 / D_MAX, img * (1.0 + 0.05 * tf.random.normal(tf.shape(img))))
+                tg = goal - p
+                gdir = tg / tf.norm(tg, axis=1, keepdims=True)
+                o, h = policy([img, state_input(v, thrust, gdir * vdt, yaw), h])
+                a = a + (acd - a) * k_a
+                acd = from_heading(o * A_MAX, yaw)
+                sp = tf.norm(v, axis=1, keepdims=True)
+                v = v + (a - DRAG[0] * sp * v - DRAG[1] * v) * DT
+                p = p + v * DT
+                p = tf.concat([tf.where(p[:, :1] > 40.0, p[:, :1] - 35.0, p[:, :1]), p[:, 1:]], 1)
+                turn = tf.norm(v[:, :2], axis=1) > 0.5
+                if YAW_FWD:
+                    turn = turn & (tf.reduce_sum(v[:, :2] * gdir[:, :2], 1) > 0)
+                yaw = tf.where(turn, tf.atan2(v[:, 1], v[:, 0]), yaw)
+                v_avg = v_avg + (v - v_avg) * (DT / TAU_V)
+                d, _ = clearance(p, cx, cy, rr)
+                alive = alive * tf.cast(d - R_Q > 0, tf.float32)
+            return v, a, acd, h, yaw, v_avg, alive
+        _BURN[key] = run
+    cx, cy, rr = forest_batch(rng, B)
+    p0 = np.c_[np.zeros((B, 2)), np.broadcast_to(np.asarray(z0, np.float32), (B,))].astype(np.float32)
+    out = _BURN[key](tf.constant(cx), tf.constant(cy), tf.constant(rr), tf.constant(vd.reshape(B, 1).astype(np.float32)),
+                     tf.constant(p0), st['v'], st['a'], st['acd'], st['h'], st['yaw'], st['v_avg'], st['alive'],
+                     tf.constant(int(steps)))
+    return dict(zip(('v', 'a', 'acd', 'h', 'yaw', 'v_avg', 'alive'), out))
+
+
 def train(out, iters=2000, batch=64, T=150, lr=1e-3, v_range=(3.0, 12.0), seed=0, log=print, init=None):
     """AdamW, cosine-decayed learning rate (the paper: 1e-3, batch 64, 150 steps). Saves <out>/diffphys.keras."""
     tf = _tf()
@@ -317,9 +387,13 @@ def train(out, iters=2000, batch=64, T=150, lr=1e-3, v_range=(3.0, 12.0), seed=0
         cx, cy, rr = forest_batch(rng, batch, length=FOREST_LENGTH)
         vd = rng.uniform(*v_range, batch)
         gx = rng.uniform(*GOAL_X, batch)
+        zs, zg = (rng.uniform(*Z_RANGE, (2, batch)) if Z_RANGE else (1.5, None))
+        st = None
+        if BURN[1] > 0:                                # a flight already under way (no gradient)
+            st = burn_in(policy, vd, zs, int(rng.uniform(*BURN) / DT), rng)
         with tf.GradientTape() as tape:
             loss, m = rollout_loss(policy, tf.constant(cx), tf.constant(cy), tf.constant(rr), vd, T=T,
-                                   seed=int(rng.integers(1 << 30)), goal_x=gx)
+                                   seed=int(rng.integers(1 << 30)), goal_x=gx, z0=zs, z_goal=zg, init=st)
         g = tape.gradient(loss, policy.trainable_variables)
         g, _ = tf.clip_by_global_norm(g, 5.0)
         opt.apply_gradients(zip(g, policy.trainable_variables))
@@ -385,6 +459,95 @@ def speed_profile(path, speeds=(5.0, 7.0, 10.0, 12.0), B=64, T=150, seed=0, log=
             res[(vd, start)] = per_s
             log(f'v_des {vd:4.1f} from {start:5s}: ' + ' '.join(f'{x:4.1f}' for x in per_s) +
                 f'   crashed {np.mean(np.isnan(V[-1])):.2f}')
+    return res
+
+
+# ── stalls in its own simulator (`r25 stalls`) ────────────────────────────
+def stall_eval(path, speeds=(2.0, 3.0, 5.0), B=256, seed=0, goal_x=40.0, z_start=(1.5, 1.5), z_goal=(1.5, 1.5),
+               yaw_fwd=False, log=print, traces=None):
+    """Fly the policy (no gradient, ideal depth) from v_des through B training-like forests to a goal plane
+    goal_x away, for goal_x / v_des + 6 s (the time limit of R18). Per speed: arrived, crashed, stalled (≥ 1.5 s
+    below 0.3·v_des while flying), median arrival time and the height error when it crosses the goal plane.
+    Start and goal heights are drawn from z_start, z_goal. → {v_des: metrics}."""
+    tf = _tf()
+    pol = tf.keras.models.load_model(path, compile=False)
+    hidden = pol.inputs[2].shape[-1]
+    k_a = 1 - math.exp(-LAMBDA_A * DT)
+    compiled = {}
+
+    def make(T):
+        @tf.function
+        def fly(cx, cy, rr, vd, p, goal):
+            Bn = tf.shape(cx)[0]
+            v = tf.concat([vd, tf.zeros((Bn, 2))], 1)
+            a = acd = tf.zeros((Bn, 3))
+            h = tf.zeros((Bn, hidden))
+            yaw = tf.zeros((Bn,))
+            alive = tf.ones((Bn,))
+            P = tf.TensorArray(tf.float32, T)
+            S = tf.TensorArray(tf.float32, T)
+            A = tf.TensorArray(tf.float32, T)
+            C = tf.TensorArray(tf.float32, T)
+            for k in tf.range(T):
+                thrust = a + tf.constant([[0.0, 0.0, G]])
+                img = render_depth(p, camera_rot(yaw, thrust), cx, cy, rr)
+                tg = goal - p
+                gdir = tg / tf.norm(tg, axis=1, keepdims=True)
+                o, h = pol([img, state_input(v, thrust, gdir * vd, yaw), h])
+                a = a + (acd - a) * k_a
+                acd = from_heading(o * A_MAX, yaw)
+                sp = tf.norm(v, axis=1, keepdims=True)
+                v = v + (a - DRAG[0] * sp * v - DRAG[1] * v) * DT
+                p = p + v * DT
+                turn = tf.norm(v[:, :2], axis=1) > 0.5
+                if yaw_fwd:
+                    turn = turn & (tf.reduce_sum(v[:, :2] * gdir[:, :2], 1) > 0)
+                yaw = tf.where(turn, tf.atan2(v[:, 1], v[:, 0]), yaw)
+                d, _ = clearance(p, cx, cy, rr)
+                crashed = tf.cast(d - R_Q <= 0, tf.float32)
+                C = C.write(k, alive * crashed)
+                alive = alive * (1 - crashed) * tf.cast(p[:, 0] < goal[:, 0] - 0.5, tf.float32)
+                P = P.write(k, p)
+                S = S.write(k, tf.norm(v, axis=1))
+                A = A.write(k, alive)
+            return P.stack(), S.stack(), A.stack(), C.stack()
+        return fly
+
+    rng = np.random.default_rng(seed)
+    res = {}
+    for vd in speeds:
+        T = int(math.ceil((goal_x / vd + 6.0) / DT))
+        if T not in compiled:
+            compiled[T] = make(T)
+        cx, cy, rr = forest_batch(rng, B)
+        zs = rng.uniform(*z_start, B).astype(np.float32)
+        zg = rng.uniform(*z_goal, B).astype(np.float32)
+        p0 = np.c_[np.zeros((B, 2)), zs].astype(np.float32)
+        goal = np.c_[np.full(B, goal_x), np.zeros(B), zg].astype(np.float32)
+        P, S, A, C = [x.numpy() for x in compiled[T](tf.constant(cx), tf.constant(cy), tf.constant(rr),
+                                                     tf.constant(np.full((B, 1), vd, np.float32)),
+                                                     tf.constant(p0), tf.constant(goal))]
+        if traces is not None:
+            traces[vd] = {'P': P, 'S': S, 'A': A, 'C': C}
+        crashed = C.max(0) > 0
+        crossed = (P[:, :, 0] >= goal_x - 0.5).any(0)
+        arrived = crossed & ~crashed
+        k_arr = np.argmax(P[:, :, 0] >= goal_x - 0.5, 0)
+        slow = (S < 0.3 * vd) & (A > 0)
+        stalled = np.zeros(B, bool)
+        for b in range(B):
+            run = best = 0
+            for x in slow[:, b]:
+                run = run + 1 if x else 0
+                best = max(best, run)
+            stalled[b] = best * DT >= 1.5
+        dz = np.abs(P[k_arr, np.arange(B), 2] - zg)[arrived]
+        m = {'arrived': float(arrived.mean()), 'crashed': float(crashed.mean()), 'stalled': float(stalled.mean()),
+             't_arrive': float(np.median(k_arr[arrived] * DT)) if arrived.any() else float('nan'),
+             'dz_goal': float(np.median(dz)) if dz.size else float('nan')}
+        res[vd] = m
+        log(f"v_des {vd:4.1f}: arrived {m['arrived']:.3f}  crashed {m['crashed']:.3f}  stalled {m['stalled']:.3f}  "
+            f"t_arrive {m['t_arrive']:.1f} s  |dz| at the goal {m['dz_goal']:.2f} m   (B {B})")
     return res
 
 
@@ -477,17 +640,38 @@ def main(argv=None):
     p.add_argument('--init', default='', help='continue from this model')
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--yaw-fwd', action='store_true', help='train with the yaw rule of --yaw-fwd (see YAW_FWD)')
+    p.add_argument('--loss-v', default='vec', choices=['vec', 'along'], help='velocity tracking term (see LOSS_V)')
+    p.add_argument('--w-lat', type=float, default=0.2, help="weight of the sideways speed in --loss-v along")
+    p.add_argument('--tau-v', type=float, default=2.0, help='s of the averaged velocity that is tracked')
+    p.add_argument('--z', default='', help='range of start and goal heights, e.g. 1,2.5 (default: always 1.5 m)')
+    p.add_argument('--burn', default='', help='s of flight without gradient before each episode, e.g. 0,30 (see BURN)')
     q = sub.add_parser('profile', help='forward speed per second in its own simulator, 1 km goal (does it hold v_des?)')
     q.add_argument('--model', default='results/r25/diffphys.keras')
     q.add_argument('--v', default='5,7,10,12')
     q.add_argument('--yaw-fwd', action='store_true', help='the yaw rule of models trained from 0.26.9')
+    q = sub.add_parser('stalls', help='arrivals, crashes and stalls (≥ 1.5 s nearly stopped) in its own simulator')
+    q.add_argument('--model', default='results/r25/diffphys.keras')
+    q.add_argument('--v', default='2,3,5')
+    q.add_argument('--n', type=int, default=256, help='forests per speed')
+    q.add_argument('--z', default='1.5,1.5', help='range of start and goal heights (m)')
+    q.add_argument('--yaw-fwd', action='store_true')
+    q.add_argument('--seed', type=int, default=0)
     a = ap.parse_args(argv)
+    if a.cmd == 'stalls':
+        z = tuple(float(x) for x in a.z.split(','))
+        stall_eval(a.model, [float(x) for x in a.v.split(',')], B=a.n, seed=a.seed, z_start=z, z_goal=z,
+                   yaw_fwd=a.yaw_fwd)
+        return
     if a.cmd == 'profile':
         speed_profile(a.model, [float(x) for x in a.v.split(',')], yaw_fwd=a.yaw_fwd)
         return
     if a.cmd == 'train':
-        global YAW_FWD
-        YAW_FWD = a.yaw_fwd
+        global YAW_FWD, LOSS_V, W_LAT, TAU_V
+        global Z_RANGE
+        YAW_FWD, LOSS_V, W_LAT, TAU_V = a.yaw_fwd, a.loss_v, a.w_lat, a.tau_v
+        Z_RANGE = tuple(float(x) for x in a.z.split(',')) if a.z else None
+        global BURN
+        BURN = tuple(float(x) for x in a.burn.split(',')) if a.burn else (0.0, 0.0)
         lo, hi = (float(x) for x in a.v.split(','))
         print('→', train(a.out, iters=a.iters, batch=a.batch, T=a.steps, lr=a.lr, v_range=(lo, hi), seed=a.seed,
                          init=a.init or None, log=lambda s: print(s, flush=True)))

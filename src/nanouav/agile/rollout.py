@@ -734,7 +734,7 @@ class Rollout:
                             'trajs': TR.to_heading_frame(L['trajs'], p, yaw).astype(np.float32),
                             'costs': L['costs'].astype(np.float32),
                             'esdf': local_esdf(self.field_ng, p, yaw, p[2], cfg), 'z': np.float32(p[2] - self.z_ground)})
-                if F.get('hold') and self.pilot in ('student', 'direct', 'blind'):   # target lost: hover
+                if F.get('hold') and self.pilot in ('student', 'direct', 'blind', 'diffphys'):   # target lost: hover
                     new = TR.Plan(TR.poly5_fit(np.repeat(p[None], 10, 0), p, v, a0), t, 1.0, source='hold')
                 elif self.pilot == 'expert':
                     new = self.plan_expert(ref, p, v, a0, t)
@@ -745,9 +745,13 @@ class Rollout:
                         from nanouav.agile.diffphys import DiffPhysPilot
                         self._dp = DiffPhysPilot(self.policy)
                         self._dp.q, self._dp.edge, self._dp.persist = self.DP_Q, self.EDGE, self.DP_PERSIST
-                    gd = np.asarray(self.env.goal, float) - p
+                    if getattr(M, 'follows', False):          # R26: the follow law's direction and speed
+                        gdir = np.asarray(omega, float)
+                    else:                                      # R25: straight to the goal, as trained
+                        gd = np.asarray(self.env.goal, float) - p
+                        gdir = gd / max(float(np.linalg.norm(gd)), 1e-6)
                     t_d = time.perf_counter()
-                    acc = self._dp(cam['depth_gt'] if self.DP_GT else cam['depth'], p, v, R, gd / max(float(np.linalg.norm(gd)), 1e-6), yaw, self._v_des)
+                    acc = self._dp(cam['depth_gt'] if self.DP_GT else cam['depth'], p, v, R, gdir, yaw, self._v_des)
                     sel_ms.append(1000 * (time.perf_counter() - t_d))
                     if self.DP_AMAX > 0:
                         ah = float(np.hypot(acc[0], acc[1]))
