@@ -1,0 +1,17 @@
+it     0  loss 2.480  Lv 2.217  Lc 0.022  Ls 0.015  crash 0.12  visible 0.98  dist_err 1.08
+it    10  loss 1.699  Lv 1.613  Lc 0.010  Ls 0.013  crash 0.00  visible 0.99  dist_err 0.73
+it    20  loss 1.446  Lv 1.385  Lc 0.005  Ls 0.019  crash 0.00  visible 0.97  dist_err 0.84
+it    30  loss 1.474  Lv 1.427  Lc 0.002  Ls 0.003  crash 0.00  visible 1.00  dist_err 0.50
+it    40  loss 1.092  Lv 1.059  Lc 0.004  Ls 0.006  crash 0.00  visible 1.00  dist_err 0.37
+it    50  loss 1.145  Lv 1.107  Lc 0.006  Ls 0.015  crash 0.00  visible 0.98  dist_err 0.40
+it    60  loss 1.526  Lv 1.457  Lc 0.007  Ls 0.013  crash 0.00  visible 0.99  dist_err 0.31
+it    70  loss 1.060  Lv 1.017  Lc 0.008  Ls 0.028  crash 0.00  visible 0.97  dist_err 0.43
+it    80  loss 1.181  Lv 1.139  Lc 0.003  Ls 0.004  crash 0.00  visible 1.00  dist_err 0.41
+it    90  loss 1.176  Lv 1.131  Lc 0.007  Ls 0.009  crash 0.00  visible 1.00  dist_err 0.38
+it   100  loss 1.145  Lv 1.102  Lc 0.005  Ls 0.012  crash 0.00  visible 0.98  dist_err 0.56
+it   110  loss 1.149  Lv 1.112  Lc 0.004  Ls 0.009  crash 0.00  visible 0.99  dist_err 0.40
+it   120  loss 0.890  Lv 0.857  Lc 0.005  Ls 0.008  crash 0.00  visible 1.00  dist_err 0.34
+it   130  loss 1.185  Lv 1.135  Lc 0.007  Ls 0.029  crash 0.00  visible 0.96  dist_err 0.50
+it   140  loss 1.036  Lv 0.990  Lc 0.007  Ls 0.010  crash 0.00  visible 0.99  dist_err 0.40
+it   149  loss 1.112  Lv 1.056  Lc 0.006  Ls 0.011  crash 0.00  visible 0.99  dist_err 0.34
+→ results/r26/follow_w0.keras

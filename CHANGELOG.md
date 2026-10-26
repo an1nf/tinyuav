@@ -3,6 +3,16 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.1] — 2026-10-25
+
+Sin cambios en el código: resultados de R26 en CPU.
+- **Ajuste de seguimiento** (150 iteraciones), 64 vuelos de 60 s en su simulador:
+  - los choques bajan de 15.6 % a 1.6 %, con o sin visibilidad;
+  - el término de visibilidad parte a la mitad el tiempo con el objetivo tapado (1.9 % → 1.0 %);
+  - el error de distancia baja de 0.40 a 0.32 m;
+  - 9 cm de error de altura.
+- **En R20:** 6/6, sin choques (sin el ajuste: 5/6).
+
 ## [0.27.0] — 2026-10-25
 
 Sin cambios en los resultados por defecto.

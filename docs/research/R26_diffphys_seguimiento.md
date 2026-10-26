@@ -58,6 +58,32 @@ La primera fila es con el objetivo a ≤ 25°/s y sin troncos a menos de 1 m de 
 mediano de 0.78 m. Incluye un vuelo de 37 s a 1.1 m/s. Como referencia, en R20 la línea recta al punto
 estimado daba 8/8 con 0.84 m en bosques más ralos, y el estudiante mini de R18 1/4.
 
+**Con el ajuste de seguimiento** (150 iteraciones en CPU, lote 16, vuelo previo de 0–20 s, desde el
+modelo con vuelo previo; `r26/train_cpu150_w*.log`). Mismos 64 vuelos de 60 s (semilla 123):
+
+| política | choca en 60 s | objetivo a la vista | error de distancia | error de altura | lejos (> 8 m) |
+|---|---|---|---|---|---|
+| sin ajuste de seguimiento | 15.6 % | 97.6 % | 0.80 m | — | 1.2 % |
+| R26 sin visibilidad (`--w-vis 0`) | 1.6 % | 98.1 % | 0.40 m | 0.10 m | 0.7 % |
+| **R26 con visibilidad (`--w-vis 1`)** | **1.6 %** | **99.0 %** | **0.32 m** | **0.09 m** | **0.2 %** |
+
+- **El ajuste de seguimiento es lo que baja los choques:** de 15.6 % a 1.6 %, con o sin visibilidad.
+- **La visibilidad parte a la mitad el tiempo con el objetivo tapado** (1.9 % → 1.0 %), y el error de
+  distancia baja de 0.40 a 0.32 m. Son 64 vuelos y una sola semilla de entrenamiento; la comparación de la
+  GPU (256 vuelos) lo confirmará o no.
+- **Sigue los cambios de altura:** 9 cm de error medio.
+
+**R20 con R26 (con visibilidad), semillas 3000–3005** (`r26/balloon_r26_w1_cpu.json`):
+
+| política | éxito | choques | bloqueo | en el globo correcto | error de distancia |
+|---|---|---|---|---|---|
+| sin ajuste de seguimiento | 5/6 | 1 | 99 % | 100 % | 0.78 m |
+| R26 | **6/6** | **0** | 99 % | 100 % | 1.04 m |
+
+Con los globos más rápidos (2.5–3.5 m/s) se queda algo más atrás que sin el ajuste (1.1–1.75 m de error,
+frente a 0.8–0.9 m). En su simulador no pasa (0.32 m), así que hay que mirarlo con el SGM y el tracker en la
+evaluación grande.
+
 ## Siguiente: entrenar en la GPU
 
 1. R25 con el vuelo previo (r25c).
