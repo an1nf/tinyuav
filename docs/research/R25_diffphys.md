@@ -352,6 +352,22 @@ Ni siquiera la semilla 1015, que fallaba a todas las velocidades, falla a 10 m/s
     r25c y 5 que solo pasa r25b ($p = 0.45$): no se distingue del ruido.
   - **Frente al reactivo de R24:** 7 frente a 1 ($p = 0.07$); a 10 m/s, 5 frente a 0.
   - La semilla 1015 sigue fallando a casi todas las velocidades.
+- **En el almacén de Flightmare, `--edge`, 30 arenas** (`r25/eval_arena_warehouse_diffphys_r25c_edge.json`,
+  reconstruido del registro):
+
+| política | 3 | 5 | 7 | 10 m/s | total | choques | tiempo mediano a 3 · 5 · 7 · 10 m/s |
+|---|---|---|---|---|---|---|---|
+| reactivo (R24) | 29 | 29 | 26 | 20 | 104/120 | 15 | 13.6 · 8.2 · 5.8 · – s |
+| DiffPhys de la GPU, sin `--edge` | 26 | 28 | 28 | 27 | 109/120 | 5 | 14.1 · 9.1 · 7.3 · 6.4 s |
+| r25b, `--edge` | 25 | 28 | 27 | 28 | 108/120 | 4 | 15.0 · 9.0 · 6.6 · 4.8 s |
+| **r25c, `--edge`** | **29** | **30** | **30** | **28** | **117/120** | **2** | 13.7 · 8.5 · 6.2 · 5.1 s |
+
+  - **Se acabaron los vuelos sin tiempo a 3 m/s:** 29/30, frente a 25/30 de r25b. Eran el cansancio de los
+    10 s: allí los 40 m duran 14–15 s.
+  - **Frente a r25b, emparejada:** 11 arenas que solo pasa r25c y 2 que solo pasa r25b ($p = 0.02$).
+  - **Frente al reactivo**, de 3 a 7 m/s: 6 frente a 1. A 10 m/s, 28/30 frente a 20/30.
+  - **Solo 2 choques en 120 vuelos:** uno contra el suelo a 3 m/s y uno contra un tronco a 10 m/s. Hay además
+    un vuelo sin tiempo a 10 m/s.
 
 **Lo que no sirvió:** entrenar también a 1–12 m/s sin el vuelo previo empeora: a 2 m/s, 0 % de llegadas,
 porque a esa velocidad los 40 m duran 20 s. La pérdida «a lo largo de la meta» (`--loss-v along`) no

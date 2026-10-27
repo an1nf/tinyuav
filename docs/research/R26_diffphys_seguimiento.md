@@ -84,8 +84,43 @@ Con los globos más rápidos (2.5–3.5 m/s) se queda algo más atrás que sin e
 frente a 0.8–0.9 m). En su simulador no pasa (0.32 m), así que hay que mirarlo con el SGM y el tracker en la
 evaluación grande.
 
-## Siguiente: entrenar en la GPU
+## En la GPU
 
-1. R25 con el vuelo previo (r25c).
-2. R26 desde r25c, con visibilidad (`--w-vis 1`) y sin ella (`--w-vis 0`), para medir lo que aporta.
-3. R20 en bosques de 1/25 m⁻² con los dos, frente a `gbl` y `direct`.
+Desde r25c (R25 con vuelo previo), 2000 iteraciones a lote 64, con visibilidad (`--w-vis 1`) y sin ella
+(`--w-vis 0`); registros en `r26/train_gpu2000_w*.log`.
+
+**En su simulador** (`r26 eval`, 256 vuelos de 60 s, los mismos para los dos; objetivo a 1–4 m/s que
+zigzaguea hasta 60°/s):
+
+| política | choca en 60 s | objetivo tapado | error de distancia | error de altura | lejos (> 8 m) |
+|---|---|---|---|---|---|
+| R26 sin visibilidad | 2.3 % | 1.3 % del tiempo | 0.21 m | 0.03 m | 0.1 % |
+| **R26 con visibilidad** | **1.2 %** | **0.7 %** | **0.18 m** | **0.03 m** | **0 %** |
+
+- **La visibilidad vuelve a partir a la mitad el tiempo con el objetivo tapado** (1.3 % → 0.7 %), como en la
+  CPU (1.9 % → 1.0 %).
+- **Los choques también bajan** (6 → 3 de 256), aunque con tan pocos casos no es concluyente.
+- **Sigue al objetivo a 18 cm de la distancia pedida y a 3 cm de su altura**, durante un minuto.
+
+**R20: seguir un globo** (imagen renderizada, detector de color, tracker, SGM con `--edge`), bosques de
+1/25 m⁻² (espaciado 5 m), 30 semillas (3000–3029), globo a 1–4 m/s con cambios de altura y 0–2 globos
+distractores (a veces del mismo color):
+
+| piloto | éxito | choques | bloqueo | en el globo correcto | error de distancia | rebloqueos |
+|---|---|---|---|---|---|---|
+| `gbl`: sigue el rastro real (privilegiado, cota superior) | 30/30 | 0 | 99 % | 100 % | 0.13 m | 0 |
+| `direct`: línea recta al punto estimado | 26/30 | 4 | 82 % | 100 % | 0.69 m | 5 |
+| R26 sin visibilidad | 30/30 | 0 | 99 % | 100 % | 0.93 m | 0 |
+| **R26 con visibilidad** | **30/30** | **0** | **99 %** | **100 %** | **0.71 m** | **0** |
+
+- **Ningún choque en 60 seguimientos**, con lo que el dron percibe por sí mismo: su propio SGM y el tracker,
+  sin el rastro privilegiado. La línea recta choca en 4 de 30.
+- **El bloqueo se mantiene el 99 % del tiempo**, igual que con el rastro real. La línea recta lo pierde el
+  18 % del tiempo.
+- **Con visibilidad, el error de distancia baja de 0.93 a 0.71 m.**
+- **Queda más lejos del punto pedido que el rastro real** (0.71 frente a 0.13 m). En su simulador va a
+  0.18 m, así que la diferencia viene de la estimación del objetivo (tracker y filtro), no de la política.
+
+**Frente a YOPOv2-Tracker:** ellos siguen a 3–7 m/s y aquí el objetivo va a 1–4 m/s, así que todavía no es
+comparable. El siguiente paso es `r26 eval --v 3,7` y `r20 sim --speed` a esas velocidades, y una
+persona (R19) en vez del globo.

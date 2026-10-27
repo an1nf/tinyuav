@@ -1,0 +1,1090 @@
+{
+ "diffphys_v3": [
+  {
+   "line": 0,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.3,
+   "from_log": true
+  },
+  {
+   "line": 1,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.6,
+   "from_log": true
+  },
+  {
+   "line": 2,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.2,
+   "from_log": true
+  },
+  {
+   "line": 3,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 9.4,
+   "from_log": true
+  },
+  {
+   "line": 4,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.8,
+   "from_log": true
+  },
+  {
+   "line": 5,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.3,
+   "from_log": true
+  },
+  {
+   "line": 6,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.2,
+   "from_log": true
+  },
+  {
+   "line": 7,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.8,
+   "from_log": true
+  },
+  {
+   "line": 8,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 15.0,
+   "from_log": true
+  },
+  {
+   "line": 9,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.8,
+   "from_log": true
+  },
+  {
+   "line": 10,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.4,
+   "from_log": true
+  },
+  {
+   "line": 11,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.8,
+   "from_log": true
+  },
+  {
+   "line": 12,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.9,
+   "from_log": true
+  },
+  {
+   "line": 13,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.2,
+   "from_log": true
+  },
+  {
+   "line": 14,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.3,
+   "from_log": true
+  },
+  {
+   "line": 15,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.7,
+   "from_log": true
+  },
+  {
+   "line": 16,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.2,
+   "from_log": true
+  },
+  {
+   "line": 17,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.8,
+   "from_log": true
+  },
+  {
+   "line": 18,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.6,
+   "from_log": true
+  },
+  {
+   "line": 19,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.9,
+   "from_log": true
+  },
+  {
+   "line": 20,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.2,
+   "from_log": true
+  },
+  {
+   "line": 21,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.4,
+   "from_log": true
+  },
+  {
+   "line": 22,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.3,
+   "from_log": true
+  },
+  {
+   "line": 23,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.8,
+   "from_log": true
+  },
+  {
+   "line": 24,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.3,
+   "from_log": true
+  },
+  {
+   "line": 25,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.1,
+   "from_log": true
+  },
+  {
+   "line": 26,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.4,
+   "from_log": true
+  },
+  {
+   "line": 27,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.7,
+   "from_log": true
+  },
+  {
+   "line": 28,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.3,
+   "from_log": true
+  },
+  {
+   "line": 29,
+   "pilot": "diffphys",
+   "v": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.6,
+   "from_log": true
+  }
+ ],
+ "diffphys_v5": [
+  {
+   "line": 0,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 1,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.0,
+   "from_log": true
+  },
+  {
+   "line": 2,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.5,
+   "from_log": true
+  },
+  {
+   "line": 3,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 12.3,
+   "from_log": true
+  },
+  {
+   "line": 4,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 10.4,
+   "from_log": true
+  },
+  {
+   "line": 5,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 6,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 7,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.3,
+   "from_log": true
+  },
+  {
+   "line": 8,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.8,
+   "from_log": true
+  },
+  {
+   "line": 9,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 10,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "line": 11,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "line": 12,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 10.3,
+   "from_log": true
+  },
+  {
+   "line": 13,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.9,
+   "from_log": true
+  },
+  {
+   "line": 14,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 10.2,
+   "from_log": true
+  },
+  {
+   "line": 15,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.5,
+   "from_log": true
+  },
+  {
+   "line": 16,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 17,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.6,
+   "from_log": true
+  },
+  {
+   "line": 18,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.5,
+   "from_log": true
+  },
+  {
+   "line": 19,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.5,
+   "from_log": true
+  },
+  {
+   "line": 20,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 21,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 10.1,
+   "from_log": true
+  },
+  {
+   "line": 22,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.9,
+   "from_log": true
+  },
+  {
+   "line": 23,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "line": 24,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "line": 25,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.9,
+   "from_log": true
+  },
+  {
+   "line": 26,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "line": 27,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "line": 28,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 29,
+   "pilot": "diffphys",
+   "v": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.5,
+   "from_log": true
+  }
+ ],
+ "diffphys_v7": [
+  {
+   "line": 0,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.0,
+   "from_log": true
+  },
+  {
+   "line": 1,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.7,
+   "from_log": true
+  },
+  {
+   "line": 2,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.4,
+   "from_log": true
+  },
+  {
+   "line": 3,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "line": 4,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.5,
+   "from_log": true
+  },
+  {
+   "line": 5,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.0,
+   "from_log": true
+  },
+  {
+   "line": 6,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.0,
+   "from_log": true
+  },
+  {
+   "line": 7,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.0,
+   "from_log": true
+  },
+  {
+   "line": 8,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.9,
+   "from_log": true
+  },
+  {
+   "line": 9,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.9,
+   "from_log": true
+  },
+  {
+   "line": 10,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.1,
+   "from_log": true
+  },
+  {
+   "line": 11,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.1,
+   "from_log": true
+  },
+  {
+   "line": 12,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 13,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.7,
+   "from_log": true
+  },
+  {
+   "line": 14,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "line": 15,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.1,
+   "from_log": true
+  },
+  {
+   "line": 16,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.7,
+   "from_log": true
+  },
+  {
+   "line": 17,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.5,
+   "from_log": true
+  },
+  {
+   "line": 18,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.6,
+   "from_log": true
+  },
+  {
+   "line": 19,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.9,
+   "from_log": true
+  },
+  {
+   "line": 20,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.0,
+   "from_log": true
+  },
+  {
+   "line": 21,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.1,
+   "from_log": true
+  },
+  {
+   "line": 22,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.3,
+   "from_log": true
+  },
+  {
+   "line": 23,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.1,
+   "from_log": true
+  },
+  {
+   "line": 24,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.9,
+   "from_log": true
+  },
+  {
+   "line": 25,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.8,
+   "from_log": true
+  },
+  {
+   "line": 26,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.1,
+   "from_log": true
+  },
+  {
+   "line": 27,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.3,
+   "from_log": true
+  },
+  {
+   "line": 28,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.0,
+   "from_log": true
+  },
+  {
+   "line": 29,
+   "pilot": "diffphys",
+   "v": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.1,
+   "from_log": true
+  }
+ ],
+ "diffphys_v10": [
+  {
+   "line": 0,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.5,
+   "from_log": true
+  },
+  {
+   "line": 1,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.5,
+   "from_log": true
+  },
+  {
+   "line": 2,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.4,
+   "from_log": true
+  },
+  {
+   "line": 3,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.7,
+   "from_log": true
+  },
+  {
+   "line": 4,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.2,
+   "from_log": true
+  },
+  {
+   "line": 5,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.3,
+   "from_log": true
+  },
+  {
+   "line": 6,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.5,
+   "from_log": true
+  },
+  {
+   "line": 7,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.0,
+   "from_log": true
+  },
+  {
+   "line": 8,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.4,
+   "from_log": true
+  },
+  {
+   "line": 9,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.1,
+   "from_log": true
+  },
+  {
+   "line": 10,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.0,
+   "from_log": true
+  },
+  {
+   "line": 11,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.2,
+   "from_log": true
+  },
+  {
+   "line": 12,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": false,
+   "crashed": false,
+   "time_s": 10.0,
+   "from_log": true
+  },
+  {
+   "line": 13,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.5,
+   "from_log": true
+  },
+  {
+   "line": 14,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.9,
+   "from_log": true
+  },
+  {
+   "line": 15,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.3,
+   "from_log": true
+  },
+  {
+   "line": 16,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.2,
+   "from_log": true
+  },
+  {
+   "line": 17,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.2,
+   "from_log": true
+  },
+  {
+   "line": 18,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.2,
+   "from_log": true
+  },
+  {
+   "line": 19,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.7,
+   "from_log": true
+  },
+  {
+   "line": 20,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.3,
+   "from_log": true
+  },
+  {
+   "line": 21,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.5,
+   "from_log": true
+  },
+  {
+   "line": 22,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.8,
+   "from_log": true
+  },
+  {
+   "line": 23,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 4.5,
+   "from_log": true
+  },
+  {
+   "line": 24,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.1,
+   "from_log": true
+  },
+  {
+   "line": 25,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.3,
+   "from_log": true
+  },
+  {
+   "line": 26,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.9,
+   "from_log": true
+  },
+  {
+   "line": 27,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.2,
+   "from_log": true
+  },
+  {
+   "line": 28,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.3,
+   "from_log": true
+  },
+  {
+   "line": 29,
+   "pilot": "diffphys",
+   "v": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.8,
+   "from_log": true
+  }
+ ]
+}

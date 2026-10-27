@@ -3,6 +3,22 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.3] — 2026-10-27
+
+Sin cambios en el código: resultados en la GPU.
+- **r25c en el almacén de Flightmare (`--edge`): 117/120** (29, 30, 30 y 28), con solo 2 choques.
+  - Frente a r25b (108/120), emparejados, 11 frente a 2 ($p = 0.02$).
+  - Se acabaron los vuelos sin tiempo a 3 m/s.
+  - A 10 m/s, 28/30 frente a 20/30 del reactivo.
+- **R26 (seguimiento) en su simulador, 256 vuelos de 60 s:**
+  - con visibilidad: 1.2 % de choques, objetivo tapado el 0.7 % del tiempo, 0.18 m de error de distancia y
+    3 cm de altura;
+  - sin visibilidad: 2.3 %, 1.3 % y 0.21 m.
+- **R26 en R20 (globo, bosque de 1/25 m⁻², 30 semillas): 30/30 sin choques**, con visibilidad y sin ella.
+  - La línea recta al punto estimado: 26/30 y 4 choques.
+  - El rastro real (privilegiado): 30/30.
+  - Con visibilidad el error de distancia es de 0.71 m; sin ella, 0.93 m.
+
 ## [0.27.2] — 2026-10-26
 
 Sin cambios en el código: resultados de r25c (R25 con vuelo previo, 5000 iteraciones en la GPU).
