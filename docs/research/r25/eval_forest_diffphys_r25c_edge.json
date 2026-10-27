@@ -1,0 +1,970 @@
+{
+ "diffphys_v3": [
+  {
+   "seed": 1000,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.6,
+   "from_log": true
+  },
+  {
+   "seed": 1001,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.1,
+   "from_log": true
+  },
+  {
+   "seed": 1002,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "seed": 1003,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 12.9,
+   "from_log": true
+  },
+  {
+   "seed": 1004,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "seed": 1005,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 12.9,
+   "from_log": true
+  },
+  {
+   "seed": 1006,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 15.0,
+   "from_log": true
+  },
+  {
+   "seed": 1007,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.5,
+   "from_log": true
+  },
+  {
+   "seed": 1008,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.2,
+   "from_log": true
+  },
+  {
+   "seed": 1009,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.2,
+   "from_log": true
+  },
+  {
+   "seed": 1010,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.3,
+   "from_log": true
+  },
+  {
+   "seed": 1011,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.8,
+   "from_log": true
+  },
+  {
+   "seed": 1012,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.1,
+   "from_log": true
+  },
+  {
+   "seed": 1013,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.7,
+   "from_log": true
+  },
+  {
+   "seed": 1014,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 12.7,
+   "from_log": true
+  },
+  {
+   "seed": 1015,
+   "v_des": 3.0,
+   "success": false,
+   "crashed": false,
+   "time_s": 19.3,
+   "from_log": true
+  },
+  {
+   "seed": 1016,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.0,
+   "from_log": true
+  },
+  {
+   "seed": 1017,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.5,
+   "from_log": true
+  },
+  {
+   "seed": 1018,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.2,
+   "from_log": true
+  },
+  {
+   "seed": 1019,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.6,
+   "from_log": true
+  },
+  {
+   "seed": 1020,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.2,
+   "from_log": true
+  },
+  {
+   "seed": 1021,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.3,
+   "from_log": true
+  },
+  {
+   "seed": 1022,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.2,
+   "from_log": true
+  },
+  {
+   "seed": 1023,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.1,
+   "from_log": true
+  },
+  {
+   "seed": 1024,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 14.2,
+   "from_log": true
+  },
+  {
+   "seed": 1025,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.2,
+   "from_log": true
+  },
+  {
+   "seed": 1026,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.9,
+   "from_log": true
+  },
+  {
+   "seed": 1027,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.1,
+   "from_log": true
+  },
+  {
+   "seed": 1028,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.6,
+   "from_log": true
+  },
+  {
+   "seed": 1029,
+   "v_des": 3.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 13.0,
+   "from_log": true
+  }
+ ],
+ "diffphys_v5": [
+  {
+   "seed": 1000,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "seed": 1001,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.5,
+   "from_log": true
+  },
+  {
+   "seed": 1002,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.8,
+   "from_log": true
+  },
+  {
+   "seed": 1003,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 10.4,
+   "from_log": true
+  },
+  {
+   "seed": 1004,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.1,
+   "from_log": true
+  },
+  {
+   "seed": 1005,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "seed": 1006,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 11.8,
+   "from_log": true
+  },
+  {
+   "seed": 1007,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.9,
+   "from_log": true
+  },
+  {
+   "seed": 1008,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "seed": 1009,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.6,
+   "from_log": true
+  },
+  {
+   "seed": 1010,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "seed": 1011,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "seed": 1012,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "seed": 1013,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 10.4,
+   "from_log": true
+  },
+  {
+   "seed": 1014,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.9,
+   "from_log": true
+  },
+  {
+   "seed": 1015,
+   "v_des": 5.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 5.5,
+   "from_log": true
+  },
+  {
+   "seed": 1016,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.0,
+   "from_log": true
+  },
+  {
+   "seed": 1017,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "seed": 1018,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "seed": 1019,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.8,
+   "from_log": true
+  },
+  {
+   "seed": 1020,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "seed": 1021,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "seed": 1022,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.7,
+   "from_log": true
+  },
+  {
+   "seed": 1023,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 10.8,
+   "from_log": true
+  },
+  {
+   "seed": 1024,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.6,
+   "from_log": true
+  },
+  {
+   "seed": 1025,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "seed": 1026,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "seed": 1027,
+   "v_des": 5.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 3.8,
+   "from_log": true
+  },
+  {
+   "seed": 1028,
+   "v_des": 5.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 10.1,
+   "from_log": true
+  },
+  {
+   "seed": 1029,
+   "v_des": 5.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.0,
+   "from_log": true
+  }
+ ],
+ "diffphys_v7": [
+  {
+   "seed": 1000,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.7,
+   "from_log": true
+  },
+  {
+   "seed": 1001,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.5,
+   "from_log": true
+  },
+  {
+   "seed": 1002,
+   "v_des": 7.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 7.5,
+   "from_log": true
+  },
+  {
+   "seed": 1003,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.7,
+   "from_log": true
+  },
+  {
+   "seed": 1004,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "seed": 1005,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.9,
+   "from_log": true
+  },
+  {
+   "seed": 1006,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.1,
+   "from_log": true
+  },
+  {
+   "seed": 1007,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.8,
+   "from_log": true
+  },
+  {
+   "seed": 1008,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "seed": 1009,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "seed": 1010,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.0,
+   "from_log": true
+  },
+  {
+   "seed": 1011,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.7,
+   "from_log": true
+  },
+  {
+   "seed": 1012,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.9,
+   "from_log": true
+  },
+  {
+   "seed": 1013,
+   "v_des": 7.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 5.9,
+   "from_log": true
+  },
+  {
+   "seed": 1014,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.8,
+   "from_log": true
+  },
+  {
+   "seed": 1015,
+   "v_des": 7.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 5.7,
+   "from_log": true
+  },
+  {
+   "seed": 1016,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.8,
+   "from_log": true
+  },
+  {
+   "seed": 1017,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.4,
+   "from_log": true
+  },
+  {
+   "seed": 1018,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.6,
+   "from_log": true
+  },
+  {
+   "seed": 1019,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "seed": 1020,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.3,
+   "from_log": true
+  },
+  {
+   "seed": 1021,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.2,
+   "from_log": true
+  },
+  {
+   "seed": 1022,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.4,
+   "from_log": true
+  },
+  {
+   "seed": 1023,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.7,
+   "from_log": true
+  },
+  {
+   "seed": 1024,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.3,
+   "from_log": true
+  },
+  {
+   "seed": 1025,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.0,
+   "from_log": true
+  },
+  {
+   "seed": 1026,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.8,
+   "from_log": true
+  },
+  {
+   "seed": 1027,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.3,
+   "from_log": true
+  },
+  {
+   "seed": 1028,
+   "v_des": 7.0,
+   "success": false,
+   "crashed": false,
+   "time_s": 11.7,
+   "from_log": true
+  },
+  {
+   "seed": 1029,
+   "v_des": 7.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.9,
+   "from_log": true
+  }
+ ],
+ "diffphys_v10": [
+  {
+   "seed": 1000,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.2,
+   "from_log": true
+  },
+  {
+   "seed": 1001,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.5,
+   "from_log": true
+  },
+  {
+   "seed": 1002,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 9.2,
+   "from_log": true
+  },
+  {
+   "seed": 1003,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.3,
+   "from_log": true
+  },
+  {
+   "seed": 1004,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.9,
+   "from_log": true
+  },
+  {
+   "seed": 1005,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.6,
+   "from_log": true
+  },
+  {
+   "seed": 1006,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.6,
+   "from_log": true
+  },
+  {
+   "seed": 1007,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.9,
+   "from_log": true
+  },
+  {
+   "seed": 1008,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.2,
+   "from_log": true
+  },
+  {
+   "seed": 1009,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.9,
+   "from_log": true
+  },
+  {
+   "seed": 1010,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.6,
+   "from_log": true
+  },
+  {
+   "seed": 1011,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.2,
+   "from_log": true
+  },
+  {
+   "seed": 1012,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.2,
+   "from_log": true
+  },
+  {
+   "seed": 1013,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.8,
+   "from_log": true
+  },
+  {
+   "seed": 1014,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.6,
+   "from_log": true
+  },
+  {
+   "seed": 1015,
+   "v_des": 10.0,
+   "success": false,
+   "crashed": true,
+   "time_s": 5.2,
+   "from_log": true
+  },
+  {
+   "seed": 1016,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.0,
+   "from_log": true
+  },
+  {
+   "seed": 1017,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.6,
+   "from_log": true
+  },
+  {
+   "seed": 1018,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.0,
+   "from_log": true
+  },
+  {
+   "seed": 1019,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.9,
+   "from_log": true
+  },
+  {
+   "seed": 1020,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.8,
+   "from_log": true
+  },
+  {
+   "seed": 1021,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.0,
+   "from_log": true
+  },
+  {
+   "seed": 1022,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.7,
+   "from_log": true
+  },
+  {
+   "seed": 1023,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 8.2,
+   "from_log": true
+  },
+  {
+   "seed": 1024,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.4,
+   "from_log": true
+  },
+  {
+   "seed": 1025,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 6.9,
+   "from_log": true
+  },
+  {
+   "seed": 1026,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 5.2,
+   "from_log": true
+  },
+  {
+   "seed": 1027,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.6,
+   "from_log": true
+  },
+  {
+   "seed": 1028,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 7.3,
+   "from_log": true
+  },
+  {
+   "seed": 1029,
+   "v_des": 10.0,
+   "success": true,
+   "crashed": false,
+   "time_s": 4.7,
+   "from_log": true
+  }
+ ]
+}

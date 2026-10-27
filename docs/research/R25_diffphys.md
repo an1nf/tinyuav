@@ -335,6 +335,24 @@ Mantiene 2.2–2.4, 4.8–4.9 y 7.4–7.8 m/s durante los 20 s del perfil.
 
 Ni siquiera la semilla 1015, que fallaba a todas las velocidades, falla a 10 m/s.
 
+**En la GPU (`results/r25c`, 5000 iteraciones a lote 64 desde r25b, `--burn 0,30`, lr 3·10⁻⁴;
+`r25/train_gpu_r25c_5k_burn.log`):**
+- **En su simulador** (`r25 stalls`): llega en el 100 % de los vuelos a 2 m/s (r25b: 75 %), y en el 99.6 %
+  a 3 y 5 m/s; los vuelos parados quedan en 0.4 %.
+- **En el bosque de R18, `--edge`, 30 semillas** (`r25/eval_forest_diffphys_r25c_edge.json`, reconstruido
+  del registro):
+
+| política | 3 | 5 | 7 | 10 m/s | total | choques | tiempo mediano a 3 · 5 · 7 · 10 m/s |
+|---|---|---|---|---|---|---|---|
+| r25b | 28 | 29 | 29 | 28 | 114/120 | 3 | 14.4 · 9.1 · 7.0 · 6.0 s |
+| r25c | 29 | 27 | 26 | 29 | 111/120 | 7 | 13.5 · 8.8 · 6.7 · 5.3 s |
+
+  - **Es más rápida a todas las velocidades:** a 10 m/s, 5.3 s frente a 6.0 s, ~7.6 m/s de media.
+  - **Choca algo más a 5 y 7 m/s:** 6 choques frente a 2. Emparejada con r25b, 2 entornos que solo pasa
+    r25c y 5 que solo pasa r25b ($p = 0.45$): no se distingue del ruido.
+  - **Frente al reactivo de R24:** 7 frente a 1 ($p = 0.07$); a 10 m/s, 5 frente a 0.
+  - La semilla 1015 sigue fallando a casi todas las velocidades.
+
 **Lo que no sirvió:** entrenar también a 1–12 m/s sin el vuelo previo empeora: a 2 m/s, 0 % de llegadas,
 porque a esa velocidad los 40 m duran 20 s. La pérdida «a lo largo de la meta» (`--loss-v along`) no
 llegó a probarse a fondo: la causa era otra.

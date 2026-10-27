@@ -3,6 +3,16 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.2] — 2026-10-26
+
+Sin cambios en el código: resultados de r25c (R25 con vuelo previo, 5000 iteraciones en la GPU).
+- **En su simulador:** llega en el 100 % de los vuelos a 2 m/s (r25b: 75 %).
+- **En el bosque de R18 con `--edge`:** 111/120 frente a 114/120 de r25b. Emparejados, 2 frente a 5
+  ($p = 0.45$).
+  - Es más rápida a todas las velocidades: 5.3 s frente a 6.0 s a 10 m/s.
+  - Choca algo más a 5–7 m/s.
+  - Frente al reactivo: 7 frente a 1 ($p = 0.07$).
+
 ## [0.27.1] — 2026-10-25
 
 Sin cambios en el código: resultados de R26 en CPU.
