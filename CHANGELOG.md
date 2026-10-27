@@ -3,6 +3,16 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.4] — 2026-10-27
+
+Sin cambios en el código: R26 con objetivos de 3–7 m/s, las velocidades de YOPOv2-Tracker.
+- **Antes del ajuste**, en su simulador, 30 s por vuelo:
+  - la política entrenada a 1–4 m/s choca en el 12.5 % de los vuelos a 5 m/s y en el 32.8 % a 7 m/s;
+  - sigue al objetivo igual de cerca (0.31 y 0.59 m).
+- **Con 200 iteraciones de CPU a 1–7 m/s:**
+  - 0 % de choques a 3 y 5 m/s, y 21.9 % a 7 m/s;
+  - error de distancia: 0.19, 0.25 y 0.49 m.
+
 ## [0.27.3] — 2026-10-27
 
 Sin cambios en el código: resultados en la GPU.

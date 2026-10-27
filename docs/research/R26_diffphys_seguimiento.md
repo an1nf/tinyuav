@@ -121,6 +121,20 @@ distractores (a veces del mismo color):
 - **Queda más lejos del punto pedido que el rastro real** (0.71 frente a 0.13 m). En su simulador va a
   0.18 m, así que la diferencia viene de la estimación del objetivo (tracker y filtro), no de la política.
 
-**Frente a YOPOv2-Tracker:** ellos siguen a 3–7 m/s y aquí el objetivo va a 1–4 m/s, así que todavía no es
-comparable. El siguiente paso es `r26 eval --v 3,7` y `r20 sim --speed` a esas velocidades, y una
-persona (R19) en vez del globo.
+## Objetivos más rápidos (las velocidades de YOPOv2-Tracker, 3–7 m/s)
+
+YOPOv2-Tracker sigue a 3–7 m/s en simulación y a 6 m/s en un bosque real. En su simulador, 64 vuelos de
+30 s por velocidad (`r26 eval --v v,v --seconds 30`):
+
+| política | objetivo a 3 m/s | 5 m/s | 7 m/s |
+|---|---|---|---|
+| R26 de la GPU (entrenada a 1–4 m/s) | 0 % · 0.21 m | 12.5 % · 0.31 m | 32.8 % · 0.59 m |
+| **+ 200 iteraciones de CPU a 1–7 m/s** (`r26/train_cpu200_fast_v1-7.log`) | **0 % · 0.19 m** | **0 % · 0.25 m** | **21.9 % · 0.49 m** |
+
+(choques en 30 s · error de distancia medio; el objetivo está a la vista el 98.8–99.5 % del tiempo en todos
+los casos)
+
+- **Por encima de lo que vio al entrenar, choca.** Lo sigue igual de cerca, pero no esquiva a tiempo.
+- **Con objetivos de hasta 7 m/s al entrenar, a 5 m/s deja de chocar.** A 7 m/s baja de 33 % a 22 %, unos
+  210 m de bosque por vuelo: 0.10 % de choques por metro, frente a 0.25 % de r25c navegando a 7 m/s en R18.
+- **El ajuste en la GPU con `--v 1,7`** debería bajar más los choques a 7 m/s.
