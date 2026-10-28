@@ -30,6 +30,10 @@ class FollowMission:
     follows = True                                # the diffphys pilot flies omega × v_des instead of the goal
     cmc = False                                   # camera-motion compensation in the tracker (on for balloons)
     innov_gate = None                             # n σ: skip outlier measurements (≤ 5 in a row) in the filter
+    # 0.27.5, fast targets (None / False: as before)
+    yaw_ext = None          # s: target lost → the camera looks at the last estimate moved on at most yaw_ext s
+    gate_v = None           # m/s: the re-lock gate grows at max(1.5, |v_target| + gate_v) m/s while lost
+    relock_free = False     # the first measurement after a re-lock skips the innovation gate
 
     def __init__(self, env, standoff=4.0, z_follow=2.0, v_max=6.0, k_dist=0.8, t_coast=1.5, t_fail=6.0,
                  detector=None, seed=0):
@@ -38,7 +42,7 @@ class FollowMission:
         self.t_coast, self.t_fail = t_coast, t_fail
         self.det = detector or SimDetector(seed=seed)
         self.tracker, self.lock, self.flt = self._make_tracker(), TargetLock(), self._make_filter()
-        self._pose_prev, self._n_rej = None, 0
+        self._pose_prev, self._n_rej, self._seen = None, 0, None
         P = self.target.path.pts.copy()
         d0 = P[min(10, len(P) - 1)] - P[0]
         d0 /= max(np.linalg.norm(d0), 1e-6)
@@ -118,6 +122,8 @@ class FollowMission:
             tr = self._initial(tracks, cam)
             how = 'locked' if tr else 'search'
         else:
+            if self.gate_v is not None and self.flt.vel is not None:
+                self.lock.gate_growth = max(1.5, float(np.hypot(*self.flt.vel[:2])) + self.gate_v)
             tr, how = self.lock.update(tracks, pos_of, self.flt, t)
             if self.lock.banned:                          # identity switch: end that track
                 self.tracker.drop(self.lock.banned)
@@ -128,12 +134,13 @@ class FollowMission:
             if q is not None:
                 d = float(np.hypot(*(q[:2] - p[:2])))
                 sig = 0.15 + 0.05 * d
-                if self.innov_gate is not None and self._n_rej < 5 and \
-                        not self.flt.gate(q, t, n_sigma=self.innov_gate, floor=3 * sig):
+                if self.innov_gate is not None and self._n_rej < 5 and not (self.relock_free and how == 'relocked') \
+                        and not self.flt.gate(q, t, n_sigma=self.innov_gate, floor=3 * sig):
                     self._n_rej += 1          # outlier (e.g. two balloons merged into one blob): coast
                 else:
                     self._n_rej = 0
                     self.flt.update(t, q, sig)
+                    self._seen = (t, self.flt.pos.copy(), self.flt.vel.copy())
                 self.t_last_seen = t
             self.n_locked += 1
             if tr.gt == 0:
@@ -166,7 +173,11 @@ class FollowMission:
         omega = e / n if n > 1e-3 else np.r_[-u, 0.0]
         v_t = float(np.hypot(*vt[:2]))
         v_des = float(np.clip(v_t + self.k * (dist - self.standoff), 0.3, self.v_max))
-        yaw_t = math.atan2(tgt[1] - p[1], tgt[0] - p[0])
+        look = tgt
+        if self.yaw_ext is not None and self._seen is not None and lost_for > 0:   # look where it was last seen
+            t_s, q_s, v_s = self._seen
+            look = q_s + v_s * min(t - t_s, self.yaw_ext)
+        yaw_t = math.atan2(look[1] - p[1], look[0] - p[0])
         hold = lost_for > self.t_coast or (dist < self.standoff + 0.3 and v_t < 0.2)
         blind = p + np.outer(T_I, omega * v_des)
         return dict(common, omega=omega, v_des=v_des, blind=blind, yaw=yaw_t, hold=hold, how=how)

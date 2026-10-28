@@ -3,6 +3,27 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.5] — 2026-10-27
+
+Resultados de la GPU con objetivos de 1–7 m/s, y opciones nuevas para objetivos rápidos (por defecto no
+cambia ningún resultado).
+- **R26 rápido** (1500 iteraciones de GPU a 1–7 m/s desde R26), en su simulador:
+  - choques en 30 s: 0 % a 3 y 5 m/s, y 5.1 % a 7 m/s (antes 32.8 %);
+  - a 1–4 m/s, ningún choque en 256 vuelos de un minuto (antes 3).
+- **R20 (globo a velocidad fija, 1/25 m⁻², 30 semillas): ningún choque en 90 vuelos.**
+  - Éxitos a 3, 5 y 7 m/s: 30, 29 y 26 de 30.
+  - El rastro privilegiado consigue 29, 26 y 18, con 14 choques; la línea recta, 25, 24 y 22, con 18.
+  - Todos sus fallos son pérdidas del globo.
+- **Por qué lo pierde a 7 m/s:** el globo gira cuando un tronco lo tapa y la cámara sigue mirando a la
+  predicción en línea recta, que en 1 s queda a 5–8 m.
+- **`r20 sim --fast-target`** (filtro más rápido, la cámara mira a la última estimación, puerta de re-bloqueo
+  que crece con la velocidad del globo, la primera medida tras re-bloquearlo se acepta). Con el modelo de
+  CPU, en 90 vuelos (7 m/s en bosques de 1/25 y 1/16 m⁻², 5 m/s en 1/16):
+  - las pérdidas bajan de 10 a 2, sin más choques (3 y 3);
+  - éxitos: 28, 27 y 30 de 30, frente a 26, 24 y 27; emparejados, 10 frente a 2 ($p = 0.04$);
+  - el error de distancia baja unos 0.2 m.
+- **`r26 eval --density`:** bosques de densidad fija, como el de YOPOv2-Tracker (1/16 m⁻²).
+
 ## [0.27.4] — 2026-10-27
 
 Sin cambios en el código: R26 con objetivos de 3–7 m/s, las velocidades de YOPOv2-Tracker.

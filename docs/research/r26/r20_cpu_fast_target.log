@@ -1,0 +1,8 @@
+# R20 with the CPU fast model (scratch r26fast/follow_fast.keras, 200 CPU iterations at 1-7 m/s), diffphys only, --edge, seeds 3000-3029
+# without changes vs --fast-target (q_acc 5, yaw_ext 0.5, gate_v 1, relock_free)
+diffphys {} speed 7.0 density 0.04: 26/30  crash 2  lost 2  d_err 1.60  fails [3000, 3010, 3011, 3024]  (1209 s)
+diffphys {'q_acc': '5', 'yaw_ext': '0.5', 'gate_v': '1', 'relock_free': '1'} speed 7.0 density 0.04: 28/30  crash 1  lost 1  d_err 1.39  fails [3024, 3029]  (779 s)
+diffphys {} speed 7.0 density 0.0625: 24/30  crash 1  lost 5  d_err 1.60  fails [3000, 3013, 3015, 3019, 3023, 3026]  (1186 s)
+diffphys {'q_acc': '5', 'yaw_ext': '0.5', 'gate_v': '1', 'relock_free': '1'} speed 7.0 density 0.0625: 27/30  crash 2  lost 1  d_err 1.38  fails [3009, 3013, 3019]  (1266 s)
+diffphys {} speed 5.0 density 0.0625: 27/30  crash 0  lost 3  d_err 1.29  fails [3013, 3019, 3023]  (1391 s)
+diffphys {'q_acc': '5', 'yaw_ext': '0.5', 'gate_v': '1', 'relock_free': '1'} speed 5.0 density 0.0625: 30/30  crash 0  lost 0  d_err 1.08  fails []  (1423 s)

@@ -647,6 +647,17 @@ def test_diffphys_follow_sight_line_and_loss():
     assert np.isfinite(m['loss']) and float(tf.linalg.global_norm(g)) > 0 and 0 <= m['visible'] <= 1
 
 
+def test_diffphys_follow_batch_fixed_density():
+    """0.27.5 (r26 eval --density): a fixed tree density, e.g. YOPOv2-Tracker's 1/16 m⁻²."""
+    from nanouav.agile import diffphys_follow as F
+    n = {}
+    for d in (1 / 49, 1 / 16):
+        cx, cy, rr, Q, V, p0 = F.follow_batch(np.random.default_rng(0), 4, 60, density=d)
+        L = float(Q[-1, :, 0].max()) + 20.0
+        n[d] = (rr > 0).sum(1).mean() / (L * 40.0)           # trees per m² (before the corridor: a bit more)
+    assert n[1 / 16] == pytest.approx(1 / 16, rel=0.25) and n[1 / 49] == pytest.approx(1 / 49, rel=0.3)
+
+
 def test_diffphys_stall_eval_runs(tmp_path):
     """r25 stalls: arrivals, crashes and stalls of a saved policy in its own simulator."""
     pytest.importorskip('tensorflow')

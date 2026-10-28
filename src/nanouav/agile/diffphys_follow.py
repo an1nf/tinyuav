@@ -190,14 +190,16 @@ def _follow_body(policy, cx, cy, rr, Q, Vq, p, v, a, a_cmd_delayed, h, v_avg, al
 _COMPILED = {}
 
 
-def follow_batch(rng, B, T, v_range=(1.0, 4.0)):
+def follow_batch(rng, B, T, v_range=(1.0, 4.0), density=None):
     """Forests with a clear corridor along each target's path (T steps), the paths, and the drone's start
-    (STANDOFF − 1 to STANDOFF + 1 m behind the target, at its height, at rest)."""
+    (STANDOFF − 1 to STANDOFF + 1 m behind the target, at its height, at rest). density: trees per m²
+    (default: 1/49–1/16 at random, as in R25)."""
     Q, V = target_paths(rng, B, T, v_range)
     L = float(Q[-1, :, 0].max()) + 20.0                          # the forest covers the whole path
     L_max = 6.0 + v_range[1] * T * DP.DT + 20.0                   # a fixed size per T: no retracing
+    kw = {} if density is None else {'density': (density, density)}
     cx, cy, rr = DP.forest_batch(rng, B, length=L, width=40.0,
-                                 n_obs=int(np.clip(DP.N_OBS * L_max / 60.0 * 40 / 30, DP.N_OBS, 1536)))
+                                 n_obs=int(np.clip(DP.N_OBS * L_max / 60.0 * 40 / 30, DP.N_OBS, 1536)), **kw)
     cx, cy, rr = clear_corridor(cx, cy, rr, Q, margin=CORRIDOR)
     p0 = np.c_[Q[0, :, 0] - rng.uniform(STANDOFF - 1, STANDOFF + 1, B), Q[0, :, 1],
                np.clip(Q[0, :, 2], *Z_TARGET)].astype(np.float32)
@@ -267,13 +269,13 @@ def train(out, init, iters=1000, batch=32, T=150, lr=3e-4, v_range=(1.0, 4.0), s
     return path
 
 
-def evaluate(path, B=128, T=225, v_range=(1.0, 4.0), seed=123, log=print):
+def evaluate(path, B=128, T=225, v_range=(1.0, 4.0), seed=123, log=print, density=None):
     """Follow in its own simulator without gradients (ideal depth, no augmentation) → crashed, visible fraction,
     median distance error, fraction of time beyond 2 × standoff."""
     tf = DP._tf()
     policy = tf.keras.models.load_model(path, compile=False)
     rng = np.random.default_rng(seed)
-    cx, cy, rr, Q, V, p0 = follow_batch(rng, B, T, v_range)
+    cx, cy, rr, Q, V, p0 = follow_batch(rng, B, T, v_range, density=density)
     aug, DP.AUG = DP.AUG, False
     try:
         body = tf.function(lambda *a: _follow_metrics(policy, *a, T=T))
@@ -282,7 +284,8 @@ def evaluate(path, B=128, T=225, v_range=(1.0, 4.0), seed=123, log=print):
         DP.AUG = aug
     m = {k: float(x) for k, x in m.items()}
     log(f"crashed {m['crashed']:.3f}  visible {m['visible']:.3f}  dist_err {m['dist_err']:.2f} m  "
-        f"z_err {m['z_err']:.2f} m  far {m['far']:.3f}   (B {B}, {T * DP.DT:.0f} s, target {v_range[0]:g}–{v_range[1]:g} m/s)")
+        f"z_err {m['z_err']:.2f} m  far {m['far']:.3f}   (B {B}, {T * DP.DT:.0f} s, target {v_range[0]:g}–{v_range[1]:g} m/s"
+        + ('' if density is None else f', 1/{1 / density:.0f} trees/m²') + ')')
     return m
 
 
@@ -345,6 +348,8 @@ def main(argv=None):
     q.add_argument('--n', type=int, default=128)
     q.add_argument('--v', default='1,4')
     q.add_argument('--seconds', type=float, default=60.0, help='length of each evaluation flight')
+    q.add_argument('--density', type=float, default=None,
+                   help='trees per m² (default 1/49–1/16 at random; YOPOv2-Tracker tests at 1/16 = 0.0625)')
     a = ap.parse_args(argv)
     v = tuple(float(x) for x in a.v.split(','))
     if a.cmd == 'train':
@@ -354,7 +359,7 @@ def main(argv=None):
         print('→', train(a.out, a.init, iters=a.iters, batch=a.batch, lr=a.lr, v_range=v, seed=a.seed,
                          name=a.name, log=lambda s: print(s, flush=True)))
     else:
-        evaluate(a.model, B=a.n, v_range=v, T=int(a.seconds / DP.DT))
+        evaluate(a.model, B=a.n, v_range=v, T=int(a.seconds / DP.DT), density=a.density)
 
 
 if __name__ == '__main__':

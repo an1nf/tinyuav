@@ -107,6 +107,28 @@ def test_balloon_mission_short_closed_loop():
     assert 1.0 <= p[2] <= 3.0 and abs(p[2] - M.trail.pos(M.trail.closest(p)[0])[2]) < 0.4
 
 
+def test_lost_balloon_yaw_and_gate_options():
+    """0.27.5: target lost → by default the camera looks at the filter's prediction; with yaw_ext it looks at
+    the last estimate moved on at most yaw_ext s, and with gate_v the re-lock gate grows with the target speed."""
+    from nanouav.follow.balloon_mission import BalloonMission
+    from nanouav.follow.estimate import TargetFilter
+    e = balloon_env(2, density=0.0, n_distractors=0, speed=2.0)
+    yaws = {}
+    for ext in (None, 0.25):
+        M = BalloonMission(e, seed=0)
+        M.cmc, M.yaw_ext, M.gate_v = False, ext, 1.0
+        M._detect, M._image = (lambda cam: []), (lambda cam: np.zeros((8, 8, 3), np.uint8))
+        M.lock.track_id, M.lock.state = 1, 'locked'
+        M.flt = TargetFilter(q_acc=2.0, dims=3)
+        M.flt.x, M.flt.P, M.flt.t = np.r_[10.0, 0, 2, 5, 0, 0], np.eye(6) * 0.01, 1.0
+        M.t_last_seen, M._seen = 1.0, (1.0, M.flt.pos.copy(), M.flt.vel.copy())
+        F = M.frame(2.0, np.array([0.0, 5.0, 2.0]), np.zeros(3), 0.0, {'pose': None})
+        yaws[ext] = math.degrees(F['yaw'])
+        assert M.lock.gate_growth == pytest.approx(6.0)
+    assert yaws[None] == pytest.approx(math.degrees(math.atan2(-5, 15)), abs=0.5)        # prediction at t = 2 s
+    assert yaws[0.25] == pytest.approx(math.degrees(math.atan2(-5, 11.25)), abs=0.5)     # 10 m + 5 m/s · 0.25 s
+
+
 def test_diffphys_pilot_follows_the_balloon_law(tmp_path):
     """R26: in a follow mission the diffphys pilot gets the follow law's direction and speed (omega × v_des),
     not the env goal, and faces the balloon (the mission's yaw)."""
@@ -131,3 +153,15 @@ def test_diffphys_pilot_follows_the_balloon_law(tmp_path):
     assert 'error' not in r and seen
     g, vd = seen[-1]
     assert np.linalg.norm(g) == pytest.approx(1.0, abs=1e-3) and 0.3 <= vd <= M.v_max
+
+
+def test_fast_target_options_of_r20_sim():
+    """0.27.5: r20 sim --fast-target sets the four lost-target options; each one can be given alone."""
+    import argparse
+    from nanouav.follow.run_balloon import FAST_TARGET, _lost_opts
+    ns = lambda **k: argparse.Namespace(**{'fast_target': False, 'q_acc': None, 'yaw_ext': None, 'gate_v': None,
+                                          'relock_free': False, **k})
+    assert _lost_opts(ns()) == {}
+    assert _lost_opts(ns(fast_target=True)) == FAST_TARGET
+    assert _lost_opts(ns(fast_target=True, q_acc=3.0))['q_acc'] == 3.0
+    assert _lost_opts(ns(yaw_ext=0.5)) == {'yaw_ext': 0.5}

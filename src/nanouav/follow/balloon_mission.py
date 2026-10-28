@@ -16,6 +16,7 @@ class BalloonMission(FollowMission):
     needs_rgb = True
     cmc = True
     innov_gate = 3.0
+    q_acc = 2.0             # process noise of the 3D target filter (m/s²)
 
     def __init__(self, env, standoff=4.0, v_max=8.0, k_dist=0.8, t_coast=1.5, t_fail=6.0, z_min=1.0, z_max=3.0,
                  detector=None, seed=0):
@@ -31,7 +32,7 @@ class BalloonMission(FollowMission):
         return Tracker(min_gate_px=12.0)
 
     def _make_filter(self):
-        return TargetFilter(q_acc=2.0, dims=3)
+        return TargetFilter(q_acc=self.q_acc, dims=3)
 
     def _trail_z(self, P):
         nb = int(self.L_back / 0.1)

@@ -1,6 +1,6 @@
 # R26 · DiffPhys siguiendo un objetivo que se mueve, con visibilidad
 
-*2026-10-25 · nanouav 0.27.0 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
+*2026-10-25 a 2026-10-27 · nanouav 0.27.0–0.27.5 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
 (seguir un globo).*
 
 ## Objetivo
@@ -138,3 +138,97 @@ los casos)
 - **Con objetivos de hasta 7 m/s al entrenar, a 5 m/s deja de chocar.** A 7 m/s baja de 33 % a 22 %, unos
   210 m de bosque por vuelo: 0.10 % de choques por metro, frente a 0.25 % de r25c navegando a 7 m/s en R18.
 - **El ajuste en la GPU con `--v 1,7`** debería bajar más los choques a 7 m/s.
+
+### En la GPU (R26 rápido)
+
+Desde R26 con visibilidad, 1500 iteraciones a lote 64 con objetivos de 1–7 m/s y lr 2·10⁻⁴
+(`r26/train_gpu1500_fast_v1-7.log`; evaluación en `r26/eval_gpu_fast.log`).
+
+**En su simulador** (choques · error de distancia; 256 vuelos de 30 s por velocidad, y de 60 s a 1–4 m/s):
+
+| política | objetivo a 3 m/s | 5 m/s | 7 m/s | 1–4 m/s, 60 s |
+|---|---|---|---|---|
+| R26 (entrenada a 1–4 m/s) | 0 % · 0.21 m | 12.5 % · 0.31 m | 32.8 % · 0.59 m | 1.2 % · 0.18 m |
+| + 200 iteraciones de CPU a 1–7 m/s | 0 % · 0.19 m | 0 % · 0.25 m | 21.9 % · 0.49 m | — |
+| **R26 rápido (GPU, 1–7 m/s)** | **0 % · 0.19 m** | **0 % · 0.25 m** | **5.1 % · 0.55 m** | **0 % · 0.18 m** |
+
+(las dos primeras filas a 3–7 m/s, con 64 vuelos por velocidad; el objetivo está a la vista el 99.1–99.5 %
+del tiempo)
+
+- **A 7 m/s los choques bajan de 33 % a 5 %** en 30 s, unos 210 m de bosque: 0.024 % por metro.
+- **No empeora a baja velocidad:** a 1–4 m/s, ningún choque en 256 vuelos de un minuto (antes 3), con el
+  objetivo tapado el 0.6 % del tiempo y el mismo error de distancia (0.18 m).
+
+**R20: globo a velocidad fija** (imagen renderizada, detector de color, tracker, SGM con `--edge`), bosques
+de 1/25 m⁻², 30 semillas (3000–3029), 0–2 globos distractores. El globo acelera a 1 m/s² hasta su
+velocidad y recorre 40 m:
+
+| piloto | 3 m/s | 5 m/s | 7 m/s |
+|---|---|---|---|
+| `gbl`: sigue el rastro real (privilegiado) | 29/30 · 0 choques | 26/30 · 3 choques | 18/30 · 11 choques |
+| `direct`: línea recta al punto estimado | 25/30 · 5 choques | 24/30 · 6 choques | 22/30 · 7 choques |
+| **R26 rápido** | **30/30 · 0 choques** | **29/30 · 0 choques** | **26/30 · 0 choques** |
+
+| piloto | error de distancia a 3 / 5 / 7 m/s | bloqueo a 3 / 5 / 7 m/s |
+|---|---|---|
+| `gbl` | 0.11 / 0.20 / 0.27 m | 99 / 96 / 93 % |
+| `direct` | 0.87 / 1.23 / 1.47 m | 81 / 77 / 78 % |
+| R26 rápido | 0.86 / 1.23 / 1.60 m | 99 / 99 / 99 % |
+
+- **Ningún choque en 90 vuelos.** La línea recta choca en 18 y el rastro privilegiado en 14 (11 de ellos a
+  7 m/s).
+- **Los fallos de R26 son todos pérdidas** (1 a 5 m/s, 4 a 7 m/s): el globo se escapa.
+- **El error de distancia crece con la velocidad** (0.86 → 1.60 m), mucho más que en su simulador
+  (0.19 → 0.55 m), en el que la política conoce la posición y la velocidad exactas del objetivo. Como a
+  1–4 m/s, lo que añade el error es la estimación del objetivo.
+
+### Por qué se escapa el globo a 7 m/s (0.27.5)
+
+Trazas cuadro a cuadro de las dos pérdidas a 7 m/s del modelo rápido de CPU (semillas 3000 y 3010; el de la
+GPU no está aquí). Pasa lo mismo en las dos:
+
+1. **El globo gira en su punto intermedio justo cuando un tronco tapa la línea de visión.**
+2. **El filtro de velocidad constante lo sigue prediciendo en línea recta.** En 1 s la predicción queda a
+   5–8 m del globo.
+3. **La cámara mira a la predicción**, así que el globo queda a 45–65° del eje, fuera del campo de visión
+   (±45°). El dron pasa de largo, frena (sin ver el globo durante 1.5 s se queda quieto) y ya no lo vuelve
+   a ver.
+4. **Si lo ve, tampoco lo recupera:**
+   - la puerta para volver a bloquearlo crece a 1.5 m/s mientras lo ha perdido, y el globo se aleja a 7;
+   - cuando lo recupera, la primera medida queda a 8 m de la predicción y la puerta de innovación del
+     filtro la descarta.
+5. **Además, el filtro va retrasado.** Con el globo acelerando, estima 5.0 m/s cuando va a 6.5: el dron se
+   queda 1.5–2.5 m más lejos de lo pedido, con más troncos en la línea de visión.
+
+**Cuatro cambios en la misión de seguimiento** (`r20 sim --fast-target`; por separado `--q-acc`,
+`--yaw-ext`, `--gate-v`, `--relock-free`):
+
+| cambio | antes | `--fast-target` |
+|---|---|---|
+| ruido de proceso del filtro (menos retraso) | 2 m/s² | 5 m/s² |
+| a dónde mira la cámara con el globo perdido | la predicción del filtro | la última estimación, movida como mucho 0.5 s |
+| cuánto crece la puerta para volver a bloquearlo | 1.5 m/s | la velocidad del globo + 1 m/s |
+| la primera medida tras volver a bloquearlo | pasa por la puerta de innovación | se acepta |
+
+Ninguno toca la política, y valen igual para la línea recta (`direct`).
+
+**Con el modelo rápido de CPU** (no es el de la GPU; solo para elegir los cambios), R20, 30 semillas
+(3000–3029; `r26/r20_cpu_fast_target.log`):
+
+| bosque, globo | sin cambios | `--fast-target` | emparejados: solo con / solo sin |
+|---|---|---|---|
+| 1/25 m⁻², 7 m/s | 26/30 · 2 choques · 2 pérdidas · 1.60 m | **28/30** · 1 · 1 · **1.39 m** | 3 / 1 |
+| 1/16 m⁻² (el de YOPOv2-Tracker), 7 m/s | 24/30 · 1 · 5 · 1.60 m | **27/30** · 2 · 1 · **1.38 m** | 4 / 1 |
+| 1/16 m⁻², 5 m/s | 27/30 · 0 · 3 · 1.29 m | **30/30** · 0 · 0 · **1.08 m** | 3 / 0 |
+
+(éxitos · choques · pérdidas · error de distancia)
+
+- **Las pérdidas bajan de 10 a 2** en los 90 vuelos.
+- **El error de distancia baja unos 0.2 m** en los tres casos.
+- **Los choques no cambian** (3 y 3).
+- **Emparejados, 10 frente a 2** ($p = 0.04$).
+
+**Falta:** R20 con el modelo de la GPU y `--fast-target` en los dos bosques, y las tasas de éxito de
+YOPOv2-Tracker, que solo están en una gráfica (su Fig. 10B: 10 pruebas por velocidad, 1/16 árboles/m², el
+evasor huye con Fast-Planner hacia una meta a 40 m que cambia a mitad de camino). Sus fallos, según el
+artículo, son sobre todo oclusiones, como los de R26.
