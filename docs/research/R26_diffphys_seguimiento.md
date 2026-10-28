@@ -1,6 +1,6 @@
 # R26 · DiffPhys siguiendo un objetivo que se mueve, con visibilidad
 
-*2026-10-25 a 2026-10-27 · nanouav 0.27.0–0.27.5 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
+*2026-10-25 a 2026-10-27 · nanouav 0.27.0–0.27.6 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
 (seguir un globo).*
 
 ## Objetivo
@@ -177,17 +177,23 @@ velocidad y recorre 40 m:
 
 - **Ningún choque en 90 vuelos.** La línea recta choca en 18 y el rastro privilegiado en 14 (11 de ellos a
   7 m/s).
+- **Emparejados por semilla** (`r26/balloon_gpu_fast_v*.json`), en los 90 vuelos:
+  - frente a la línea recta, 15 frente a 1 ($p = 0.0005$);
+  - frente al rastro privilegiado, 14 frente a 2 ($p = 0.004$); solo a 7 m/s, 9 frente a 1 ($p = 0.02$).
+- **Guarda más distancia a los troncos:** holgura mínima mediana de 0.92–1.04 m, frente a 0.49–0.69 m del
+  rastro y 0.54–0.63 m de la línea recta.
 - **Los fallos de R26 son todos pérdidas** (1 a 5 m/s, 4 a 7 m/s): el globo se escapa.
 - **El error de distancia crece con la velocidad** (0.86 → 1.60 m), mucho más que en su simulador
   (0.19 → 0.55 m), en el que la política conoce la posición y la velocidad exactas del objetivo. Como a
   1–4 m/s, lo que añade el error es la estimación del objetivo.
 
-### Por qué se escapa el globo a 7 m/s (0.27.5)
+### Por qué se escapa el globo a 7 m/s (0.27.5–0.27.6)
 
-Trazas cuadro a cuadro de las dos pérdidas a 7 m/s del modelo rápido de CPU (semillas 3000 y 3010; el de la
-GPU no está aquí). Pasa lo mismo en las dos:
+Trazas cuadro a cuadro de las pérdidas a 7 m/s (semillas 3000 y 3010 con el modelo rápido de CPU, y 3000
+con el de la GPU). Pasa lo mismo en todas:
 
-1. **El globo gira en su punto intermedio justo cuando un tronco tapa la línea de visión.**
+1. **El globo gira en su punto intermedio justo cuando un tronco tapa la línea de visión.** Gira a
+   50–70°/s: en la semilla 3000, de −24° a +40° en 1 s.
 2. **El filtro de velocidad constante lo sigue prediciendo en línea recta.** En 1 s la predicción queda a
    5–8 m del globo.
 3. **La cámara mira a la predicción**, así que el globo queda a 45–65° del eje, fuera del campo de visión
@@ -200,8 +206,11 @@ GPU no está aquí). Pasa lo mismo en las dos:
 5. **Además, el filtro va retrasado.** Con el globo acelerando, estima 5.0 m/s cuando va a 6.5: el dron se
    queda 1.5–2.5 m más lejos de lo pedido, con más troncos en la línea de visión.
 
-**Cuatro cambios en la misión de seguimiento** (`r20 sim --fast-target`; por separado `--q-acc`,
-`--yaw-ext`, `--gate-v`, `--relock-free`):
+Con la profundidad real en lugar del SGM (`dp_gt`) la semilla 3000 falla igual: no es la percepción de los
+troncos.
+
+**Cinco cambios en la misión de seguimiento** (`r20 sim --fast-target`; por separado `--q-acc`,
+`--yaw-ext`, `--gate-v`, `--relock-free`, `--turn-pred`):
 
 | cambio | antes | `--fast-target` |
 |---|---|---|
@@ -209,26 +218,44 @@ GPU no está aquí). Pasa lo mismo en las dos:
 | a dónde mira la cámara con el globo perdido | la predicción del filtro | la última estimación, movida como mucho 0.5 s |
 | cuánto crece la puerta para volver a bloquearlo | 1.5 m/s | la velocidad del globo + 1 m/s |
 | la primera medida tras volver a bloquearlo | pasa por la puerta de innovación | se acepta |
+| la predicción con el globo perdido (0.27.6) | en línea recta | sigue girando al ritmo de los últimos 0.6 s (como mucho 90°/s y 90° en total) |
 
-Ninguno toca la política, y valen igual para la línea recta (`direct`).
+Ninguno toca la política, y valen igual para la línea recta (`direct`). El último es lo que YOPOv2-Tracker
+echa en falta: según el artículo, sus fallos son sobre todo oclusiones, porque no predice la trayectoria del
+objetivo.
 
-**Con el modelo rápido de CPU** (no es el de la GPU; solo para elegir los cambios), R20, 30 semillas
-(3000–3029; `r26/r20_cpu_fast_target.log`):
+**Predicción del giro, sin vuelo:** en las tres pérdidas trazadas, a 1–1.5 s de perder el globo, la línea
+recta queda a 4.9–9.0 m de él, y la predicción con giro a 2.0–4.5 m.
 
-| bosque, globo | sin cambios | `--fast-target` | emparejados: solo con / solo sin |
+**Con el modelo de la GPU**, R20 a 7 m/s, 30 semillas (3000–3029), corrido en otra máquina (sin cambios, a
+1/25 m⁻², da los mismos fallos, semilla por semilla, que en la de la GPU):
+
+| bosque | sin cambios | los cuatro primeros | **`--fast-target` (los cinco)** |
+|---|---|---|---|
+| 1/25 m⁻² | 26/30 · 0 choques · 4 pérdidas · 1.60 m | 26/30 · 1 · 3 · 1.31 m | **29/30 · 0 · 1 · 1.31 m** |
+| 1/16 m⁻² (el de YOPOv2-Tracker) | 26/30 · 0 · 4 · 1.68 m | 29/30 · 0 · 1 · 1.40 m | **28/30 · 0 · 2 · 1.40 m** |
+
+(éxitos · choques · pérdidas · error de distancia; `r26/r20_gpu_fast_target.log`)
+
+- **Con `--fast-target`, 57/60 frente a 52/60, sin ningún choque.**
+- **Emparejados, 5 frente a 0** ($p = 0.06$): todas las semillas que fallan con `--fast-target` también
+  fallan sin él.
+- **El error de distancia baja de 1.60–1.68 a 1.31–1.40 m.**
+
+**Con el modelo rápido de CPU** (solo los cuatro primeros cambios; sirvió para elegirlos),
+30 semillas (`r26/r20_cpu_fast_target.log`):
+
+| bosque, globo | sin cambios | los cuatro primeros | emparejados: solo con / solo sin |
 |---|---|---|---|
 | 1/25 m⁻², 7 m/s | 26/30 · 2 choques · 2 pérdidas · 1.60 m | **28/30** · 1 · 1 · **1.39 m** | 3 / 1 |
-| 1/16 m⁻² (el de YOPOv2-Tracker), 7 m/s | 24/30 · 1 · 5 · 1.60 m | **27/30** · 2 · 1 · **1.38 m** | 4 / 1 |
+| 1/16 m⁻², 7 m/s | 24/30 · 1 · 5 · 1.60 m | **27/30** · 2 · 1 · **1.38 m** | 4 / 1 |
 | 1/16 m⁻², 5 m/s | 27/30 · 0 · 3 · 1.29 m | **30/30** · 0 · 0 · **1.08 m** | 3 / 0 |
 
-(éxitos · choques · pérdidas · error de distancia)
-
-- **Las pérdidas bajan de 10 a 2** en los 90 vuelos.
-- **El error de distancia baja unos 0.2 m** en los tres casos.
-- **Los choques no cambian** (3 y 3).
+- **Las pérdidas bajan de 10 a 2** en los 90 vuelos, sin más choques (3 y 3).
 - **Emparejados, 10 frente a 2** ($p = 0.04$).
 
-**Falta:** R20 con el modelo de la GPU y `--fast-target` en los dos bosques, y las tasas de éxito de
-YOPOv2-Tracker, que solo están en una gráfica (su Fig. 10B: 10 pruebas por velocidad, 1/16 árboles/m², el
-evasor huye con Fast-Planner hacia una meta a 40 m que cambia a mitad de camino). Sus fallos, según el
-artículo, son sobre todo oclusiones, como los de R26.
+**Falta:**
+- **R20 con el modelo de la GPU y `--fast-target` a 3 y 5 m/s**, y los otros pilotos con la misma opción.
+- **Las tasas de éxito de YOPOv2-Tracker**, que solo están en una gráfica (su Fig. 10B). Su prueba: 10
+  vuelos por velocidad, 1/16 árboles/m², y el evasor huye con Fast-Planner hacia una meta a 40 m que cambia a
+  mitad de camino.

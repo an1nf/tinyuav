@@ -165,3 +165,24 @@ def test_fast_target_options_of_r20_sim():
     assert _lost_opts(ns(fast_target=True)) == FAST_TARGET
     assert _lost_opts(ns(fast_target=True, q_acc=3.0))['q_acc'] == 3.0
     assert _lost_opts(ns(yaw_ext=0.5)) == {'yaw_ext': 0.5}
+
+
+def test_turn_predict_keeps_turning_then_goes_straight():
+    """0.27.6 (--turn-pred): a target at 5 m/s turning at 90°/s; w = 0 is constant velocity."""
+    from nanouav.follow.mission import turn_predict
+    q, v = np.zeros(3), np.array([5.0, 0.0, 0.0])
+    assert turn_predict(q, v, 0.0, 1.0) == pytest.approx([5.0, 0, 0])
+    r = 5.0 / (math.pi / 2)                                    # radius of the turn
+    assert turn_predict(q, v, math.pi / 2, 1.0) == pytest.approx([r, r, 0], abs=1e-6)       # a quarter circle
+    assert turn_predict(q, v, math.pi / 2, 2.0) == pytest.approx([r, r + 5.0, 0], abs=1e-6)  # then straight
+
+
+def test_turn_rate_from_the_filter_velocities():
+    """0.27.6: the turn rate is the slope of the heading of the last 0.6 s of filter velocities (0 when slow)."""
+    from nanouav.follow.balloon_mission import BalloonMission
+    M = BalloonMission(balloon_env(2, density=0.0, n_distractors=0, speed=2.0), seed=0)
+    w = math.radians(45)
+    M._hist = [(t, 4.0 * np.array([math.cos(w * t), math.sin(w * t)])) for t in np.arange(0.0, 0.6, 0.1)]
+    assert M._turn_rate() == pytest.approx(w, rel=1e-3)
+    M._hist = [(t, 0.5 * h) for t, h in [(t, v / 4.0) for t, v in M._hist]]        # 0.5 m/s: too slow to tell
+    assert M._turn_rate() == 0.0

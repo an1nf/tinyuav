@@ -3,6 +3,20 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.6] — 2026-10-27
+
+`--fast-target` predice el giro del objetivo perdido (por defecto no cambia ningún resultado).
+- **Por qué hacía falta:** el globo se escapa justo cuando gira a 50–70°/s detrás de un tronco.
+  - A 1–1.5 s de perderlo, la predicción en línea recta queda a 4.9–9.0 m de él.
+  - Si sigue girando al ritmo de los últimos 0.6 s (`--turn-pred`, como mucho 90°/s y 90° en total), queda
+    a 2.0–4.5 m.
+- **`--fast-target` incluye ahora `--turn-pred`.** Con el modelo de la GPU, R20 a 7 m/s, 30 semillas:
+  - bosque de 1/25 m⁻²: 29/30, frente a 26/30 sin cambios y 26/30 con los cuatro de 0.27.5;
+  - bosque de 1/16 m⁻² (el de YOPOv2-Tracker): 28/30, frente a 26/30 y 29/30;
+  - ningún choque en los 60 vuelos; emparejados contra sin cambios, 5 frente a 0.
+- **R26 rápido en R20, emparejado por semilla en los 90 vuelos de la GPU:** 15 frente a 1 contra la línea
+  recta ($p = 0.0005$) y 14 frente a 2 contra el rastro privilegiado ($p = 0.004$).
+
 ## [0.27.5] — 2026-10-27
 
 Resultados de la GPU con objetivos de 1–7 m/s, y opciones nuevas para objetivos rápidos (por defecto no

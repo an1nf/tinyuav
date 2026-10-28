@@ -41,7 +41,7 @@ def _sim_job(job):
     try:
         env = _env(job)
         M = BalloonMission(env, standoff=job['standoff'], seed=job['seed'])
-        for k in ('q_acc', 'yaw_ext', 'gate_v', 'relock_free'):     # 0.27.5: fast targets (None: as before)
+        for k in ('q_acc', 'yaw_ext', 'gate_v', 'relock_free', 'turn_pred'):   # 0.27.5–6: fast targets
             if job.get(k) is not None:
                 setattr(M, k, job[k])
         if job.get('q_acc') is not None:
@@ -57,7 +57,7 @@ def _sim_job(job):
     return r
 
 
-FAST_TARGET = {'q_acc': 5.0, 'yaw_ext': 0.5, 'gate_v': 1.0, 'relock_free': True}
+FAST_TARGET = {'q_acc': 5.0, 'yaw_ext': 0.5, 'gate_v': 1.0, 'relock_free': True, 'turn_pred': True}
 
 
 def _lost_opts(a):
@@ -66,8 +66,9 @@ def _lost_opts(a):
     for k in ('q_acc', 'yaw_ext', 'gate_v'):
         if getattr(a, k, None) is not None:
             o[k] = getattr(a, k)
-    if getattr(a, 'relock_free', False):
-        o['relock_free'] = True
+    for k in ('relock_free', 'turn_pred'):
+        if getattr(a, k, False):
+            o[k] = True
     return o
 
 
@@ -241,7 +242,7 @@ def main():
     p.add_argument('--p-same', type=float, default=0.25, help='probability that a distractor has the target color')
     p.add_argument('--edge', action='store_true', help='diffphys pilot: drop SGM pixels on depth edges (as in R25)')
     p.add_argument('--fast-target', action='store_true',
-                   help='0.27.5: --q-acc 5 --yaw-ext 0.5 --gate-v 1 --relock-free (any of them can be overridden)')
+                   help='0.27.6: --q-acc 5 --yaw-ext 0.5 --gate-v 1 --relock-free --turn-pred (numbers can be overridden)')
     p.add_argument('--q-acc', type=float, default=None, help='process noise of the target filter (default 2 m/s²)')
     p.add_argument('--yaw-ext', type=float, default=None,
                    help='target lost: the camera looks at the last estimate moved on at most this many s')
@@ -249,6 +250,8 @@ def main():
                    help='target lost: the re-lock gate grows at |v_target| + this (m/s), not 1.5 m/s')
     p.add_argument('--relock-free', action='store_true',
                    help='the first measurement after a re-lock skips the innovation gate')
+    p.add_argument('--turn-pred', action='store_true',
+                   help='target lost: predict it turning at the rate it was turning (≤ 90°/s and 90° in all)')
     p.add_argument('--z', type=lambda x: tuple(float(v) for v in x.split(',')), default=(1.2, 2.6),
                    help='height range of the balloon, e.g. 1.5,1.5 for a constant height (the R18 student '
                         'has never been asked to change height)')

@@ -25,6 +25,20 @@ from nanouav.follow.estimate import TargetFilter, box_to_world, rotation_warp
 from nanouav.follow.tracker import TargetLock, Tracker
 
 
+def turn_predict(q, v, w, dt, cap=math.pi / 2):
+    """Where a target last seen at q with velocity v is after dt s if it keeps turning at w rad/s on the ground
+    plane (after a total turn of `cap` it goes straight on); its height moves with v_z. w = 0: constant velocity."""
+    q, v = np.asarray(q, float), np.asarray(v, float)
+    s, th0 = math.hypot(v[0], v[1]), math.atan2(v[1], v[0])
+    if abs(w) < 1e-3 or s < 1e-6:
+        return q + v * dt
+    tc = min(dt, cap / abs(w))
+    th1 = th0 + w * tc
+    x = q[0] + s / w * (math.sin(th1) - math.sin(th0)) + s * math.cos(th1) * (dt - tc)
+    y = q[1] - s / w * (math.cos(th1) - math.cos(th0)) + s * math.sin(th1) * (dt - tc)
+    return np.array([x, y, q[2] + v[2] * dt])
+
+
 class FollowMission:
     needs_camera = True
     follows = True                                # the diffphys pilot flies omega × v_des instead of the goal
@@ -34,6 +48,8 @@ class FollowMission:
     yaw_ext = None          # s: target lost → the camera looks at the last estimate moved on at most yaw_ext s
     gate_v = None           # m/s: the re-lock gate grows at max(1.5, |v_target| + gate_v) m/s while lost
     relock_free = False     # the first measurement after a re-lock skips the innovation gate
+    turn_pred = False       # 0.27.6, target lost → predict it turning at the rate it turned before (≤ 90°/s, ≤ 90° in all)
+    turn_win = 0.6          # s of filter velocities for that turn rate
 
     def __init__(self, env, standoff=4.0, z_follow=2.0, v_max=6.0, k_dist=0.8, t_coast=1.5, t_fail=6.0,
                  detector=None, seed=0):
@@ -42,7 +58,7 @@ class FollowMission:
         self.t_coast, self.t_fail = t_coast, t_fail
         self.det = detector or SimDetector(seed=seed)
         self.tracker, self.lock, self.flt = self._make_tracker(), TargetLock(), self._make_filter()
-        self._pose_prev, self._n_rej, self._seen = None, 0, None
+        self._pose_prev, self._n_rej, self._seen, self._hist = None, 0, None, []
         P = self.target.path.pts.copy()
         d0 = P[min(10, len(P) - 1)] - P[0]
         d0 /= max(np.linalg.norm(d0), 1e-6)
@@ -141,6 +157,7 @@ class FollowMission:
                     self._n_rej = 0
                     self.flt.update(t, q, sig)
                     self._seen = (t, self.flt.pos.copy(), self.flt.vel.copy())
+                    self._hist = [h for h in self._hist if h[0] > t - self.turn_win] + [(t, self.flt.vel[:2].copy())]
                 self.t_last_seen = t
             self.n_locked += 1
             if tr.gt == 0:
@@ -162,6 +179,12 @@ class FollowMission:
             return dict(common, omega=np.array([1.0, 0, 0]), v_des=0.5, blind=np.repeat(p[None], 10, 0), yaw=0.0,
                         hold=True)
         vt = self.flt.vel
+        pred = None
+        if self.turn_pred and self._seen is not None and lost_for > 0:   # 0.27.6: it keeps turning
+            t_s, q_s, v_s = self._seen
+            w = self._turn_rate()
+            pred = lambda dt: turn_predict(q_s, v_s, w, dt)
+            tgt = pred(t - t_s)
         if lost_for > self.t_coast:
             vt = np.zeros(3)
         horiz = p[:2] - tgt[:2]
@@ -176,11 +199,19 @@ class FollowMission:
         look = tgt
         if self.yaw_ext is not None and self._seen is not None and lost_for > 0:   # look where it was last seen
             t_s, q_s, v_s = self._seen
-            look = q_s + v_s * min(t - t_s, self.yaw_ext)
+            look = pred(min(t - t_s, self.yaw_ext)) if pred else q_s + v_s * min(t - t_s, self.yaw_ext)
         yaw_t = math.atan2(look[1] - p[1], look[0] - p[0])
         hold = lost_for > self.t_coast or (dist < self.standoff + 0.3 and v_t < 0.2)
         blind = p + np.outer(T_I, omega * v_des)
         return dict(common, omega=omega, v_des=v_des, blind=blind, yaw=yaw_t, hold=hold, how=how)
+
+    def _turn_rate(self, w_max=math.pi / 2):
+        """rad/s: slope of the heading of the filter velocity over the last turn_win s (0 if too few or slow)."""
+        H = [(t, math.atan2(v[1], v[0])) for t, v in self._hist if math.hypot(v[0], v[1]) > 1.0]
+        if len(H) < 3 or H[-1][0] - H[0][0] < 0.2:
+            return 0.0
+        T, A = np.array(H).T
+        return float(np.clip(np.polyfit(T - T[-1], np.unwrap(A), 1)[0], -w_max, w_max))
 
     def _initial(self, tracks, cam):
         """The operator designates the person to follow (in simulation: the track that is the target, like
