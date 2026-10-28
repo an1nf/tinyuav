@@ -685,3 +685,13 @@ def test_diffphys_burn_in_hands_its_state_to_the_episode():
         loss, m = DP.rollout_loss(pol, tf.constant(cx), tf.constant(cy), tf.constant(rr), vd, T=4, init=st, goal_x=50.0)
     assert float(tf.linalg.global_norm(tape.gradient(loss, pol.trainable_variables))) > 0
     assert DP.burn_in(pol, vd, 1.5, 0, rng)['h'].numpy().sum() == 0   # 0 steps: at rest, as before
+
+
+def test_diffphys_bench_times_a_decision(tmp_path):
+    """0.27.7 (r25 bench): the preprocessing, the TFLite network (same outputs as Keras) and the pilot."""
+    pytest.importorskip('tensorflow')
+    from nanouav.agile import diffphys as DP
+    path = str(tmp_path / 'dp.keras')
+    DP.build_policy(hidden=8).save(path)
+    m = DP.bench(path, size=(64, 48), n=3, log=lambda s: None)
+    assert m['tflite_max_diff'] < 1e-4 and min(m['preprocess_ms'], m['network_tflite_ms'], m['pilot_keras_ms']) > 0

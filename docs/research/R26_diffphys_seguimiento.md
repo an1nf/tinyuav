@@ -1,6 +1,6 @@
 # R26 · DiffPhys siguiendo un objetivo que se mueve, con visibilidad
 
-*2026-10-25 a 2026-10-27 · nanouav 0.27.0–0.27.6 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
+*2026-10-25 a 2026-10-28 · nanouav 0.27.0–0.27.7 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
 (seguir un globo).*
 
 ## Objetivo
@@ -254,8 +254,52 @@ recta queda a 4.9–9.0 m de él, y la predicción con giro a 2.0–4.5 m.
 - **Las pérdidas bajan de 10 a 2** en los 90 vuelos, sin más choques (3 y 3).
 - **Emparejados, 10 frente a 2** ($p = 0.04$).
 
-**Falta:**
-- **R20 con el modelo de la GPU y `--fast-target` a 3 y 5 m/s**, y los otros pilotos con la misma opción.
-- **Las tasas de éxito de YOPOv2-Tracker**, que solo están en una gráfica (su Fig. 10B). Su prueba: 10
-  vuelos por velocidad, 1/16 árboles/m², y el evasor huye con Fast-Planner hacia una meta a 40 m que cambia a
-  mitad de camino.
+### Comparación con YOPOv2-Tracker
+
+Su prueba de seguimiento en simulación (sección IV-B y Fig. 10 del artículo) y la nuestra (R20) se parecen
+mucho, pero no son la misma:
+
+| | YOPOv2-Tracker | R26 en R20 |
+|---|---|---|
+| bosque | Poisson, 1/16 árboles/m² | Poisson, 1/16 árboles/m² (y 1/25) |
+| objetivo | una persona; huye con Fast-Planner y el mapa real hacia una meta a 40 m que cambia al azar a mitad de camino | un globo; camino suave de 40 m con un punto intermedio al azar a ±6 m; 0–2 globos distractores |
+| velocidades | 3, 4, 5, 6 y 7 m/s | 3, 5 y 7 m/s |
+| vuelos | 10 por velocidad | 30 por velocidad |
+| éxito | seguirlo hasta la meta sin chocar | lo mismo, más: bloqueado en el globo correcto ≥ 80 % del tiempo y nunca a más de 16 m |
+| percepción | cámara RGB-D; la misma red detecta el objetivo y planea | estéreo con SGM, detector de color y tracker; la red solo vuela |
+| odometría | la del simulador | la del simulador |
+
+**Éxitos en el bosque de 1/16 árboles/m²:**
+
+| velocidad | YOPOv2-Tracker (Fig. 10B, leída de la gráfica) | R26 rápido | R26 rápido con `--fast-target` |
+|---|---|---|---|
+| 3 m/s | 10/10 | **30/30** (`r26/r20_gpu_d16.log`) | — |
+| 5 m/s | ~9/10 | — | — |
+| 7 m/s | ~8/10 | 26/30 (87 %) | **28/30 (93 %)** |
+| 3–7 m/s, choques | 1 de 50 («planning failed», 2 %) | 0 de 60 | 0 de 30 |
+
+- **La lectura de la Fig. 10B es aproximada** (barras en 3D, ±1 vuelo). Cuadra con su resumen de la
+  Fig. 10C: 88 % de éxitos, 10 % de objetivos perdidos y 2 % de choques o paradas en sus 50 vuelos.
+- **A 3 y 7 m/s, R26 iguala o supera su tasa de éxito**, con tres veces más vuelos, sin choques y con una
+  condición de éxito más estricta.
+- **Con tan pocos vuelos suyos, la diferencia no es significativa:** 28/30 frente a 8/10 da $p = 0.26$
+  (Fisher). Los simuladores y los objetivos son distintos, así que es una comparación indicativa, no un
+  enfrentamiento directo.
+- **Fallan por lo mismo:** según el artículo, YOPOv2-Tracker pierde el objetivo sobre todo por oclusiones
+  porque no predice su trayectoria. Es lo que ataca `--turn-pred`.
+
+**Tiempo de decisión** (`nanouav run r25 bench`, un solo hilo de un Xeon a 2.8 GHz, sin GPU):
+
+| | YOPOv2-Tracker | R26 |
+|---|---|---|
+| red | 2 ms (TensorRT, RTX 3060) | **0.08 ms** (TFLite float32, 391 k parámetros) |
+| total | 3 ms en un i7-9700 con RTX 3060; 8.2 ms en una Orin NX | **1.1 ms**: 1.0 ms de preprocesar la profundidad + la red |
+
+- **TFLite da las mismas salidas que Keras** (diferencia máxima de 4.5·10⁻⁷).
+- **En las evaluaciones la red corre en Keras sin compilar:** 17–19 ms aquí y unos 48 ms en tu máquina con 8
+  procesos a la vez. No es el tiempo de la red, es la sobrecarga de Keras.
+- **No lo he medido en una Orin NX.** La estéreo (SGM) no está incluida, como tampoco lo está la cámara RGB-D
+  en el tiempo de YOPOv2.
+
+**Falta:** R20 con el modelo de la GPU y `--fast-target` a 3 y 5 m/s, y los otros pilotos con la misma
+opción (corriendo en la máquina de la GPU).

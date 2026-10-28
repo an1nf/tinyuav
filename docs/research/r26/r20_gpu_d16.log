@@ -1,0 +1,6 @@
+# nanouav run r20 sim --pilots gbl,direct,diffphys --model results/r26/follow_fast.keras --n 30 --density 0.0625 --speed 3 --workers 8 --edge --tag d16_v3   (0.27.5, no --fast-target; 5 and 7 m/s interrupted)
+pilot     success crash lost locked  true d_err relock
+gbl       28/30       1    1   0.99  1.00  0.14      0
+direct    21/30       9    0   0.78  1.00  0.85      5
+diffphys  30/30       0    0   0.99  1.00  0.84      0
+→ results/r20/balloon_d16_v3.json  (5948 s)

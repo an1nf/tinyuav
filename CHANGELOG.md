@@ -3,6 +3,21 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.7] — 2026-10-28
+
+Comparación con YOPOv2-Tracker y `r25 bench` (no cambia ningún resultado).
+- **Éxitos en su bosque (1/16 árboles/m²):**
+  - a 3 m/s, R26 30/30 frente a 10/10 de YOPOv2-Tracker;
+  - a 7 m/s, 28/30 con `--fast-target` (26/30 sin él) frente a ~8/10 (su Fig. 10B);
+  - sin choques en 90 vuelos; ellos, 1 de 50.
+  - Son simuladores y objetivos distintos, y con sus 10 vuelos por velocidad no es significativo
+    (28/30 frente a 8/10, $p = 0.26$).
+- **`nanouav run r25 bench --model …`:** una decisión en un hilo de CPU, sin GPU.
+  - Aquí 1.1 ms: 1.0 ms de preprocesar la profundidad y 0.08 ms de la red en TFLite, que da las mismas
+    salidas que Keras.
+  - YOPOv2-Tracker: 3 ms con una RTX 3060 y 8.2 ms en una Orin NX.
+  - En las evaluaciones la red corre en Keras sin compilar (17–48 ms): es sobrecarga, no la red.
+
 ## [0.27.6] — 2026-10-27
 
 `--fast-target` predice el giro del objetivo perdido (por defecto no cambia ningún resultado).

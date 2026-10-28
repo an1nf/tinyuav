@@ -625,6 +625,59 @@ class DiffPhysPilot:
         return a
 
 
+def bench(path, size=(320, 240), n=300, edge=True, log=print):
+    """Time of one decision on one CPU thread (0.27.7, for the comparison with YOPOv2-Tracker): the depth
+    preprocessing of the pilot (SGM image of `size` → 16 × 12 inverse depth, with the edge filter), the network
+    as TFLite float32, and the pilot as flown in the evaluations (eager Keras). Also checks that TFLite gives
+    the Keras outputs. → dict of ms (and the largest output difference)."""
+    import os
+    import time
+    os.environ['OMP_NUM_THREADS'] = '1'
+    tf = _tf()
+    try:
+        tf.config.threading.set_intra_op_parallelism_threads(1)
+        tf.config.threading.set_inter_op_parallelism_threads(1)
+    except RuntimeError:                       # TF already running (e.g. in the tests): the Keras time may use more
+        pass
+    rng = np.random.default_rng(0)
+    pilot = DiffPhysPilot(path)
+    pilot.edge = edge
+    depth = rng.uniform(1.0, 20.0, (size[1], size[0])).astype(np.float32)
+    args = (np.zeros(3), np.array([3.0, 0, 0]), np.eye(3), np.array([1.0, 0, 0]), 0.0, 5.0)
+
+    def per_call(f, warm=20):
+        for _ in range(warm):
+            f()
+        t0 = time.perf_counter()
+        for _ in range(n):
+            f()
+        return (time.perf_counter() - t0) / n * 1000
+
+    m = pilot.model
+    itp = tf.lite.Interpreter(model_content=tf.lite.TFLiteConverter.from_keras_model(m).convert(), num_threads=1)
+    itp.allocate_tensors()
+    ins = itp.get_input_details()
+    xs = [rng.uniform(0, 1, [1] + list(t.shape[1:])).astype(np.float32) for t in m.inputs]
+    feed = [(d['index'], xs[next(k for k, t in enumerate(m.inputs) if list(d['shape'][1:]) == list(t.shape[1:]))])
+            for d in ins]
+
+    def lite():
+        for i, x in feed:
+            itp.set_tensor(i, x)
+        itp.invoke()
+    out = {'preprocess_ms': per_call(lambda: DiffPhysPilot.depth_input(depth, 0.0, edge)),
+           'network_tflite_ms': per_call(lite), 'pilot_keras_ms': per_call(lambda: pilot(depth, *args))}
+    lite()
+    ref = [np.asarray(o) for o in m(xs)]
+    out['tflite_max_diff'] = max(min(float(np.abs(itp.get_tensor(d['index']) - r).max()) for r in ref
+                                     if r.shape == tuple(d['shape'])) for d in itp.get_output_details())
+    out['params'] = int(m.count_params())
+    log(f"one decision on one CPU thread ({size[0]}×{size[1]} depth): preprocessing {out['preprocess_ms']:.2f} ms + "
+        f"network (TFLite) {out['network_tflite_ms']:.3f} ms; as flown in the evaluations (eager Keras) "
+        f"{out['pilot_keras_ms']:.1f} ms; {out['params']} parameters; TFLite = Keras to {out['tflite_max_diff']:.1e}")
+    return out
+
+
 def main(argv=None):
     """nanouav run r25 train … (evaluate with: nanouav run r18 eval --pilots diffphys --model <out>/diffphys.keras)."""
     import argparse
@@ -656,7 +709,14 @@ def main(argv=None):
     q.add_argument('--z', default='1.5,1.5', help='range of start and goal heights (m)')
     q.add_argument('--yaw-fwd', action='store_true')
     q.add_argument('--seed', type=int, default=0)
+    q = sub.add_parser('bench', help='time of one decision on one CPU thread (preprocessing + TFLite network)')
+    q.add_argument('--model', default='results/r25/diffphys.keras')
+    q.add_argument('--size', default='320x240', help='SGM depth image, W×H (R18/R20: 320x240)')
+    q.add_argument('--n', type=int, default=300)
     a = ap.parse_args(argv)
+    if a.cmd == 'bench':
+        bench(a.model, tuple(int(x) for x in a.size.split('x')), n=a.n)
+        return
     if a.cmd == 'stalls':
         z = tuple(float(x) for x in a.z.split(','))
         stall_eval(a.model, [float(x) for x in a.v.split(',')], B=a.n, seed=a.seed, z_start=z, z_goal=z,
