@@ -57,6 +57,28 @@ def _sim_job(job):
     return r
 
 
+def _add_lost_opts(p):
+    p.add_argument('--fast-target', action='store_true',
+                   help='0.27.6: --q-acc 5 --yaw-ext 0.5 --gate-v 1 --relock-free --turn-pred (numbers can be overridden)')
+    p.add_argument('--q-acc', type=float, default=None, help='process noise of the target filter (default 2 m/s²)')
+    p.add_argument('--yaw-ext', type=float, default=None,
+                   help='target lost: the camera looks at the last estimate moved on at most this many s')
+    p.add_argument('--gate-v', type=float, default=None,
+                   help='target lost: the re-lock gate grows at |v_target| + this (m/s), not 1.5 m/s')
+    p.add_argument('--relock-free', action='store_true',
+                   help='the first measurement after a re-lock skips the innovation gate')
+    p.add_argument('--turn-pred', action='store_true',
+                   help='target lost: predict it turning at the rate it was turning (≤ 90°/s and 90° in all)')
+
+
+def cmd_sim_video(a):
+    """Video of one simulated flight (0.27.9): top view, the drone's camera with the lock, chase camera."""
+    from nanouav.follow import balloon_video
+    return balloon_video.run(a.model, _out(a), seed=a.seed, speed=a.speed, density=a.density, pilot=a.pilot,
+                             cam_hz=a.cam_hz, standoff=a.standoff, opts=_lost_opts(a), chase=a.chase,
+                             edge=a.edge, tag=a.tag)
+
+
 FAST_TARGET = {'q_acc': 5.0, 'yaw_ext': 0.5, 'gate_v': 1.0, 'relock_free': True, 'turn_pred': True}
 
 
@@ -241,17 +263,7 @@ def main():
     p.add_argument('--speed', type=float, default=None)
     p.add_argument('--p-same', type=float, default=0.25, help='probability that a distractor has the target color')
     p.add_argument('--edge', action='store_true', help='diffphys pilot: drop SGM pixels on depth edges (as in R25)')
-    p.add_argument('--fast-target', action='store_true',
-                   help='0.27.6: --q-acc 5 --yaw-ext 0.5 --gate-v 1 --relock-free --turn-pred (numbers can be overridden)')
-    p.add_argument('--q-acc', type=float, default=None, help='process noise of the target filter (default 2 m/s²)')
-    p.add_argument('--yaw-ext', type=float, default=None,
-                   help='target lost: the camera looks at the last estimate moved on at most this many s')
-    p.add_argument('--gate-v', type=float, default=None,
-                   help='target lost: the re-lock gate grows at |v_target| + this (m/s), not 1.5 m/s')
-    p.add_argument('--relock-free', action='store_true',
-                   help='the first measurement after a re-lock skips the innovation gate')
-    p.add_argument('--turn-pred', action='store_true',
-                   help='target lost: predict it turning at the rate it was turning (≤ 90°/s and 90° in all)')
+    _add_lost_opts(p)
     p.add_argument('--z', type=lambda x: tuple(float(v) for v in x.split(',')), default=(1.2, 2.6),
                    help='height range of the balloon, e.g. 1.5,1.5 for a constant height (the R18 student '
                         'has never been asked to change height)')
@@ -281,13 +293,25 @@ def main():
     p.add_argument('--min-area', type=int, default=20)
     p.add_argument('--hfov', type=float, default=70.0)
     p.add_argument('--pick', default='', help='x,y pixel of the balloon to follow (default: nearest to the center)')
+    p = sub.add_parser('sim-video', help='video of one simulated flight (top view, drone camera, chase camera)')
+    p.add_argument('--pilot', default='diffphys', help='diffphys | student | direct | gbl')
+    p.add_argument('--model', default='')
+    p.add_argument('--seed', type=int, default=3000)
+    p.add_argument('--speed', type=float, default=7.0, help='balloon speed (m/s)')
+    p.add_argument('--density', type=float, default=1 / 16, help='trees per m² (default 1/16, as YOPOv2-Tracker)')
+    p.add_argument('--standoff', type=float, default=4.0)
+    p.add_argument('--no-edge', dest='edge', action='store_false', help='diffphys: without the edge filter')
+    p.add_argument('--no-chase', dest='chase', action='store_false', help='gray chase camera (faster)')
+    p.add_argument('--tag', default='')
+    _add_lost_opts(p)
     for q in sub.choices.values():
         q.add_argument('--results', dest='out', default='', help='results directory (default results/r20)')
         q.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 2) - 1))
         q.add_argument('--cam-hz', type=float, default=10.0)
         q.add_argument('--color', default='red', help='red | orange | yellow | green | blue | magenta')
     a = ap.parse_args()
-    cmd = {'frames': cmd_frames, 'sim': cmd_sim, 'pick-color': cmd_pick_color, 'video': cmd_video}.get(a.cmd)
+    cmd = {'frames': cmd_frames, 'sim': cmd_sim, 'pick-color': cmd_pick_color, 'video': cmd_video,
+           'sim-video': cmd_sim_video}.get(a.cmd)
     if cmd:
         return cmd(a)
     from nanouav.agile import dagger

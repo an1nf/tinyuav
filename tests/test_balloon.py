@@ -186,3 +186,16 @@ def test_turn_rate_from_the_filter_velocities():
     assert M._turn_rate() == pytest.approx(w, rel=1e-3)
     M._hist = [(t, 0.5 * h) for t, h in [(t, v / 4.0) for t, v in M._hist]]        # 0.5 m/s: too slow to tell
     assert M._turn_rate() == 0.0
+
+
+def test_balloon_video_panels():
+    """0.27.9 (r20 sim-video): the drone-camera panel and the balloon overlay of the top view."""
+    from nanouav.follow import balloon_video as BV
+    rec = {'rgb': np.zeros((240, 320, 3), np.uint8), 'dets': [(10, 10, 30, 30)], 'lock': (10, 10, 30, 30),
+           'how': 'locked', 'true': np.array([5.0, 0, 2]), 'others': [np.array([8.0, 3, 3])],
+           'est': np.array([5.2, 0.1, 2]), 'goal': np.array([1.0, 0, 2])}
+    cam = BV._camera(rec)
+    assert cam.shape == (360, 480, 3) and cam[int(20 * 1.5), int(10 * 1.5) - 3, 1] == 230     # the lock box
+    top = BV._overlay_balloons(np.full((720, 720, 3), 245, np.uint8), rec, np.zeros(3), 0.0,
+                               np.array([[x, 0.0] for x in range(20)]))
+    assert (top != 245).any()

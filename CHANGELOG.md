@@ -3,6 +3,16 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.9] — 2026-10-28
+
+`nanouav run r20 sim-video`: vídeo de un vuelo de R20 (no cambia ningún resultado).
+- **Tres paneles en tiempo real** (10 fps):
+  - vista desde arriba con los troncos, el camino del globo, el globo y dónde cree el dron que está;
+  - la cámara a color del dron, con las detecciones y el globo bloqueado (o «PERDIDO» si lo predice);
+  - una cámara de seguimiento a color.
+- **Acepta las opciones de `r20 sim`** (`--fast-target` y sus partes), el piloto, la semilla, la velocidad y
+  la densidad (por defecto 1/16 árboles/m², 7 m/s).
+
 ## [0.27.8] — 2026-10-28
 
 Sin cambios en el código: R20 con `--fast-target` en la GPU, los tres pilotos.
