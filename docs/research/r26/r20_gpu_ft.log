@@ -1,0 +1,31 @@
+# for d in 0.0625 0.04; do for s in 3 5 7; do nanouav run r20 sim --pilots gbl,direct,diffphys --model results/r26/follow_fast.keras --n 30 --density $d --speed $s --workers 8 --edge --fast-target --tag ft_d${d}_v$s; done; done   (0.27.6)
+pilot     success crash lost locked  true d_err relock
+gbl       29/30       1    0   0.99  1.00  0.14      0
+direct    14/30      16    0   0.73  1.00  0.82      5
+diffphys  30/30       0    0   0.99  1.00  0.81      0
+→ results/r20/balloon_ft_d0.0625_v3.json  (5790 s)
+pilot     success crash lost locked  true d_err relock
+gbl       25/30       5    0   0.96  1.00  0.25      1
+direct    19/30       9    2   0.64  1.00  1.02      4
+diffphys  30/30       0    0   0.99  1.00  1.10      0
+→ results/r20/balloon_ft_d0.0625_v5.json  (4226 s)
+pilot     success crash lost locked  true d_err relock
+gbl       16/30      14    0   0.91  1.00  0.33      1
+direct    19/30       7    4   0.69  1.00  1.12      4
+diffphys  28/30       0    2   0.97  1.00  1.36      0
+→ results/r20/balloon_ft_d0.0625_v7.json  (3727 s)
+pilot     success crash lost locked  true d_err relock
+gbl       30/30       0    0   0.99  1.00  0.11      0
+direct    22/30       8    0   0.71  1.00  0.86      6
+diffphys  30/30       0    0   0.99  1.00  0.80      0
+→ results/r20/balloon_ft_d0.04_v3.json  (3959 s)
+pilot     success crash lost locked  true d_err relock
+gbl       27/30       3    0   0.96  1.00  0.21      1
+direct    21/30       9    0   0.70  1.00  1.04      4
+diffphys  30/30       0    0   0.99  1.00  1.07      0
+→ results/r20/balloon_ft_d0.04_v5.json  (2855 s)
+pilot     success crash lost locked  true d_err relock
+gbl       21/30       9    0   0.93  1.00  0.27      1
+direct    25/30       4    1   0.70  1.00  1.18      4
+diffphys  29/30       0    1   0.99  1.00  1.33      0
+→ results/r20/balloon_ft_d0.04_v7.json  (2544 s)

@@ -3,6 +3,16 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.8] — 2026-10-28
+
+Sin cambios en el código: R20 con `--fast-target` en la GPU, los tres pilotos.
+- **R26 rápido: 177 de 180 sin ningún choque.**
+  - Bosque de 1/16 m⁻² (el de YOPOv2-Tracker): 30, 30 y 28 de 30 a 3, 5 y 7 m/s.
+  - Bosque de 1/25 m⁻²: 30, 30 y 29 (sin `--fast-target`, 30, 29 y 26).
+  - El rastro privilegiado y la línea recta chocan 85 veces en sus 360 vuelos.
+- **Frente a YOPOv2-Tracker en su bosque:** 88/90 (98 %) frente a su 88 % en 50 vuelos ($p = 0.02$, Fisher);
+  a las mismas velocidades, $p = 0.10$. Su evasor huye activamente y nuestro globo no: comparación indicativa.
+
 ## [0.27.7] — 2026-10-28
 
 Comparación con YOPOv2-Tracker y `r25 bench` (no cambia ningún resultado).
