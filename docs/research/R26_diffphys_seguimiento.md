@@ -1,6 +1,6 @@
 # R26 · DiffPhys siguiendo un objetivo que se mueve, con visibilidad
 
-*2026-10-25 a 2026-10-28 · nanouav 0.27.0–0.27.8 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
+*2026-10-25 a 2026-10-29 · nanouav 0.27.0–0.27.10 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
 (seguir un globo).*
 
 ## Objetivo
@@ -254,6 +254,25 @@ recta queda a 4.9–9.0 m de él, y la predicción con giro a 2.0–4.5 m.
 - **Las pérdidas bajan de 10 a 2** en los 90 vuelos, sin más choques (3 y 3).
 - **Emparejados, 10 frente a 2** ($p = 0.04$).
 
+### R20 en Flightmare (0.27.10)
+
+El seguimiento solo estaba probado en nuestro simulador. `nanouav run r22 follow` lo corre en Flightmare,
+con Unity como YOPOv2-Tracker:
+
+- **El mundo** es la arena de R22: la escena vacía del almacén, escaneada una vez, con un bosque de Poisson de
+  cajas de madera de 0.3–0.7 m de ancho y 6 m de alto (por defecto 1/16 m⁻², la densidad de YOPOv2).
+- **El globo se pinta en las imágenes de Unity.** El reproductor público no puede crear objetos nuevos, así
+  que en las dos cámaras del par estéreo cada píxel cuyo rayo toca un globo antes que la profundidad de Unity
+  toma su color sombreado y esa profundidad (`flightmare/follow.py`, `paint_spheres`). Las cajas lo tapan
+  donde están delante, el detector de color lo ve y el SGM lo empareja como cualquier superficie.
+- **Todo lo demás es R20:** el mismo camino del globo (40 m, punto intermedio al azar, globos distractores),
+  la misión (detector, tracker, bloqueo, filtro, `--fast-target`), los pilotos y la regla de éxito.
+- **`r22 follow-video`** graba un vuelo con la cámara del dron y una cámara de seguimiento renderizadas por
+  Unity, con el globo y el dron pintados.
+
+Probado contra el reproductor falso de los tests (nuestro renderer detrás del mismo protocolo): el piloto
+privilegiado mantiene el globo bloqueado el 99 % del tiempo. Los resultados en Unity están pendientes.
+
 ### Comparación con YOPOv2-Tracker
 
 Su prueba de seguimiento en simulación (sección IV-B y Fig. 10 del artículo) y la nuestra (R20) se parecen
@@ -262,7 +281,7 @@ mucho, pero no son la misma:
 | | YOPOv2-Tracker | R26 en R20 |
 |---|---|---|
 | bosque | Poisson, 1/16 árboles/m² | Poisson, 1/16 árboles/m² (y 1/25) |
-| objetivo | una persona; huye con Fast-Planner y el mapa real hacia una meta a 40 m que cambia al azar a mitad de camino | un globo; camino suave de 40 m con un punto intermedio al azar a ±6 m; 0–2 globos distractores |
+| objetivo | va con Fast-Planner (con el mapa real) hacia una meta a 40 m que cambia al azar a mitad de camino, sin reaccionar al dron | un globo; camino suave de 40 m con un punto intermedio al azar a ±6 m; 0–2 globos distractores |
 | velocidades | 3, 4, 5, 6 y 7 m/s | 3, 5 y 7 m/s |
 | vuelos | 10 por velocidad | 30 por velocidad |
 | éxito | seguirlo hasta la meta sin chocar | lo mismo, más: bloqueado en el globo correcto ≥ 80 % del tiempo y nunca a más de 16 m |
@@ -288,8 +307,10 @@ mucho, pero no son la misma:
 - **Solo a las mismas velocidades (3, 5 y 7 m/s), 88/90 frente a ~27/30:** $p = 0.10$. Y a 7 m/s, 28/30
   frente a ~8/10: $p = 0.26$.
 - **Nuestra condición de éxito es más estricta**, y R26 vuela tres veces más vuelos por velocidad.
-- **Los simuladores y los objetivos son distintos:** su evasor huye activamente con Fast-Planner y el mapa
-  real; nuestro globo sigue un camino fijo. Es una comparación indicativa, no un enfrentamiento directo.
+- **Las tareas son casi iguales; los simuladores no.** Ninguno de los dos objetivos reacciona al dron:
+  el suyo va a una meta que cambia a mitad de camino, el nuestro pasa por un punto intermedio al azar. Pero
+  su simulador es Unity, su objetivo es otro (no un globo) y su detector, otro. Es una comparación
+  indicativa, no un enfrentamiento directo.
 - **Fallan por lo mismo:** según el artículo, YOPOv2-Tracker pierde el objetivo sobre todo por oclusiones
   porque no predice su trayectoria. Es lo que ataca `--turn-pred`; los 2 fallos de R26 son pérdidas.
 
@@ -326,5 +347,5 @@ mucho, pero no son la misma:
 - **No lo he medido en una Orin NX.** La estéreo (SGM) no está incluida, como tampoco lo está la cámara RGB-D
   en el tiempo de YOPOv2.
 
-**Falta para un enfrentamiento directo:** un objetivo que huya activamente (como su evasor con
-Fast-Planner), 4 y 6 m/s, y medir el tiempo de decisión en una Orin NX.
+**Falta para un enfrentamiento directo:** 4 y 6 m/s, el seguimiento en un simulador ajeno (R20 en
+Flightmare, Unity como el suyo) y medir el tiempo de decisión en una Orin NX.

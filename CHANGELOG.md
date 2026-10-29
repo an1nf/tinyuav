@@ -3,6 +3,18 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.10] — 2026-10-29
+
+R20 en Flightmare (no cambia ningún resultado anterior).
+- **`nanouav run r22 follow`:** seguir un globo en Unity, por la arena del almacén con un bosque de cajas
+  (1/16 m⁻² por defecto). El globo se pinta en las dos imágenes del par estéreo donde está delante de la
+  profundidad de Unity; el resto es la misión de R20, con `--fast-target` y los mismos pilotos.
+- **`nanouav run r22 follow-video`:** vídeo de un vuelo con la cámara del dron y una cámara de seguimiento de
+  Unity.
+- **Corrección de 0.27.8:** el objetivo de YOPOv2-Tracker no reacciona al dron. Va con Fast-Planner hacia una
+  meta que cambia a mitad de camino, como nuestro globo pasa por un punto intermedio al azar.
+- `follow/balloon_video.py` se separa en `record` y `write`; el observador de Flightmare acepta un `overlay`.
+
 ## [0.27.9] — 2026-10-28
 
 `nanouav run r20 sim-video`: vídeo de un vuelo de R20 (no cambia ningún resultado).
@@ -21,7 +33,8 @@ Sin cambios en el código: R20 con `--fast-target` en la GPU, los tres pilotos.
   - Bosque de 1/25 m⁻²: 30, 30 y 29 (sin `--fast-target`, 30, 29 y 26).
   - El rastro privilegiado y la línea recta chocan 85 veces en sus 360 vuelos.
 - **Frente a YOPOv2-Tracker en su bosque:** 88/90 (98 %) frente a su 88 % en 50 vuelos ($p = 0.02$, Fisher);
-  a las mismas velocidades, $p = 0.10$. Su evasor huye activamente y nuestro globo no: comparación indicativa.
+  a las mismas velocidades, $p = 0.10$. Ninguno de los dos objetivos reacciona al dron (corregido en
+  0.27.10), pero los simuladores, los objetivos y los detectores son distintos: comparación indicativa.
 
 ## [0.27.7] — 2026-10-28
 

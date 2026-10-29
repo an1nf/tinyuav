@@ -355,3 +355,53 @@ def test_diffphys_pilot_flies_on_flightmare_frames(unity, tmp_path):
     R.observer = FlightmareObserver(cl, R.cfg.rig)
     r, _, log = R.run()
     assert 'error' not in r and r['decide_ms'] is not None and len(log) > 5
+
+
+# ── R20 in Flightmare (0.27.10): balloons painted into Unity's images ─────
+def test_paint_spheres_in_front_of_unity_depth_only():
+    """A balloon 5 m ahead is painted (red, with its depth) where Unity sees farther, not behind a wall."""
+    from nanouav.flightmare.follow import paint_spheres
+    H, W, f = 240, 320, 160.0
+    img = np.full((H, W, 3), 128, np.uint8)
+    dep = np.full((H, W), 20.0, np.float32)
+    dep[:, :150] = 3.0                                      # a wall on the left half of the image, at 3 m
+    n = paint_spheres(img, dep, np.zeros(3), np.eye(3), f, [((5.0, 0.0, 0.0), 0.3, (0.85, 0.07, 0.07))])
+    assert n > 0 and dep[120, 160] == pytest.approx(4.7, abs=0.02)               # the front of the sphere
+    assert img[120, 162, 0] > 90 and img[120, 162, 0] > 5 * img[120, 162, 1]      # red, shaded
+    assert (img[:, :150] == 128).all()                                            # hidden by the wall
+    assert paint_spheres(img, dep, np.zeros(3), np.eye(3), f, [((-5.0, 0.0, 0.0), 0.3, (1, 0, 0))]) == 0  # behind
+
+
+def test_follow_a_balloon_in_flightmare(tmp_path):
+    """r22 follow: R20's mission on the fake player's frames, with the balloon painted in; the privileged
+    pilot keeps it locked and the paths of the balloon arena avoid the crates."""
+    import json
+    from nanouav.agile.geometry import Field
+    from nanouav.flightmare import arena as A
+    from nanouav.flightmare import run as RUN
+    from nanouav.flightmare.follow import balloon_arena_env
+    from nanouav.flightmare.scan import scan
+    pub, sub = next(PORTS), next(PORTS)
+    fake = _arena_player(pub, sub)
+    cl = B.FlightmareClient(scene_id=0, pub_port=pub, sub_port=sub, stereo=False, timeout_s=20)
+    try:
+        cl.connect()
+        lo, hi = np.array([-5.0, -6, 0]), np.array([45.0, 6, 6])
+        P, _, _ = scan(cl, (lo + hi) / 2, hi - lo, 0.15, step=5.0, heights=(1.5,), yaws=4, pitches=(0.0,),
+                       log=lambda *_: None)
+        sdf, floor, rect = A.build(P, 0.15, lo, hi)
+        A.save(str(tmp_path / 'arena_warehouse.npz'), P, 0.15, floor, rect, lo, hi, {'scene': 'warehouse'})
+    finally:
+        cl.close()
+    ar = A.load(str(tmp_path / 'arena_warehouse.npz'))
+    e = balloon_arena_env(ar, 3001, density=1 / 16, speed=4.0)
+    Q = e.walkers[0].path.pts
+    assert Field(e.world, ground=False)(Q).min() > 0.4 and (Q[:, 2] - ar.floor).min() >= 1.2 - 1e-6
+    assert len(e.world.objects) > 20
+    try:
+        RUN.main(['follow', '--pilots', 'gbl', '--n', '1', '--seed0', '3001', '--speed', '4', '--density', '0.03',
+                  '--results', str(tmp_path), '--pub-port', str(pub), '--sub-port', str(sub)])
+    finally:
+        fake.stop()
+    r = json.load(open(tmp_path / 'balloon_warehouse_follow.json'))['gbl'][0]
+    assert not r['crashed'] and r['locked_frac'] > 0.8 and r['true_frac'] > 0.9

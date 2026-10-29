@@ -101,6 +101,29 @@ def run(model, out, seed=3000, speed=7.0, density=0.0625, pilot='diffphys', cam_
         setattr(M, k, v)
     if (opts or {}).get('q_acc') is not None:
         M.flt = M._make_filter()
+    recs = record(M)
+    pol = dagger._policy(os.path.abspath(model)) if pilot == 'student' else \
+        (os.path.abspath(model) if pilot == 'diffphys' else None)
+    R = Rollout(env, Config(v_des=2.0, cam_hz=cam_hz, seed=seed), pilot, pol, mission=M)
+    R.EDGE = edge
+    r, _, log = R.run()
+    name = (os.path.splitext(os.path.basename(model))[0] if model else pilot) + (f'_{tag}' if tag else '')
+    d = os.path.join(out, 'video')
+    os.makedirs(d, exist_ok=True)
+    fn = os.path.join(d, f'balloon_{name}_d{density:g}_v{speed:g}_s{seed}.mp4')
+
+    def low(rec):
+        if chase:
+            for wk in M.walkers:
+                wk.move(rec['t'])
+            return _chase_rgb(env.render_world(), rec['p'], rec['yaw'])
+        return _chase(env, rec['p'], rec['yaw'])
+    return write(fn, env.world, M, recs, log, r, low, f'{name} | bosque 1/{1 / density:.0f} m-2 | globo {speed:g} m/s | '
+                 f'semilla {seed}', cam_hz)
+
+
+def record(M):
+    """Wrap the mission so that every camera frame is kept for the video → the list it fills."""
     recs, last = [], {}
     _detect, _frame = M._detect, M.frame
 
@@ -122,41 +145,30 @@ def run(model, out, seed=3000, speed=7.0, density=0.0625, pilot='diffphys', cam_
                      'v_des': float(F.get('v_des', 0.0))})
         return F
     M._detect, M.frame = detect, frame
-    pol = dagger._policy(os.path.abspath(model)) if pilot == 'student' else \
-        (os.path.abspath(model) if pilot == 'diffphys' else None)
-    R = Rollout(env, Config(v_des=2.0, cam_hz=cam_hz, seed=seed), pilot, pol, mission=M)
-    R.EDGE = edge
-    r, _, log = R.run()
+    return recs
+
+
+def write(fn, world, M, recs, log, r, low, title, fps):
+    """The video of a recorded flight; low(rec) draws the bottom-right panel (480 × 360 BGR)."""
     res = 'EXITO' if r['success'] else ('CHOQUE' if r['crashed'] else 'GLOBO PERDIDO')
-    d = os.path.join(out, 'video')
-    os.makedirs(d, exist_ok=True)
-    name = (os.path.splitext(os.path.basename(model))[0] if model else pilot) + (f'_{tag}' if tag else '')
-    fn = os.path.join(d, f'balloon_{name}_d{density:g}_v{speed:g}_s{seed}.mp4')
     L = np.array([row[:7] for row in log], float)
     trail = np.array([M.target.pos(t)[:2] for t in np.arange(0, M.t_max(), 0.1)])
     W, H = 720 + 480, 720 + 30
-    wr = _writer(fn, cam_hz, (W, H))
+    wr = _writer(fn, fps, (W, H))
     img = None
     for i, rec in enumerate(recs):
         p, yaw, t = rec['p'], rec['yaw'], rec['t']
         j = min(int(np.searchsorted(L[:, 0], t)), len(L) - 1)
-        lastf = i == len(recs) - 1
-        top = _topdown(types.SimpleNamespace(world=env.world, goal=(1e4, 0.0)), L[:j + 1:2, 1:3], None, p, yaw,
-                       result=f'{res} ({r["time_s"]:.1f} s)' if lastf else None)
+        top = _topdown(types.SimpleNamespace(world=world, goal=(1e4, 0.0)), L[:j + 1:2, 1:3], None, p, yaw,
+                       result=f'{res} ({r["time_s"]:.1f} s)' if i == len(recs) - 1 else None)
         top = _overlay_balloons(top, rec, p, yaw, trail)
-        if chase:
-            for wk in M.walkers:
-                wk.move(t)
-            low = _chase_rgb(env.render_world(), p, yaw)
-        else:
-            low = _chase(env, p, yaw)
-        img = np.vstack([np.hstack([top, np.vstack([_camera(rec), low])]), np.full((30, W, 3), 255, np.uint8)])
+        img = np.vstack([np.hstack([top, np.vstack([_camera(rec), low(rec)])]), np.full((30, W, 3), 255, np.uint8)])
         dist = float(np.hypot(*(rec['true'][:2] - p[:2])))
-        info = (f'{name} | bosque 1/{1 / density:.0f} m-2 | globo {speed:g} m/s | semilla {seed} | t={t:5.2f} s | '
-                f'dron {rec["v"]:4.1f} m/s (pedido {rec["v_des"]:3.1f}) | distancia {dist:4.1f} m')
+        info = (f'{title} | t={t:5.2f} s | dron {rec["v"]:4.1f} m/s (pedido {rec["v_des"]:3.1f}) | '
+                f'distancia {dist:4.1f} m')
         cv2.putText(img, info, (8, H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
         wr.write(img)
-    for _ in range(int(cam_hz * 1.5)):
+    for _ in range(int(fps * 1.5)):
         wr.write(img)
     wr.release()
     fn = _to_h264(fn)

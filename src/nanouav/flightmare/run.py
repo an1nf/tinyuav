@@ -146,8 +146,9 @@ def make_client(a, calib=None, stereo=True, n_objects=0, rig=None):
 class FlightmareObserver:
     """Rollout.observer: Flightmare's stereo pair at the drone pose → (gray, SGM depth, Unity depth)."""
 
-    def __init__(self, client, rig, calib=None):
-        self.c, self.rig, self.calib = client, rig, calib or {}
+    def __init__(self, client, rig, calib=None, overlay=None):
+        """overlay(o, pose) → o: changes Unity's images before stereo (0.27.10: the balloons of R20)."""
+        self.c, self.rig, self.calib, self.overlay = client, rig, calib or {}, overlay
         self.t_render = []
 
     def __call__(self, p, yaw, pitch, roll):
@@ -156,6 +157,8 @@ class FlightmareObserver:
         from nanouav.scene.renderer import body_rot
         t0 = time.time()
         o = self.c.render(np.asarray(p, float), body_rot(yaw, pitch, roll))
+        if self.overlay is not None:
+            o = self.overlay(o, (np.asarray(p, float), yaw, pitch, roll))
         self.t_render.append(time.time() - t0)
         g = lambda im: cv2.cvtColor(im, cv2.COLOR_RGB2GRAY) if im.ndim == 3 and im.shape[2] == 3 else im[..., 0]
         gl, gr = g(o['left']), g(o['right'])
@@ -588,6 +591,73 @@ def cmd_video(a):
         print(f"hit {c.get('what', 'the map point')} {c['obstacle']} ({c['dist']} m from the drone, {c['above_ground']} m "
               f"above the ground" + (f", seen by {c['seen_by_frames']} scan frames" if 'seen_by_frames' in c else '') + ')')
     client.close()
+
+
+def _follow_setup(a):
+    """The arena, the client (with room for the crates) and the rig of `follow` / `follow-video`."""
+    from nanouav.flightmare import arena as A
+    from nanouav.follow.run_balloon import _lost_opts
+    out = _out(a)
+    fn = os.path.join(out, f'arena_{a.scene}.npz')
+    if not os.path.exists(fn):
+        raise SystemExit(f'{fn} not found: map the empty scene first (nanouav run r22 arena --scene {a.scene})')
+    ar = A.load(fn)
+    rig = rig_of(a)
+    calib = _calib(a)
+    client = make_client(a, calib, n_objects=a.n_objects, rig=rig)
+    return out, ar, rig, calib, client, _lost_opts(a)
+
+
+def cmd_follow(a):
+    """R20 in Flightmare (0.27.10): follow a balloon (painted into Unity's stereo pair) through a forest of
+    crates in the arena → balloon_<scene>_<tag>.json and the R20 table."""
+    from nanouav.flightmare.follow import balloon_arena_env, episode
+    out, ar, rig, calib, client, opts = _follow_setup(a)
+    model = os.path.abspath(a.model) if a.model else None
+    pilots = a.pilots.split(',')
+    table, t0 = {}, time.time()
+    try:
+        for p in pilots:
+            for s in range(a.seed0, a.seed0 + a.n):
+                env = balloon_arena_env(ar, s, density=a.density, speed=a.speed, color=a.color)
+                r, *_ = episode(client, rig, calib, env, s, p, model, standoff=a.standoff, cam_hz=a.cam_hz, opts=opts,
+                                edge=a.edge)
+                table.setdefault(p, []).append(r)
+                print(f"{p:8s} seed {s}: {'ok' if r['success'] else 'CRASH' if r['crashed'] else 'lost'} "
+                      f"{r['time_s']:.1f} s  d_err {r.get('dist_err_med')}  render {r.get('render_ms')} ms", flush=True)
+    finally:
+        client.close()
+    fn = os.path.join(out, f'balloon_{a.scene}_{a.tag or "follow"}.json')
+    json.dump(table, open(fn, 'w'), indent=1)
+    print(f'{"pilot":8s} {"success":>8s} {"crash":>5s} {"lost":>4s} {"locked":>6s} {"true":>5s} {"d_err":>5s} {"relock":>6s}')
+    for p in pilots:
+        L = table[p]
+        f = lambda k: np.nanmedian([r.get(k) if r.get(k) is not None else np.nan for r in L])
+        print(f'{p:8s} {sum(r.get("success", 0) for r in L):3d}/{len(L):<4d} {sum(r.get("crashed", 0) for r in L):5d} '
+              f'{sum(r.get("failed", 0) for r in L):4d} {f("locked_frac"):6.2f} {f("true_frac"):5.2f} '
+              f'{f("dist_err_med"):5.2f} {f("relocks"):6.0f}')
+    print(f'→ {fn}  ({time.time() - t0:.0f} s)')
+
+
+def cmd_follow_video(a):
+    """Video of one `follow` flight: top view, the drone's camera (Unity + the balloon), Unity chase camera."""
+    from nanouav.flightmare.follow import BalloonPainter, balloon_arena_env, chase_view, episode
+    from nanouav.follow.balloon_video import write
+    out, ar, rig, calib, client, opts = _follow_setup(a)
+    model = os.path.abspath(a.model) if a.model else None
+    try:
+        env = balloon_arena_env(ar, a.seed, density=a.density, speed=a.speed, color=a.color)
+        r, R, log, recs = episode(client, rig, calib, env, a.seed, a.pilot, model, standoff=a.standoff,
+                                  cam_hz=a.cam_hz, opts=opts, edge=a.edge, record=True)
+        painter = BalloonPainter(client, env.walkers, rig.focal)
+        name = (os.path.splitext(os.path.basename(model))[0] if model else a.pilot) + (f'_{a.tag}' if a.tag else '')
+        os.makedirs(os.path.join(out, 'video'), exist_ok=True)
+        fn = os.path.join(out, 'video', f'balloon_{a.scene}_{name}_d{a.density:g}_v{a.speed:g}_s{a.seed}.mp4')
+        write(fn, env.world, R.mission, recs, log, r, lambda rec: chase_view(client, painter, rec),
+              f'Flightmare {a.scene} | {name} | 1/{1 / a.density:.0f} m-2 | globo {a.speed:g} m/s | semilla {a.seed}',
+              a.cam_hz)
+    finally:
+        client.close()
 
 
 ARENA_BOX = {'warehouse': ('30,0,5', '100,20,10')}    # agile_flight's training box: x −20…80, y −10…10, z 0…10
@@ -1026,6 +1096,25 @@ def main(argv=None):
     p.add_argument('--pitches', default='-30,0,30')
     p.add_argument('--max-range', type=float, default=25.0)
     p.add_argument('--stride', type=int, default=2)
+    for name in ('follow', 'follow-video'):
+        p = sub.add_parser(name, help='R20 in Flightmare: follow a balloon painted into Unity\'s images' if name == 'follow'
+                           else 'video of one follow flight')
+        p.add_argument('--model', default='', help='diffphys model (results/r26/follow_fast.keras)')
+        p.add_argument('--density', type=float, default=1 / 16, help='crates per m² (default 1/16, as YOPOv2-Tracker)')
+        p.add_argument('--speed', type=float, default=None, help='balloon speed (m/s; default 1–4 at random)')
+        p.add_argument('--standoff', type=float, default=4.0)
+        p.add_argument('--color', default='red')
+        p.add_argument('--no-edge', dest='edge', action='store_false', help='diffphys: without the edge filter')
+        p.add_argument('--tag', default='')
+        from nanouav.follow.run_balloon import _add_lost_opts
+        _add_lost_opts(p)
+        if name == 'follow':
+            p.add_argument('--pilots', default='gbl,direct,diffphys')
+            p.add_argument('--n', type=int, default=30)
+            p.add_argument('--seed0', type=int, default=3000)
+        else:
+            p.add_argument('--pilot', default='diffphys')
+            p.add_argument('--seed', type=int, default=3000)
     p = sub.add_parser('dagger')
     p.add_argument('--init', default='', help='student to start from (e.g. results/r18/student_spatial_in.keras)')
     p.add_argument('--envs', type=int, default=300)
@@ -1056,11 +1145,11 @@ def main(argv=None):
                         '(default since 0.24.0; --no-keep: ≤ 0.23)')
     for q in sub.choices.values():
         q.add_argument('--results', dest='out', default='', help='results directory (default results/r22)')
-        q.add_argument('--scene', default='forest')
+        q.add_argument('--scene', default=None, help='default forest (follow: warehouse, the arena of R22)')
         q.add_argument('--binary', default='2022', choices=['2022', '2020'])
         q.add_argument('--pub-port', type=int, default=10253)
         q.add_argument('--sub-port', type=int, default=10254)
-        q.add_argument('--cam-hz', type=float, default=15.0)
+        q.add_argument('--cam-hz', type=float, default=None, help='default 15 (follow: 10, as R20)')
         q.add_argument('--vehicle-size', type=float, default=0.01,
                        help='scale of the drone mesh (1 = full size, in view of the cameras)')
         q.add_argument('--depth-far', type=float, default=100.0, help='far clip plane of the depth layer (m)')
@@ -1070,6 +1159,11 @@ def main(argv=None):
         q.add_argument('--unity', default='', help='path of RPG_Flightmare.x86_64: start (and stop) the player '
                        'for this command (default $NANOUAV_FLIGHTMARE; empty: start it yourself)')
     a = ap.parse_args(argv)
+    follow = a.cmd in ('follow', 'follow-video')
+    if a.scene is None:
+        a.scene = 'warehouse' if follow else 'forest'
+    if a.cam_hz is None:
+        a.cam_hz = 10.0 if follow else 15.0
     if a.cmd == 'diagnose':
         a.arena = True                                   # the arena only (exact obstacles)
     if a.vga is None:
@@ -1081,7 +1175,7 @@ def main(argv=None):
     return {'probe': cmd_probe, 'cloud': cmd_cloud, 'scan': cmd_scan, 'survey': cmd_survey, 'arena': cmd_arena,
             'check': cmd_check, 'diagnose': cmd_diagnose,
             'dagger': cmd_dagger, 'lines': cmd_lines, 'eval': cmd_eval, 'video': cmd_video,
-            'fake': cmd_fake, 'compare': cmd_compare}[a.cmd](a)
+            'fake': cmd_fake, 'compare': cmd_compare, 'follow': cmd_follow, 'follow-video': cmd_follow_video}[a.cmd](a)
 
 
 if __name__ == '__main__':
