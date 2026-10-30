@@ -351,8 +351,8 @@ mucho, pero no son la misma:
 | total | 3 ms en un i7-9700 con RTX 3060; 8.2 ms en una Orin NX | **1.1 ms**: 1.0 ms de preprocesar la profundidad + la red |
 
 - **TFLite da las mismas salidas que Keras** (diferencia máxima de 4.5·10⁻⁷).
-- **En las evaluaciones la red corre en Keras sin compilar:** 17–19 ms aquí y unos 48 ms en tu máquina con 8
-  procesos a la vez. No es el tiempo de la red, es la sobrecarga de Keras.
+- **En las evaluaciones la red corre en Keras sin compilar:** 17–19 ms en un Xeon y unos 48 ms en la máquina
+  de la GPU con 8 procesos a la vez. No es el tiempo de la red, es la sobrecarga de Keras.
 - **No lo he medido en una Orin NX.** La estéreo (SGM) no está incluida, como tampoco lo está la cámara RGB-D
   en el tiempo de YOPOv2.
 
