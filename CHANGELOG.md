@@ -3,6 +3,17 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.11] — 2026-10-29
+
+Sin cambios en el código: R20 a 4 y 6 m/s en el bosque de YOPOv2-Tracker (1/16 m⁻²), con `--fast-target`.
+- **R26 rápido: 30/30 a 4 m/s y 29/30 a 6 m/s, sin choques.**
+  - A las cinco velocidades de YOPOv2-Tracker (3–7 m/s), 147/150 (98 %) sin un choque, frente a su 88 % en 50
+    vuelos ($p = 0.008$, Fisher).
+  - Por velocidad, con sus 10 vuelos, ninguna diferencia es significativa por sí sola.
+- **Sin `--fast-target`, a 5 m/s:** 26/30 con 1 choque. A 3, 5 y 7 m/s, 82/90 frente a 88/90 con la opción;
+  emparejados, 6 frente a 0 ($p = 0.03$).
+- **Los otros pilotos a 4 y 6 m/s:** el rastro privilegiado 27 y 16 de 30, la línea recta 18 y 19.
+
 ## [0.27.10] — 2026-10-29
 
 R20 en Flightmare (no cambia ningún resultado anterior).

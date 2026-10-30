@@ -29,3 +29,15 @@ gbl       21/30       9    0   0.93  1.00  0.27      1
 direct    25/30       4    1   0.70  1.00  1.18      4
 diffphys  29/30       0    1   0.99  1.00  1.33      0
 → results/r20/balloon_ft_d0.04_v7.json  (2544 s)
+
+# 4 and 6 m/s, 1/16 m^-2, --fast-target (0.27.9)
+pilot     success crash lost locked  true d_err relock
+gbl       27/30       3    0   0.97  1.00  0.17      0
+direct    18/30      12    0   0.69  1.00  0.96      5
+diffphys  30/30       0    0   0.99  1.00  0.97      0
+→ results/r20/balloon_ft_d0.0625_v4.json  (4895 s)
+pilot     success crash lost locked  true d_err relock
+gbl       16/30      14    0   0.94  1.00  0.30      1
+direct    19/30      10    1   0.69  1.00  1.07      4
+diffphys  29/30       0    1   0.98  1.00  1.31      0
+→ results/r20/balloon_ft_d0.0625_v6.json  (4006 s)

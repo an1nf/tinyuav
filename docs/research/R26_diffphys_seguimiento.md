@@ -1,6 +1,6 @@
 # R26 · DiffPhys siguiendo un objetivo que se mueve, con visibilidad
 
-*2026-10-25 a 2026-10-29 · nanouav 0.27.0–0.27.10 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
+*2026-10-25 a 2026-10-29 · nanouav 0.27.0–0.27.11 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
 (seguir un globo).*
 
 ## Objetivo
@@ -293,26 +293,31 @@ mucho, pero no son la misma:
 | velocidad | YOPOv2-Tracker (Fig. 10B, leída de la gráfica) | R26 rápido | **R26 rápido con `--fast-target`** |
 |---|---|---|---|
 | 3 m/s | 10/10 | 30/30 | **30/30** |
-| 5 m/s | ~9/10 | — | **30/30** |
+| 4 m/s | ~9/10 | — | **30/30** |
+| 5 m/s | ~9/10 | 26/30 | **30/30** |
+| 6 m/s | ~8/10 | — | **29/30** |
 | 7 m/s | ~8/10 | 26/30 | **28/30** |
-| choques | 1 de 50 («planning failed», 2 %) | 0 de 60 | **0 de 90** |
+| 3–7 m/s | 44/50 (88 %) | 82/90 (91 %, sin 4 y 6) | **147/150 (98 %)** |
+| choques | 1 de 50 («planning failed», 2 %) | 1 de 90 | **0 de 150** |
 
-(R26 rápido: `r26/r20_gpu_d16.log` a 3 m/s, `r26/r20_gpu_fast_target.log` a 7 m/s; con `--fast-target`:
+(R26 rápido: `r26/r20_gpu_d16.log` a 3 y 5 m/s, `r26/r20_gpu_fast_target.log` a 7 m/s; con `--fast-target`:
 `r26/r20_gpu_ft.log`)
 
 - **La lectura de la Fig. 10B es aproximada** (barras en 3D, ±1 vuelo). Cuadra con su resumen de la
   Fig. 10C: 88 % de éxitos, 10 % de objetivos perdidos y 2 % de choques o paradas en sus 50 vuelos.
-- **Con `--fast-target`, R26 sigue al globo en 88 de 90 vuelos (98 %) sin un solo choque**, frente al 88 %
-  de YOPOv2-Tracker en sus 50 (de 3 a 7 m/s, con 4 y 6 m/s incluidos): $p = 0.02$ (Fisher).
-- **Solo a las mismas velocidades (3, 5 y 7 m/s), 88/90 frente a ~27/30:** $p = 0.10$. Y a 7 m/s, 28/30
-  frente a ~8/10: $p = 0.26$.
+- **Con `--fast-target`, R26 sigue al globo en 147 de 150 vuelos (98 %) sin un solo choque**, a las mismas
+  cinco velocidades, frente al 88 % de YOPOv2-Tracker: $p = 0.008$ (Fisher).
+- **Por velocidad, con sus 10 vuelos, ninguna diferencia es significativa por sí sola:** a 6 m/s, 29/30
+  frente a ~8/10 ($p = 0.15$); a 7 m/s, 28/30 frente a ~8/10 ($p = 0.26$).
+- **`--fast-target` también cuenta aquí:** sin él, 82/90 a 3, 5 y 7 m/s, con 1 choque; con él, 88/90.
+  Emparejados, 6 frente a 0 ($p = 0.03$).
 - **Nuestra condición de éxito es más estricta**, y R26 vuela tres veces más vuelos por velocidad.
 - **Las tareas son casi iguales; los simuladores no.** Ninguno de los dos objetivos reacciona al dron:
   el suyo va a una meta que cambia a mitad de camino, el nuestro pasa por un punto intermedio al azar. Pero
   su simulador es Unity, su objetivo es otro (no un globo) y su detector, otro. Es una comparación
   indicativa, no un enfrentamiento directo.
 - **Fallan por lo mismo:** según el artículo, YOPOv2-Tracker pierde el objetivo sobre todo por oclusiones
-  porque no predice su trayectoria. Es lo que ataca `--turn-pred`; los 2 fallos de R26 son pérdidas.
+  porque no predice su trayectoria. Es lo que ataca `--turn-pred`; los 3 fallos de R26 son pérdidas.
 
 **Todos los pilotos con `--fast-target`** (30 semillas; éxitos · choques):
 
@@ -325,7 +330,10 @@ mucho, pero no son la misma:
 | | `direct` | 22 · 8 | 21 · 9 | 25 · 4 |
 | | **R26 rápido** | **30 · 0** | **30 · 0** | **29 · 0** |
 
-- **R26: 177 de 180 sin un choque.** Los otros dos pilotos chocan 85 veces en sus 360 vuelos.
+- **A 4 y 6 m/s en el bosque de 1/16 m⁻²:** `gbl` 27 · 3 y 16 · 14; `direct` 18 · 12 y 19 · 10; **R26 30 · 0
+  y 29 · 0.**
+- **R26: 236 de 240 sin un choque** (177 de 180 en la tabla, más 4 y 6 m/s). Los otros dos pilotos chocan
+  124 veces en sus 480 vuelos.
 - **En el bosque de 1/25 m⁻², `--fast-target` sube a R26 de 85/90 a 89/90** (30, 29, 26 → 30, 30, 29), y el
   error de distancia baja de 0.86 / 1.23 / 1.60 a 0.80 / 1.07 / 1.33 m.
 - **A la línea recta no le sirve tanto:** de 71 a 68 éxitos en el bosque de 1/25 m⁻², con más choques a
@@ -347,5 +355,5 @@ mucho, pero no son la misma:
 - **No lo he medido en una Orin NX.** La estéreo (SGM) no está incluida, como tampoco lo está la cámara RGB-D
   en el tiempo de YOPOv2.
 
-**Falta para un enfrentamiento directo:** 4 y 6 m/s, el seguimiento en un simulador ajeno (R20 en
-Flightmare, Unity como el suyo) y medir el tiempo de decisión en una Orin NX.
+**Falta para un enfrentamiento directo:** el seguimiento en un simulador ajeno (R20 en Flightmare, Unity
+como el suyo; preparado en 0.27.10) y medir el tiempo de decisión en una Orin NX.
