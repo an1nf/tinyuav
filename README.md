@@ -28,16 +28,74 @@ con el SGM del último segundo. [MP4](docs/media/flightmare_warehouse_10ms.mp4)*
 
 ## Método
 
-- **Percepción:** par estéreo → SGM → profundidad inversa de 16 × 12 (mínimo por bloque, huecos como
-  lejos, filtro de bordes `--edge`).
-- **Política (R25):** CNN (32/64/128 filtros) + GRU de 192 → aceleración; entrada: profundidad, velocidad,
-  empuje y velocidad deseada. Entrenada por gradiente a través de un simulador de masa puntual
-  diferenciable (Zhang et al. 2025), sin experto ni etiquetas; vuelo previo sin gradiente (`--burn`).
-- **Seguimiento (R26 + R20):** la misma red ajustada con una barrera de visibilidad dron → objetivo;
-  detector de color, filtro de Kalman 3D, re-bloqueo y predicción del giro (`--fast-target`).
-- **Bases:** recreación de Loquercio et al. 2021 (experto M-H, estudiante por DAgger, R18), piloto reactivo
-  sin red (R24), puente ZMQ con Flightmare (R22) y Gazebo (R21). Antes, E0–R17: CNN monocular int8 + ToF 8×8
-  para un ESP32-S3.
+### Percepción
+
+- Par estéreo de 320 × 240, base de 0.1 m y ~90° de campo. En el simulador propio lo dibuja el renderer;
+  en Flightmare, Unity. Profundidad por SGM (`cv2.StereoSGBM`) con filtro de textura.
+- Filtro de bordes (`--edge`): descarta los píxeles con un salto de profundidad hacia un vecino mayor que
+  max(0.3, 0.03 z²) m, o con un vecino sin dato. Quita los puntos que el SGM deja en el espacio libre al
+  mezclar un tronco con el fondo.
+- Entrada de la red: profundidad inversa de 16 × 12, con el píxel válido más cercano de cada bloque; los
+  huecos cuentan como lejos.
+
+### Política de navegación (R25)
+
+- Red: CNN de tres capas (núcleos 2, 3 y 3; 32, 64 y 128 filtros), suma del estado, GRU de 192 y salida de
+  aceleración; 391 k parámetros. El estado son 9 valores en el marco de rumbo: velocidad, dirección del
+  empuje y velocidad deseada.
+- Entrenamiento por física diferenciable (DiffPhysDrone, Zhang et al. 2025), sin experto ni etiquetas. El
+  gradiente atraviesa un simulador de masa puntual en TensorFlow con un paso de latencia, respuesta de
+  primer orden de la aceleración (λ = 12 s⁻¹) y arrastre lineal y cuadrático.
+- Episodios: Δt = 1/15 s, 150 pasos (10 s), lotes de 64 bosques de Poisson (separación de 4–7 m, troncos de
+  0.15–0.4 m) y velocidad deseada de 3 a 12 m/s.
+- Las distancias a troncos y suelo son analíticas, así que el gradiente del choque es exacto. La imagen se
+  obtiene por rayos (32 × 24, mínimo de cada 2 × 2), sin gradiente, con 10 % de huecos y 5 % de ruido para
+  parecerse al SGM.
+- Pérdida, con los pesos del paper (1, 2, 0.01 y 0.001): error de velocidad (promediada en ~2 s), barrera
+  softplus sobre la holgura más la velocidad de acercamiento, aceleración y jerk.
+- Vuelo previo (`--burn 0,30`): antes de cada episodio, la red vuela de 0 a 30 s sin gradiente, y el tramo
+  con gradiente empieza con su GRU, sus actuadores y su velocidad de ese vuelo. Sin él, frenaba pasados
+  los 10 s del entrenamiento.
+- Optimización: AdamW con tasa coseno; 20 000 iteraciones a lote 64 (lr 10⁻³) en una TITAN X y dos ajustes
+  de 5000 (lr 3·10⁻⁴), el segundo con vuelo previo (r25c).
+- En vuelo, la red recibe su propio SGM a 15 Hz con 50 ms de latencia y conserva el estado de la GRU entre
+  cuadros. La aceleración se convierte en un plan de un cuadro que sigue un controlador en cascada.
+
+### Seguimiento (R26 y R20)
+
+- La velocidad deseada sigue la ley de R20: hacia el punto a 4 m del objetivo, a |v_objetivo| +
+  0.8 · (distancia − 4 m), como mucho 8 m/s. La cámara apunta al objetivo.
+- Se añade a la pérdida una barrera softplus de visibilidad: pide que la distancia, en planta, de cada eje
+  de tronco al segmento entre el dron y el objetivo, menos su radio, supere 0.3 m. Es analítica, como la holgura
+  del dron, así que evitar la oclusión se aprende al entrenar y en vuelo no cuesta nada.
+- Ajuste desde R25 con objetivos que zigzaguean entre los troncos (giro ≤ 60°/s): 2000 iteraciones a
+  1–4 m/s y luego 1500 a 1–7 m/s con lote 64 y lr 2·10⁻⁴.
+- Detección del globo sobre la imagen en color: umbral HSV, cierre morfológico y componentes conexas. La
+  distancia sale del tamaño aparente, medido en la altura de la caja, porque los troncos estrechan la caja
+  pero no la acortan.
+- Tracker con compensación del giro de la cámara y bloqueo del objetivo. Posición y velocidad del globo
+  las estima un filtro de Kalman 3D de velocidad constante; si la pista bloqueada salta más de
+  0.8 m + 5 m/s · Δt, se descarta (el tracker la cambió a otro globo).
+- `--fast-target` (cinco cambios en la misión, ninguno en la red):
+  - ruido de proceso de 5 m/s² en lugar de 2;
+  - con el globo perdido, la cámara mira a la última estimación, movida como mucho 0.5 s;
+  - la puerta de re-bloqueo crece a la velocidad del globo + 1 m/s;
+  - la primera medida tras re-bloquear no pasa por la puerta de innovación;
+  - la predicción sin medidas sigue girando al ritmo de los últimos 0.6 s, como mucho 90°/s y 90° en total.
+
+### Simuladores y evaluación
+
+- Simulador propio: bosques de Poisson con el protocolo de Loquercio et al. 2021 (R18).
+- Flightmare (R22): puente ZMQ en Python con el binario de Unity, sin ROS ni flightlib. La escena del
+  almacén se escanea una vez y en ella se siembran troncos cuadrados de 0.5–0.7 m de lado (1/25 m⁻²). El
+  globo se pinta en las dos imágenes por intersección rayo–esfera contra la profundidad de Unity.
+- Gazebo Harmonic / ROS 2 Jazzy (R21): el estudiante de R18 en un X3 con estéreo, como nodo ROS 2 y
+  exportado a TFLite.
+- Referencias implementadas en el mismo banco: el experto M-H y el estudiante por DAgger de Loquercio
+  et al. 2021 (R18) y un piloto reactivo sin red que juzga candidatas sobre su propio SGM (R24).
+- Todas las políticas vuelan las mismas semillas: IC de Wilson al 95 %, McNemar sobre los pares y Fisher o
+  binomial contra los resultados publicados.
+- Antes de R18 (E0–R17), el proyecto era una CNN monocular int8 + ToF 8 × 8 para un ESP32-S3.
 
 ## Instalación
 
@@ -55,11 +113,11 @@ git: [docs/artefactos.md](docs/artefactos.md).
 
 ```bash
 nanouav list                                                   # experimentos registrados
-nanouav run r25 train --burn 0,30                              # → results/r25/diffphys.keras (receta: R25)
+nanouav run r25 train --burn 0,30                              # guarda results/r25/diffphys.keras (receta: R25)
 nanouav run r18 eval --pilots diffphys --model results/r25/diffphys.keras --v 3,5,7,10 --n 30 --edge
 nanouav run r26 train --init results/r25/diffphys.keras --name follow_fast.keras --v 1,7   # receta: R26
 nanouav run r20 sim --pilots diffphys --model results/r26/follow_fast.keras \
-    --density 0.0625 --speed 7 --n 30 --fast-target
+    --density 0.0625 --speed 7 --n 30 --edge --fast-target
 nanouav run r25 bench --model results/r26/follow_fast.keras    # tiempo por decisión
 
 export NANOUAV_FLIGHTMARE=/ruta/RPG_Flightmare.x86_64          # Flightmare
