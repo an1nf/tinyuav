@@ -366,6 +366,10 @@ def _camera_hud(d, rig, w=800, h=600):
                     idx.append((str(k), xy, 13, col))
     if d.get('W_kept'):                                  # --keep: the tunnel is the previous plan, flown on
         items += _tunnel(img, rig, pose, np.vstack([p0, d['W_kept']]), sx, sy, 0, KEPT_COL)
+    if d.get('target_box'):                              # R20 in Flightmare: the locked balloon
+        x1, y1, x2, y2 = d['target_box']
+        cv2.rectangle(img, (int(x1 * sx) - 4, int(y1 * sy) - 4), (int(x2 * sx) + 4, int(y2 * sy) + 4),
+                      (70, 210, 70), 3, cv2.LINE_AA)
     taken = [it[1] for it in items]                     # the time labels first, then the indices that fit
     for it in idx:
         if _free_spot(it[1], taken, dx=22, dy=16):

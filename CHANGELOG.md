@@ -3,6 +3,14 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según
 [SemVer](https://semver.org/lang/es/). Cada entrada indica si cambia algún resultado numérico.
 
+## [0.27.12] — 2026-10-30
+
+`r22 follow-video` con la interfaz de los vídeos de R22 (no cambia ningún resultado).
+- **La vista de percepción:** la cámara del dron (Unity, con el globo pintado) con la trayectoria elegida, el
+  SGM y el mapa local de su propio SGM. Ya no lleva la vista desde arriba ni la cámara de seguimiento.
+- **El globo bloqueado va en un recuadro verde** en la cámara; sin recuadro, el dron lo ha perdido.
+- Junto al vídeo, las decisiones de la red cuadro a cuadro (`.json`), como en `r22 video`.
+
 ## [0.27.11] — 2026-10-29
 
 Sin cambios en el código: R20 a 4 y 6 m/s en el bosque de YOPOv2-Tracker (1/16 m⁻²), con `--fast-target`.

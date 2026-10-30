@@ -180,8 +180,9 @@ def balloon_arena_env(arena, seed, density=1 / 16, speed=None, n_distractors=Non
 
 
 def episode(client, rig, calib, env, seed, pilot, model=None, standoff=4.0, cam_hz=10.0, opts=None, edge=True,
-            record=False):
-    """One R20 flight on Unity's frames → (result, rollout, log, recs or None)."""
+            trace=False):
+    """One R20 flight on Unity's frames → (result, rollout, log). trace=True keeps the frames for the video
+    (R22's perception view), each with the box of the locked balloon ('target_box') and the lock state."""
     from nanouav.agile import dagger
     from nanouav.agile.rollout import Config, Rollout
     from nanouav.flightmare.run import FlightmareObserver
@@ -192,10 +193,17 @@ def episode(client, rig, calib, env, seed, pilot, model=None, standoff=4.0, cam_
         setattr(M, k, v)
     if (opts or {}).get('q_acc') is not None:
         M.flt = M._make_filter()
-    recs = None
-    if record:
-        from nanouav.follow.balloon_video import record as rec_
-        recs = rec_(M)
+    locks = {}
+    if trace:                                                # the locked balloon of every camera frame
+        _frame = M.frame
+
+        def frame(t, p, v, yaw, cam):
+            F = _frame(t, p, v, yaw, cam)
+            tr = next((k for k in M.tracker.tracks if k.id == M.lock.track_id and k.lost == 0), None)
+            ok = tr is not None and F.get('how') in ('locked', 'relocked')
+            locks[round(t, 3)] = (tuple(float(x) for x in tr.box) if ok else None, F.get('how'))
+            return F
+        M.frame = frame
     if client.n_objects:
         client.place(env.world.objects)
     if client.tilt:
@@ -206,31 +214,13 @@ def episode(client, rig, calib, env, seed, pilot, model=None, standoff=4.0, cam_
     R = Rollout(env, Config(v_des=2.0, cam_hz=cam_hz, seed=seed, rig=rig), pilot, pol, mission=M)
     R.EDGE = edge
     R.observer = FlightmareObserver(client, rig, calib, overlay=BalloonPainter(client, env.walkers, rig.focal))
+    if trace:
+        R.trace, R.trace_depth, R.record_cam = [], True, True
+        if pilot == 'diffphys':
+            R.dp_trace = []
     r, _, log = R.run()
+    for d in R.trace or []:
+        d['target_box'], d['target_how'] = locks.get(round(d['t'], 3), (None, None))
     r.update(seed=seed, n_trunks=env.meta.get('n_trunks'),
              render_ms=round(1000 * float(np.mean(R.observer.t_render)), 1) if R.observer.t_render else None)
-    return r, R, log, recs
-
-
-def chase_view(client, painter, rec, back=3.5, up=1.2, pitch_deg=14.0):
-    """Bottom-right panel of the video: Unity's view from 3.5 m behind the drone, with the balloons and the
-    drone (an orange ball) painted in → BGR 480 × 360."""
-    import cv2
-    from nanouav.scene.renderer import body_rot
-    p, yaw = rec['p'], rec['yaw']
-    cam = np.array([p[0] - back * math.cos(yaw), p[1] - back * math.sin(yaw), p[2] + up])
-    pose = (cam, yaw, math.radians(pitch_deg), 0.0)
-    o = client.render(cam, body_rot(*pose[1:]))
-    for w in painter.walkers:
-        w.move(rec['t'])
-    drone = (tuple(p), 0.22, (1.0, 0.55, 0.0))
-    painter.extra = [drone]
-    (O, Rc), _ = painter.cameras(pose)
-    img = np.array(o['left'][..., :3], copy=True)
-    dep = None if o.get('depth_left') is None else np.array(o['depth_left'], np.float32, copy=True)
-    paint_spheres(img, dep, O, Rc, painter.f, painter.spheres())
-    painter.extra = []
-    out = cv2.resize(np.ascontiguousarray(img[..., ::-1]), (480, 360))
-    cv2.putText(out, 'Flightmare: camara de seguimiento (el dron es la bola naranja)', (8, 18),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
-    return out
+    return r, R, log

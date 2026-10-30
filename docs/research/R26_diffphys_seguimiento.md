@@ -1,6 +1,6 @@
 # R26 · DiffPhys siguiendo un objetivo que se mueve, con visibilidad
 
-*2026-10-25 a 2026-10-29 · nanouav 0.27.0–0.27.11 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
+*2026-10-25 a 2026-10-30 · nanouav 0.27.0–0.27.12 · sobre R25 (política recurrente entrenada por física diferenciable) y R20
 (seguir un globo).*
 
 ## Objetivo
@@ -267,8 +267,9 @@ con Unity como YOPOv2-Tracker:
   donde están delante, el detector de color lo ve y el SGM lo empareja como cualquier superficie.
 - **Todo lo demás es R20:** el mismo camino del globo (40 m, punto intermedio al azar, globos distractores),
   la misión (detector, tracker, bloqueo, filtro, `--fast-target`), los pilotos y la regla de éxito.
-- **`r22 follow-video`** graba un vuelo con la cámara del dron y una cámara de seguimiento renderizadas por
-  Unity, con el globo y el dron pintados.
+- **`r22 follow-video`** graba un vuelo con la vista de percepción de R22 (0.27.12): la cámara del dron con
+  el globo pintado y la trayectoria elegida, su SGM y su mapa local; el globo bloqueado va en un recuadro
+  verde.
 
 Probado contra el reproductor falso de los tests (nuestro renderer detrás del mismo protocolo): el piloto
 privilegiado mantiene el globo bloqueado el 99 % del tiempo. Los resultados en Unity están pendientes.

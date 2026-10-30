@@ -398,10 +398,12 @@ def test_follow_a_balloon_in_flightmare(tmp_path):
     Q = e.walkers[0].path.pts
     assert Field(e.world, ground=False)(Q).min() > 0.4 and (Q[:, 2] - ar.floor).min() >= 1.2 - 1e-6
     assert len(e.world.objects) > 20
+    ports = ['--results', str(tmp_path), '--pub-port', str(pub), '--sub-port', str(sub)]
     try:
-        RUN.main(['follow', '--pilots', 'gbl', '--n', '1', '--seed0', '3001', '--speed', '4', '--density', '0.03',
-                  '--results', str(tmp_path), '--pub-port', str(pub), '--sub-port', str(sub)])
+        RUN.main(['follow', '--pilots', 'gbl', '--n', '1', '--seed0', '3001', '--speed', '4', '--density', '0.03'] + ports)
+        RUN.main(['follow-video', '--pilot', 'gbl', '--seed', '3001', '--speed', '4', '--density', '0.03'] + ports)
     finally:
         fake.stop()
     r = json.load(open(tmp_path / 'balloon_warehouse_follow.json'))['gbl'][0]
     assert not r['crashed'] and r['locked_frac'] > 0.8 and r['true_frac'] > 0.9
+    assert list((tmp_path / 'video').glob('balloon_warehouse_gbl_d0.03_v4_s3001.mp4'))      # R22's perception view

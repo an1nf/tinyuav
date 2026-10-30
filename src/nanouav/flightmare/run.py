@@ -640,24 +640,30 @@ def cmd_follow(a):
 
 
 def cmd_follow_video(a):
-    """Video of one `follow` flight: top view, the drone's camera (Unity + the balloon), Unity chase camera."""
-    from nanouav.flightmare.follow import BalloonPainter, balloon_arena_env, chase_view, episode
-    from nanouav.follow.balloon_video import write
+    """Video of one `follow` flight with R22's perception view: the drone's camera (Unity + the balloon, the
+    locked balloon boxed in green), its SGM and its local map."""
+    from nanouav.agile.video import render_episode
+    from nanouav.flightmare.follow import balloon_arena_env, episode
     out, ar, rig, calib, client, opts = _follow_setup(a)
     model = os.path.abspath(a.model) if a.model else None
     try:
         env = balloon_arena_env(ar, a.seed, density=a.density, speed=a.speed, color=a.color)
-        r, R, log, recs = episode(client, rig, calib, env, a.seed, a.pilot, model, standoff=a.standoff,
-                                  cam_hz=a.cam_hz, opts=opts, edge=a.edge, record=True)
-        painter = BalloonPainter(client, env.walkers, rig.focal)
-        name = (os.path.splitext(os.path.basename(model))[0] if model else a.pilot) + (f'_{a.tag}' if a.tag else '')
-        os.makedirs(os.path.join(out, 'video'), exist_ok=True)
-        fn = os.path.join(out, 'video', f'balloon_{a.scene}_{name}_d{a.density:g}_v{a.speed:g}_s{a.seed}.mp4')
-        write(fn, env.world, R.mission, recs, log, r, lambda rec: chase_view(client, painter, rec),
-              f'Flightmare {a.scene} | {name} | 1/{1 / a.density:.0f} m-2 | globo {a.speed:g} m/s | semilla {a.seed}',
-              a.cam_hz)
+        r, R, log = episode(client, rig, calib, env, a.seed, a.pilot, model, standoff=a.standoff, cam_hz=a.cam_hz,
+                            opts=opts, edge=a.edge, trace=True)
     finally:
         client.close()
+    name = (os.path.splitext(os.path.basename(model))[0] if model else a.pilot) + (f'_{a.tag}' if a.tag else '')
+    os.makedirs(os.path.join(out, 'video'), exist_ok=True)
+    v = env.meta['speed']
+    fn = os.path.join(out, 'video', f'balloon_{a.scene}_{name}_d{a.density:g}_v{v:g}_s{a.seed}.mp4')
+    res = 'EXITO' if r['success'] else ('CHOQUE' if r['crashed'] else 'GLOBO PERDIDO')
+    render_episode(env, log, R.trace, R.cfg.rig, R.cfg.net_size, fn, fps=a.cam_hz, chase=False,
+                   result=f"{res} ({r['time_s']:.1f} s)",
+                   title=f'Flightmare {a.scene} | {name} | globo {v:g} m/s | semilla {a.seed}', view='perception')
+    print(f"{res} · {r['time_s']} s · error de distancia {r.get('dist_err_med')} m → {fn}")
+    if R.dp_trace is not None:
+        with open(fn[:-4] + '.json', 'w') as fh:
+            json.dump({'result': r, 'decisions': R.dp_trace}, fh, default=float)
 
 
 ARENA_BOX = {'warehouse': ('30,0,5', '100,20,10')}    # agile_flight's training box: x −20…80, y −10…10, z 0…10
