@@ -1,8 +1,8 @@
 # tinyuav
 
-Navegación rápida entre obstáculos y seguimiento de objetivos con percepción a bordo (estéreo + SGM),
-políticas de ~0.4 M parámetros y evaluación en lazo cerrado en un simulador propio, en Flightmare (Unity)
-y en Gazebo Harmonic / ROS 2 Jazzy.
+Navegación rápida entre obstáculos con seguimiento de objetivos (estéreo + SGM),
+políticas de ~0.4 M parámetros junto con evaluación en lazo cerrado en un simulador propio, en Flightmare (Unity)
+como también Gazebo Harmonic / ROS 2 Jazzy.
 
 <p align="center">
   <a href="docs/media/flightmare_warehouse_10ms.mp4">
@@ -10,9 +10,7 @@ y en Gazebo Harmonic / ROS 2 Jazzy.
   </a>
 </p>
 
-*Flightmare, almacén, 10 m/s. Política DiffPhys (R25), que no se entrenó en este entorno. Izquierda:
-cámara del dron y trayectoria elegida (marcas a 0.4 s y 1.0 s). Derecha: profundidad SGM y mapa local
-con el SGM del último segundo. [MP4](docs/media/flightmare_warehouse_10ms.mp4)*
+*Flightmare, almacén, 10 m/s. Política DiffPhys (R25).*
 
 ## Método
 
