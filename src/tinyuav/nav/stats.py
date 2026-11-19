@@ -1,0 +1,79 @@
+"""Paired comparison of evaluation runs on the same environments: exact McNemar on the discordant pairs,
+crash rates per second and per metre.
+"""
+import json
+import math
+import os
+
+
+def mcnemar(b, c):
+    """Exact two-sided McNemar p-value."""
+    n = b + c
+    if n == 0:
+        return 1.0
+    return min(1.0, 2 * sum(math.comb(n, i) for i in range(min(b, c) + 1)) / 2 ** n)
+
+
+def load(fn):
+    """{(key, environment): result} of an eval JSON; 'a.json+b.json' joins runs."""
+    out = {}
+    for f in fn.split('+'):
+        T = json.load(open(f))
+        out.update({(key, int(r.get('line', r.get('seed', i)))): r for key, R in T.items() for i, r in enumerate(R)})
+    return out
+
+
+def _pilot(key):
+    return key.rsplit('v', 1)[0].rstrip('_')
+
+
+def rates(results):
+    """(crashes per second, crashes per metre)."""
+    k = sum(bool(r['crashed']) for r in results)
+    T = sum(r['time_s'] for r in results)
+    D = sum(r['time_s'] * r.get('mean_speed', 0.0) for r in results)
+    return (k / T if T else float('nan')), (k / D if D else float('nan'))
+
+
+def _speed(key):
+    try:
+        return float(key.rsplit('v', 1)[1])
+    except (IndexError, ValueError):
+        return 0.0
+
+
+def compare(fns, out=print):
+    """Arrivals and crash rates per key, and every run paired against the first."""
+    runs = [load(f) for f in fns]
+    P = [{_pilot(k) for k, _ in R} for R in runs]
+    if all(len(p) == 1 for p in P) and len(set.union(*P)) > 1:     # pilot against pilot: pair by speed
+        runs = [{(f'v{_speed(k):g}', e): r for (k, e), r in R.items()} for R in runs]
+    names = [os.path.basename(f.split('+')[0]) + (f" +{f.count('+')}" if '+' in f else '') for f in fns]
+    keys = sorted({k for k, _ in runs[0]}, key=lambda k: (_pilot(k), _speed(k)))
+    w = max(len(n) for n in names)
+    out(f'{"":{w + 3}s}' + ''.join(f'{k:>14s}' for k in keys) + f'{"total":>10s}   crash %/s · %/m')
+    for j, (n, R) in enumerate(zip(names, runs)):
+        cells, tot, rr = [], [0, 0], []
+        for k in keys:
+            res = [r for (kk, _), r in R.items() if kk == k]
+            s = sum(bool(r['success']) for r in res)
+            cells.append(f'{s:>9d}/{len(res):<4d}')
+            tot[0] += s
+            tot[1] += len(res)
+            ps, pm = rates(res)
+            rr.append(f'{100 * ps:.1f}·{100 * pm:.2f}')
+        out(f'{chr(65 + j)}  {n:{w}s}' + ''.join(cells) + f'{tot[0]:>6d}/{tot[1]:<3d}   ' + '  '.join(rr))
+    summary = {}
+    for j in range(1, len(runs)):
+        row, b_t, c_t = {}, 0, 0
+        for k in keys:
+            envs = sorted(e for kk, e in runs[0] if kk == k and (kk, e) in runs[j])
+            b = sum(runs[j][(k, e)]['success'] and not runs[0][(k, e)]['success'] for e in envs)
+            c = sum(runs[0][(k, e)]['success'] and not runs[j][(k, e)]['success'] for e in envs)
+            row[k] = (b, c, mcnemar(b, c))
+            b_t, c_t = b_t + b, c_t + c
+        row['total'] = (b_t, c_t, mcnemar(b_t, c_t))
+        summary[names[j]] = row
+        out(f'{chr(65 + j)} vs A, environments only {chr(65 + j)} / only A arrives (McNemar p): ' +
+            ' · '.join(f'{k} {b}/{c} ({p:.2f})' for k, (b, c, p) in row.items()))
+    return summary

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tinyuav"
+version = "1.0.0"
+description = "Fast flight through clutter and target following with onboard stereo and small learned policies"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python-headless>=4.8",
+    "pillow>=9",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+train = ["tensorflow>=2.16"]
+flightmare = ["pyzmq>=25"]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[project.scripts]
+tinyuav = "tinyuav.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: closed-loop episodes"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82", "F401", "F811", "F841"]
